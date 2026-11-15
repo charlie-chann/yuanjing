@@ -9,6 +9,7 @@ import 'package:yuanjing_engine/yuanjing_engine.dart';
 import '../../app/skin.dart';
 import '../../app/store.dart';
 import '../wish/wish_answer.dart';
+import 'sanctuary_ui.dart';
 
 /// 一座殿：名字、能去的地方、能留下的心意
 class SanctuaryScene {
@@ -69,6 +70,9 @@ const _weatherNames = {'clear': '晴', 'rain': '雨', 'storm': '雷雨', 'snow':
 const _display = displayFont;
 const _shadow = [Shadow(color: Color(0xB3000000), blurRadius: 10)];
 
+/// 弹层里每一栏的小标题
+const _sheetLabel = TextStyle(fontFamily: _display, fontSize: 13.5, fontWeight: FontWeight.w700, letterSpacing: 3, color: Color(0xCCDCC790));
+
 /// 许愿殿：全屏的 Unity 场景，Flutter 只在上面叠一层界面。
 /// 和 Unity 之间用 JSON 字符串通信：发给场景里名叫 Bridge 的物体，Unity 用 SendToFlutter 发回来。
 /// 指令和回报的清单见 unity/Sanctuary/Assets/Scripts/World/GameDirector.cs。
@@ -102,6 +106,31 @@ class _SanctuaryPageState extends State<SanctuaryPage> with TickerProviderStateM
 
   String? _subtitle;
   String? _pendingWish;
+
+  /// 视角：top 俯视、level 平视、low 仰视、first 第一人称；放大倍数（双指捏合，1 到 8）
+  String _view = 'top';
+  final ValueNotifier<double> _zoom = ValueNotifier(1);
+  double _zoomStart = 1;
+
+  void _setView(String mode) {
+    if (mode == _view) return;
+    setState(() => _view = mode);
+    _send({'cmd': 'view', 'kind': mode});
+  }
+
+  void _setZoom(double z) {
+    z = z.clamp(1.0, 8.0);
+    if ((z - _zoom.value).abs() < 0.005) return;
+    _zoom.value = z;
+    _send({'cmd': 'zoom', 'x': z});
+  }
+
+  /// 岛上的小动物：编号 → 服务器给的那一份（名字、交情、等级……）
+  final Map<String, Map<String, dynamic>> _pets = {};
+  /// 这会儿身边是哪一只（空字符串是没有）、是不是站在水边
+  String _nearPet = '';
+  bool _nearWater = false;
+  int _feedCost = 2;
   DateTime? _meditateUntil;
   final int _meditateMinutes = 3;
 
@@ -176,9 +205,23 @@ class _SanctuaryPageState extends State<SanctuaryPage> with TickerProviderStateM
           _seat = -1;
         });
         _send({'cmd': 'audio', 'on': _sound, 'volume': 1});
+        // 场景在后台一直留着：上次离开时的视角和放大倍数按这边记的重新对一遍
+        _send({'cmd': 'view', 'kind': _view});
+        _send({'cmd': 'zoom', 'x': _zoom.value});
         _beat();
         _beatTimer?.cancel();
         _beatTimer = Timer.periodic(const Duration(seconds: 6), (_) => _beat());
+        _loadPets();
+      case 'view':
+        final m = msg['mode'] as String?;
+        if (m != null && m != _view) setState(() => _view = m);
+      case 'near':
+        setState(() {
+          _nearPet = (msg['pet'] as String?) ?? '';
+          _nearWater = msg['water'] == true;
+        });
+      case 'petGift':
+        _petGift((msg['id'] as String?) ?? '');
       case 'moving':
         setState(() => _moving = true);
       case 'arrived':
@@ -220,6 +263,75 @@ class _SanctuaryPageState extends State<SanctuaryPage> with TickerProviderStateM
     }
   }
 
+  // ── 小动物：摸、喂、交情 ──
+
+  /// 上岛时取一次：每只和我有多熟、今天谁来迎接、谁叼了礼物，转告 Unity
+  Future<void> _loadPets() async {
+    if (!store.online) return;
+    try {
+      final r = await store.api.get('/pets');
+      if (!mounted) return;
+      _feedCost = (r['feed_cost'] as num?)?.toInt() ?? 2;
+      final list = <String>[];
+      for (final p in (r['pets'] as List).cast<Map<String, dynamic>>()) {
+        _pets[p['id'] as String] = p;
+        list.add('${p['id']}:${p['level']}:${p['greet'] == true ? 1 : 0}:${p['gift'] != null ? 1 : 0}');
+      }
+      _send({'cmd': 'pets', 'list': list.join('|')});
+      setState(() {});
+    } catch (_) {}
+  }
+
+  Future<void> _petAct(String id, String action) async {
+    if (_busy) return;
+    final name = (_pets[id]?['name'] as String?) ?? '它';
+    YuanjingHaptics.play('tick');
+    if (!store.online) {
+      _send({'cmd': 'petact', 'id': id, 'action': action, 'seat': 0});
+      return;
+    }
+    try {
+      final r = (await store.api.post('/pets/$id/$action', {})) as Map<String, dynamic>;
+      if (!mounted) return;
+      _pets[id] = r;
+      _send({'cmd': 'petact', 'id': id, 'action': action, 'seat': (r['level'] as num?)?.toInt() ?? 0});
+      if (action == 'feed') store.refresh();
+      final String line;
+      if (r['level_up'] == true) {
+        line = '$name和你更熟了：${r['level_name']}';
+      } else if (r['counted'] != true) {
+        line = action == 'feed' ? '$name吃得很香。今天的交情已经涨满了，明天再来。' : '$name很受用。今天的交情已经涨满了，明天再来。';
+      } else {
+        final next = r['next'];
+        final left = next == null ? '' : '（${r['affinity']} / $next）';
+        line = action == 'feed' ? '$name吃得很香（花了 $_feedCost 金币），交情 +2$left' : '$name蹭了蹭你的手，交情 +1$left';
+      }
+      _say(line, const Duration(milliseconds: 2400));
+    } on ApiError catch (e) {
+      if (mounted) _say(e.message, const Duration(seconds: 2));
+    } catch (_) {}
+  }
+
+  /// 它把礼物放到脚边了：收下，换成金币
+  Future<void> _petGift(String id) async {
+    if (!store.online || id.isEmpty) return;
+    try {
+      final r = (await store.api.post('/pets/$id/gift', {})) as Map<String, dynamic>;
+      final got = (r['got'] as num?)?.toInt() ?? 0;
+      if (got <= 0 || !mounted) return;
+      _pets[id]?['gift'] = null;
+      store.refresh();
+      YuanjingHaptics.play('tick');
+      coinToast(context, got, '${r['name']}送你${r['what']}');
+      _say('${r['name']}叼来${r['what']}，放在你脚边。', const Duration(seconds: 3));
+    } catch (_) {}
+  }
+
+  void _feedWild(String kind) {
+    YuanjingHaptics.play('tick');
+    _send({'cmd': 'feed', 'kind': kind});
+  }
+
   // ── 和服务器同步：谁在场、天气、别人留下的心意 ──
 
   Future<void> _beat({String? action}) async {
@@ -229,7 +341,13 @@ class _SanctuaryPageState extends State<SanctuaryPage> with TickerProviderStateM
       if (!mounted) return;
       final people = (r['people'] as List).cast<Map<String, dynamic>>();
       String clean(Object? n) => '${n ?? ''}'.replaceAll(RegExp(r'[:|]'), ' ');
-      _send({'cmd': 'pilgrims', 'list': people.map((p) => '${p['id']}:${p['seat']}:${p['npc'] == true ? 1 : 0}:${clean(p['name'])}').join('|')});
+      // 每人：编号:座位:是不是内置:名字:要做的事:来了几秒:待几秒（内置香客才有后三项，Unity 照着演）
+      _send({
+        'cmd': 'pilgrims',
+        'list': people
+            .map((p) => '${p['id']}:${p['seat']}:${p['npc'] == true ? 1 : 0}:${clean(p['name'])}:${p['plan'] ?? ''}:${p['since'] ?? 0}:${p['stay'] ?? 0}')
+            .join('|')
+      });
       for (final p in people) {
         if (p['action'] != null) _send({'cmd': 'pact', 'id': p['id'], 'action': p['action']});
       }
@@ -282,16 +400,15 @@ class _SanctuaryPageState extends State<SanctuaryPage> with TickerProviderStateM
       barrierColor: Colors.black38,
       builder: (context) => Padding(
         padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
-        child: Container(
-          decoration: const BoxDecoration(color: Color(0xF2141210), borderRadius: BorderRadius.vertical(top: Radius.circular(26))),
-          padding: const EdgeInsets.fromLTRB(24, 22, 24, 18),
+        child: SanctuarySheet(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 18),
           child: SafeArea(
             top: false,
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(title, style: const TextStyle(fontFamily: _display, fontSize: 22, fontWeight: FontWeight.w700, letterSpacing: 1.5, color: Colors.white)),
+              Text(title, style: const TextStyle(fontFamily: _display, fontSize: 22, fontWeight: FontWeight.w700, letterSpacing: 2, color: SancColors.paper)),
               const SizedBox(height: 14),
               Container(
-                decoration: BoxDecoration(color: const Color(0x14FFFFFF), borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0x29FFFFFF))),
+                decoration: BoxDecoration(color: const Color(0x12F3E8CF), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0x3DF3E8CF))),
                 padding: const EdgeInsets.fromLTRB(16, 4, 6, 4),
                 child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
                   Expanded(
@@ -302,7 +419,7 @@ class _SanctuaryPageState extends State<SanctuaryPage> with TickerProviderStateM
                       maxLines: 4,
                       maxLength: 60,
                       style: const TextStyle(fontSize: 16.5, height: 1.6, color: Colors.white),
-                      cursorColor: const Color(0xFFF3D9A0),
+                      cursorColor: SancColors.gold,
                       decoration: InputDecoration(border: InputBorder.none, counterText: '', hintText: hint, hintStyle: const TextStyle(color: Colors.white38)),
                     ),
                   ),
@@ -311,8 +428,8 @@ class _SanctuaryPageState extends State<SanctuaryPage> with TickerProviderStateM
               ),
               const SizedBox(height: 8),
               const Text('写下的话只有你自己看得到。', style: TextStyle(fontSize: 12.5, color: Colors.white54)),
-              const SizedBox(height: 14),
-              _Pill('写好了', primary: true, expand: true, onTap: () {
+              const SizedBox(height: 16),
+              LacquerButton('写好了', onTap: () {
                 final t = c.text.trim();
                 if (t.isNotEmpty) Navigator.of(context).pop(t);
               }),
@@ -456,40 +573,62 @@ class _SanctuaryPageState extends State<SanctuaryPage> with TickerProviderStateM
 
   String get _placeName => _at == 'seat' ? scene.seatName : scene.places[_at] ?? '';
 
-  List<Widget> _actions() {
+  List<PlaqueAction> _actions() {
+    final base = _placeActions();
+    final extra = <PlaqueAction>[];
+    final pet = _pets[_nearPet];
+    if (pet != null) {
+      final name = pet['name'] as String;
+      extra.add(PlaqueAction('摸摸$name', primary: true, onTap: () => _petAct(_nearPet, 'pet')));
+      extra.add(PlaqueAction('喂$name', onTap: () => _petAct(_nearPet, 'feed')));
+    }
+    if (_nearWater) extra.add(PlaqueAction('喂鱼', primary: extra.isEmpty && base.isEmpty, onTap: () => _feedWild('fish')));
+    if (_at == 'court' && _seat < 0) extra.add(PlaqueAction('喂小鸟', onTap: () => _feedWild('birds')));
+    if (extra.isEmpty) return base;
+    // 小动物在身边时，摸它是第一块（朱漆的），原来的第一块退成普通的
+    final lead = extra.where((a) => a.primary || pet != null && a.label.startsWith('喂') && a.label != '喂鱼' && a.label != '喂小鸟').toList();
+    final tail = extra.where((a) => !lead.contains(a)).toList();
+    return [
+      ...lead,
+      for (final a in base) lead.isEmpty ? a : PlaqueAction(a.label, onTap: a.onTap),
+      ...tail,
+    ];
+  }
+
+  List<PlaqueAction> _placeActions() {
     final here = scene.offers[_at] ?? const <(String, String, bool)>[];
-    final offers = [for (var i = 0; i < here.length; i++) _Pill(here[i].$2, primary: i == 0, onTap: () => _offer(here[i].$1, here[i].$2, here[i].$3))];
+    final offers = [for (var i = 0; i < here.length; i++) PlaqueAction(here[i].$2, primary: i == 0, onTap: () => _offer(here[i].$1, here[i].$2, here[i].$3))];
     final others = [
       for (final spot in scene.places.keys)
-        if (spot != _at && spot != 'court') _Pill(scene.goTo[spot]!, onTap: () => _go(spot)),
+        if (spot != _at && spot != 'court') PlaqueAction(scene.goTo[spot]!, onTap: () => _go(spot)),
     ];
     if (_at == 'seat') {
       return [
-        _Pill('许愿', primary: true, onTap: _wish),
-        _Pill('合掌', onTap: () => _act('pray')),
-        _Pill('鞠躬', onTap: () => _act('bow')),
-        _Pill('跪拜', onTap: () => _act('kneel')),
-        _Pill('静坐', onTap: _meditate),
-        _Pill(scene.goTo['court']!, onTap: () => _go('court')),
+        PlaqueAction('许愿', primary: true, onTap: _wish),
+        PlaqueAction('合掌', onTap: () => _act('pray')),
+        PlaqueAction('鞠躬', onTap: () => _act('bow')),
+        PlaqueAction('跪拜', onTap: () => _act('kneel')),
+        PlaqueAction('静坐', onTap: _meditate),
+        PlaqueAction(scene.goTo['court']!, onTap: () => _go('court')),
         ...others,
       ];
     }
     if (_at == 'court') {
       return [
-        _Pill('找位置坐下', primary: true, onTap: _sit),
-        _Pill('合掌', onTap: () => _act('pray')),
-        _Pill('鞠躬', onTap: () => _act('bow')),
-        _Pill('跪拜', onTap: () => _act('kneel')),
+        PlaqueAction('找位置坐下', primary: true, onTap: _sit),
+        PlaqueAction('合掌', onTap: () => _act('pray')),
+        PlaqueAction('鞠躬', onTap: () => _act('bow')),
+        PlaqueAction('跪拜', onTap: () => _act('kneel')),
         ...others,
       ];
     }
     if (_at.isEmpty) return const [];
     return [
       ...offers,
-      _Pill('合掌', primary: offers.isEmpty, onTap: () => _act('pray')),
-      _Pill('鞠躬', onTap: () => _act('bow')),
-      _Pill('跪拜', onTap: () => _act('kneel')),
-      _Pill('去坐下', onTap: _sit),
+      PlaqueAction('合掌', primary: offers.isEmpty, onTap: () => _act('pray')),
+      PlaqueAction('鞠躬', onTap: () => _act('bow')),
+      PlaqueAction('跪拜', onTap: () => _act('kneel')),
+      PlaqueAction('去坐下', onTap: _sit),
       ...others,
     ];
   }
@@ -504,17 +643,16 @@ class _SanctuaryPageState extends State<SanctuaryPage> with TickerProviderStateM
           Widget row(String title, Map<String, String> names, String? value, void Function(String?) pick) => Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(fontSize: 13, color: Colors.white60, letterSpacing: 1)),
-                  const SizedBox(height: 10),
-                  Wrap(spacing: 8, runSpacing: 8, children: [
-                    _Pill('跟着此刻', small: true, primary: value == null, onTap: () => pick(null)),
-                    for (final e in names.entries) _Pill(e.value, small: true, primary: value == e.key, onTap: () => pick(e.key)),
+                  Text(title, style: _sheetLabel),
+                  const SizedBox(height: 7),
+                  Wrap(spacing: 8, runSpacing: 4, children: [
+                    SanctuaryChip('跟着此刻', selected: value == null, onTap: () => pick(null)),
+                    for (final e in names.entries) SanctuaryChip(e.value, selected: value == e.key, onTap: () => pick(e.key)),
                   ]),
                 ],
               );
-          return Container(
-            decoration: const BoxDecoration(color: Color(0xF2141210), borderRadius: BorderRadius.vertical(top: Radius.circular(26))),
-            padding: const EdgeInsets.fromLTRB(24, 22, 24, 12),
+          return SanctuarySheet(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
             child: SafeArea(
               top: false,
               child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -523,23 +661,23 @@ class _SanctuaryPageState extends State<SanctuaryPage> with TickerProviderStateM
                   setSheet(() {});
                   _sky();
                 }),
-                const SizedBox(height: 20),
+                const SizedBox(height: 17),
                 row('天气', _weatherNames, _weather, (v) {
                   setState(() => _weather = v);
                   setSheet(() {});
                   _sky();
                 }),
-                const SizedBox(height: 20),
+                const SizedBox(height: 17),
                 Row(children: [
-                  const Text('声音', style: TextStyle(fontSize: 13, color: Colors.white60, letterSpacing: 1)),
+                  const Text('声音', style: _sheetLabel),
                   const Spacer(),
-                  _Pill(_sound ? '开着' : '关了', small: true, primary: _sound, onTap: () {
+                  SanctuaryChip(_sound ? '开着' : '关了', selected: _sound, onTap: () {
                     setState(() => _sound = !_sound);
                     setSheet(() {});
                     _send({'cmd': 'audio', 'on': _sound, 'volume': 1});
                   }),
                 ]),
-                const SizedBox(height: 10),
+                const SizedBox(height: 7),
               ]),
             ),
           );
@@ -562,16 +700,26 @@ class _SanctuaryPageState extends State<SanctuaryPage> with TickerProviderStateM
         // 拖动环顾四周，点远处走过去。手势在 Flutter 这层接，再转给 Unity。
         GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onPanUpdate: (d) => _send({'cmd': 'look', 'dx': -d.delta.dx / size.width, 'dy': d.delta.dy / size.height}),
+          // 一根手指拖：转头看；两根手指捏合：放大缩小
+          onScaleStart: (_) => _zoomStart = _zoom.value,
+          onScaleUpdate: (d) {
+            if (d.pointerCount >= 2) {
+              _setZoom(_zoomStart * d.scale);
+            } else {
+              _send({'cmd': 'look', 'dx': -d.focalPointDelta.dx / size.width, 'dy': d.focalPointDelta.dy / size.height});
+            }
+          },
           onTapUp: (d) {
-            if (_ready && !_moving && !_busy && !meditating) _send({'cmd': 'tap', 'x': d.localPosition.dx / size.width, 'y': d.localPosition.dy / size.height});
+            // 右边竹签那一条不算点画面（万一点击穿过来了，别让人走过去）
+            final slips = d.localPosition.dx > size.width - 64 && d.localPosition.dy < MediaQuery.paddingOf(context).top + 300;
+            if (_ready && !_moving && !_busy && !meditating && !slips) _send({'cmd': 'tap', 'x': d.localPosition.dx / size.width, 'y': d.localPosition.dy / size.height});
           },
         ),
-        // 摇杆：左下角，按住拖动走路
+        // 摇杆：左下角，按住拖动走路。底下那排木牌比较高，摇杆放在它和提示那行字的上面
         if (_ready && _meditateUntil == null)
           Positioned(
             left: 22,
-            bottom: MediaQuery.paddingOf(context).bottom + 84,
+            bottom: MediaQuery.paddingOf(context).bottom + 6 + PlaqueBar.height + 30,
             child: _Joystick(onChanged: (v) => _send({'cmd': 'move', 'x': v.dx, 'y': -v.dy})),
           ),
         // 上下各压一层暗角，字才看得清
@@ -625,64 +773,46 @@ class _SanctuaryPageState extends State<SanctuaryPage> with TickerProviderStateM
             ),
           ),
         ),
-        // Unity 第一次加载要一两秒，先盖一层黑
-        IgnorePointer(
-          child: AnimatedOpacity(
-            opacity: _ready ? 0 : 1,
-            duration: const Duration(milliseconds: 1200),
-            child: ColoredBox(
-              color: Colors.black,
-              child: Center(
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  Text(scene.name, style: const TextStyle(fontFamily: _display, fontSize: 30, fontWeight: FontWeight.w700, letterSpacing: 10, color: Colors.white)),
-                  const SizedBox(height: 12),
-                  const Text('正在进殿…', style: TextStyle(color: Colors.white54, fontSize: 14, letterSpacing: 3)),
-                ]),
-              ),
-            ),
-          ),
-        ),
         SafeArea(
           child: Column(children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 4, 14, 0),
-              child: Row(children: [
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => Navigator.of(context).maybePop(),
-                  child: const Padding(
-                    padding: EdgeInsets.fromLTRB(14, 10, 14, 10),
-                    child: Text('‹ 离开', style: TextStyle(fontSize: 15, color: Colors.white, shadows: _shadow)),
+            Stack(alignment: Alignment.topCenter, children: [
+              // 现在在哪、殿里有多少人
+              IgnorePointer(
+                child: AnimatedOpacity(
+                  opacity: _ready && !_moving && !meditating && _placeName.isNotEmpty ? 1 : 0,
+                  duration: const Duration(milliseconds: 700),
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 50),
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      Text(_placeName, style: const TextStyle(fontFamily: _display, fontSize: 22, fontWeight: FontWeight.w700, letterSpacing: 6, color: Colors.white, shadows: _shadow)),
+                      const SizedBox(height: 6),
+                      const TitleOrnament(),
+                      if (_count > 1) ...[
+                        const SizedBox(height: 6),
+                        Text('此刻殿里有 $_count 个人', style: const TextStyle(fontSize: 12.5, letterSpacing: 1, color: Colors.white70, shadows: _shadow)),
+                      ],
+                    ]),
                   ),
                 ),
-                const Spacer(),
-                if (_ready && !meditating) _Pill('${_timeNames[_timeShown]} · ${_weatherNames[_weatherShown]}', small: true, onTap: _showSky),
-              ]),
-            ),
-            // 现在在哪、殿里有多少人
-            IgnorePointer(
-              child: AnimatedOpacity(
-                opacity: _ready && !_moving && !meditating && _placeName.isNotEmpty ? 1 : 0,
-                duration: const Duration(milliseconds: 700),
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Column(children: [
-                    Text(_placeName, style: const TextStyle(fontFamily: _display, fontSize: 22, fontWeight: FontWeight.w700, letterSpacing: 6, color: Colors.white, shadows: _shadow)),
-                    if (_count > 1) ...[
-                      const SizedBox(height: 4),
-                      Text('此刻殿里有 $_count 个人', style: const TextStyle(fontSize: 12.5, letterSpacing: 1, color: Colors.white70, shadows: _shadow)),
-                    ],
-                  ]),
-                ),
               ),
-            ),
+              // 左上一枚「离开」的朱印，右上一块写着天色天气的瓦牌
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 4, 14, 0),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  SealBackButton(onTap: () => Navigator.of(context).maybePop()),
+                  const Spacer(),
+                  if (_ready && !meditating)
+                    SkyTag(label: '${_timeNames[_timeShown]} · ${_weatherNames[_weatherShown]}', time: _timeShown, weather: _weatherShown, onTap: _showSky),
+                ]),
+              ),
+            ]),
             const Expanded(child: IgnorePointer(child: SizedBox.expand())),
             if (meditating) ...[
               Text('${left.inMinutes}:${(left.inSeconds % 60).toString().padLeft(2, '0')}',
                   style: const TextStyle(fontSize: 15, letterSpacing: 2, color: Colors.white70, fontFeatures: [FontFeature.tabularFigures()])),
-              const SizedBox(height: 14),
-              _Pill('结束静坐', small: true, onTap: _endMeditation),
-              const SizedBox(height: 26),
+              const SizedBox(height: 11),
+              SanctuaryChip('结束静坐', onTap: _endMeditation),
+              const SizedBox(height: 23),
             ],
             // 回应的字幕
             IgnorePointer(
@@ -709,33 +839,41 @@ class _SanctuaryPageState extends State<SanctuaryPage> with TickerProviderStateM
                 ),
               ),
             ),
-            // 此刻能做的事
+            // 此刻能做的事：一根麻绳上挂着的许愿木牌
             IgnorePointer(
               ignoring: !showActions,
               child: AnimatedOpacity(
                 opacity: showActions ? 1 : 0,
                 duration: const Duration(milliseconds: 450),
-                child: SizedBox(
-                  height: 48,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 18),
-                    children: [
-                      for (final w in _actions()) Padding(padding: const EdgeInsets.only(right: 9), child: Center(child: w)),
-                    ],
-                  ),
-                ),
+                child: PlaqueBar(actions: _actions(), active: showActions),
               ),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 6),
           ]),
         ),
+        // 右边一串竹签：换视角（放在最上层，别的层盖不住它）；放大以后底下多一枚写着倍数的小牌，点一下还原
+        if (_ready && _meditateUntil == null)
+          Positioned(
+            right: 12,
+            top: MediaQuery.paddingOf(context).top + 4 + SkyTag.tagHeight + 14,
+            // 整串竹签连同缝隙都吞掉点击：点歪了也不会穿到下面的画面里，变成「走过去」
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {},
+              child: ValueListenableBuilder<double>(
+                valueListenable: _zoom,
+                builder: (_, z, _) => ViewSlips(mode: _view, zoom: z, onChanged: _setView, onResetZoom: () => _setZoom(1)),
+              ),
+            ),
+          ),
+        // 进殿：先是一对关着的寺门（Unity 第一次加载要一两秒），场景准备好了门往两边推开。放在最上层，门关着时盖住所有按钮
+        TempleGate(open: _ready, title: scene.name, onOpened: () => _send({'cmd': 'bell'})),
       ]),
     );
   }
 }
 
-/// 摇杆：半透明的圆底，中间一个能拖的圆钮。输出 -1..1（往上是负的 dy）
+/// 摇杆：铜镜一样的罗盘底，上面一枚能拖的方孔钱。输出 -1..1（往上是负的 dy）
 class _Joystick extends StatefulWidget {
   final ValueChanged<Offset> onChanged;
   const _Joystick({required this.onChanged});
@@ -783,65 +921,14 @@ class _JoystickState extends State<_Joystick> {
         width: size,
         height: size,
         child: Stack(children: [
-          Container(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: const Color(0x3312100E),
-              border: Border.all(color: const Color(0x55FFFFFF), width: 1),
-            ),
-          ),
+          const Positioned.fill(child: JoystickBase()),
           Positioned(
             left: size / 2 - knob / 2 + _v.dx * (size - knob) / 2,
             top: size / 2 - knob / 2 + _v.dy * (size - knob) / 2,
-            child: Container(
-              width: knob,
-              height: knob,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: const Color(0xCCF0D49A),
-                boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 10)],
-              ),
-            ),
+            width: knob,
+            height: knob,
+            child: const JoystickCoin(),
           ),
-        ]),
-      ),
-    );
-  }
-}
-
-/// 压在三维画面上的按钮：深色半透明底，细白边。主要的那个用暖金色。
-/// （Unity 画面是原生视图，Flutter 的毛玻璃对它不起作用，所以用半透明底。）
-class _Pill extends StatelessWidget {
-  final String label;
-  final VoidCallback? onTap;
-  final bool primary;
-  final bool small;
-  final bool expand;
-  const _Pill(this.label, {this.onTap, this.primary = false, this.small = false, this.expand = false});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: Container(
-        height: small ? 36 : 46,
-        width: expand ? double.infinity : null,
-        alignment: expand ? Alignment.center : null,
-        padding: EdgeInsets.symmetric(horizontal: small ? 14 : 20),
-        decoration: BoxDecoration(
-          color: primary ? const Color(0xF2F0D49A) : const Color(0x8C12100E),
-          borderRadius: BorderRadius.circular(99),
-          border: Border.all(color: primary ? const Color(0x00000000) : const Color(0x47FFFFFF), width: 0.8),
-        ),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Text(label,
-              style: TextStyle(
-                fontSize: small ? 13.5 : 15.5,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.5,
-                color: primary ? const Color(0xFF2A1A08) : Colors.white,
-              )),
         ]),
       ),
     );

@@ -1,0 +1,13 @@
+# 片段名  BVH  起始秒  结束秒
+# 站立待机：只用 100STYLE 的（两脚 6 秒内移动不到 2 毫米；CMU 的待机里人一直在挪步，锁住根节点后看着像乱动）。
+# 起止时间是 tools/mocap/bvh.py 自动找的「脚不动、首尾最接近」的 6 秒
+Idle_Neutral  assets_src/mocap/100style/Neutral_ID.bvh   10.12  16.05
+Idle_Side     assets_src/mocap/100style/ArmsBySide_ID.bvh   15.32  21.25
+Idle_Behind   assets_src/mocap/100style/ArmsBehindBack_ID.bvh   10.25  16.18
+Idle_Folded   assets_src/mocap/100style/ArmsFolded_ID.bvh   18.78  24.72
+Idle_LookUp   assets_src/mocap/100style/LookUp_ID.bvh   19.05  24.98
+Idle_Monk     assets_src/mocap/100style/Monk_ID.bvh   20.12  26.05
+# 走路：一个完整步态（tools/mocap/bvh.py 的 find_loop 自动找的首尾最接近的一段）
+Walk_M     assets_src/mocap/100style/Neutral_FW.bvh   8.8835   10.2169
+Walk_Monk  assets_src/mocap/100style/Monk_FW.bvh   13.7836   15.2670
+Walk_Slow  assets_src/mocap/cmu/132_45.bvh   11.8000   12.7499

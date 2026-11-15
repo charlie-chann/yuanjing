@@ -4,6 +4,8 @@
 #ifndef YJ_TOON_COMMON_INCLUDED
 #define YJ_TOON_COMMON_INCLUDED
 
+// 叶子、草这些有自己一套材质参数的着色器先定义 YJ_OWN_MATERIAL，这里就只给视线镂空
+#ifndef YJ_OWN_MATERIAL
 CBUFFER_START(UnityPerMaterial)
 half4 _BaseColor;
 half4 _ShadeColor;
@@ -18,7 +20,15 @@ half _Ambient;
 half _SunScale;
 half _Cull;
 half _Legacy;
+half _Detail;
+half _DetailScale;
 float4 _BaseMap_ST;
+half4 _TexMean;
+half _TexTile;
+half _TexFine;
+half _TexFineAmount;
+half _TexNormal;
+half _TexSpec;
 CBUFFER_END
 
 #ifndef YJ_WEATHER_INCLUDED
@@ -39,6 +49,8 @@ float3 YJToonSway(float3 positionOS, half4 color, half phase)
     w += off * ((0.03 + 0.11 * _YJWind) * gust * a);
     return TransformWorldToObject(w);
 }
+
+#endif // YJ_OWN_MATERIAL
 
 // 俯视镜头下，人走到屋檐、树冠后面会被挡住：把「镜头到人」这条视线附近、比人头还高的东西用网点镂空。
 // _YJSee：xyz 是人脚下的位置，w 是镂空的半径（米）；0 表示不镂空（第三人称的两座殿不用）

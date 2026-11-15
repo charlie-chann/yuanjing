@@ -8,9 +8,21 @@ Shader "Yuanjing/Toon"
         _BaseColor("整体染色", Color) = (1, 1, 1, 1)
         _BaseMap("贴图（只有普通模型用）", 2D) = "white" {}
         _Legacy("普通模型：颜色不在顶点色里", Float) = 0
+        _DetailMap("手绘颗粒（按世界坐标平铺）", 2D) = "gray" {}
+        _Detail("颗粒有多明显", Range(0, 0.5)) = 0
+        _DetailScale("每米铺几遍", Float) = 0.7
+        // 下面这一组是「带真实贴图」的表面用的（树皮、石头、木头……材质上打开 _YJ_TEX 才生效）
+        _TexMap("细节贴图：颜色（按世界坐标三向平铺）", 2D) = "gray" {}
+        [Normal] _TexNormalMap("细节贴图：法线", 2D) = "bump" {}
+        _TexMean("贴图的平均色（贴图除以它，只留明暗纹理）", Color) = (0.5, 0.5, 0.5, 1)
+        _TexTile("铺一遍几米", Float) = 1.2
+        _TexFine("凑近时再叠一层，密多少倍", Float) = 6
+        _TexFineAmount("那一层有多明显", Range(0, 1)) = 0.6
+        _TexNormal("凹凸有多明显", Range(0, 2)) = 1
+        _TexSpec("高光", Range(0, 1)) = 0.15
         _ShadeColor("暗面的颜色", Color) = (0.62, 0.66, 0.90, 1)
         _ShadeStep("明暗交界的位置", Range(-1, 1)) = 0.08
-        _ShadeSoft("交界有多柔", Range(0.01, 1)) = 0.22
+        _ShadeSoft("交界有多柔", Range(0.01, 1)) = 0.14
         [HDR] _EmissionColor("自发光", Color) = (0, 0, 0, 1)
         _RimColor("边缘光", Color) = (1, 1, 1, 0.18)
         _Sway("随风摆动", Range(0, 2)) = 1
@@ -39,12 +51,19 @@ Shader "Yuanjing/Toon"
             #pragma multi_compile_fragment _ _SCREEN_SPACE_OCCLUSION
             #pragma multi_compile_fog
             #pragma multi_compile_instancing
+            #pragma shader_feature_local_fragment _ _YJ_TEX
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
             #include "Assets/Shaders/YJWeather.hlsl"
             #include "Assets/Shaders/YJToonCommon.hlsl"
             TEXTURE2D(_BaseMap);
             SAMPLER(sampler_BaseMap);
+            TEXTURE2D(_DetailMap);
+            SAMPLER(sampler_DetailMap);
+            TEXTURE2D(_TexMap);
+            SAMPLER(sampler_TexMap);
+            TEXTURE2D(_TexNormalMap);
+            SAMPLER(sampler_TexNormalMap);
             float _YJCloud;
 
             struct Attributes
@@ -93,7 +112,56 @@ Shader "Yuanjing/Toon"
                 half3 n = normalize(i.normalWS) * IS_FRONT_VFACE(facing, 1.0, -1.0);
                 half3 albedo = i.color.rgb;
                 if (_Legacy > 0.5) albedo *= SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, i.uv).rgb;
-                half up = saturate(n.y);
+                // 手绘颗粒：从三个方向按世界坐标铺上去，大块纯色里有细微的深浅，不是光溜溜一片
+                if (_Detail > 0.001)
+                {
+                    half3 w = abs(n);
+                    w = w * w * w * w;
+                    w /= (w.x + w.y + w.z);
+                    float3 q = i.positionWS * _DetailScale;
+                    half g = SAMPLE_TEXTURE2D(_DetailMap, sampler_DetailMap, q.zy).r * w.x
+                           + SAMPLE_TEXTURE2D(_DetailMap, sampler_DetailMap, q.xz).r * w.y
+                           + SAMPLE_TEXTURE2D(_DetailMap, sampler_DetailMap, q.xy).r * w.z;
+                    albedo *= 1.0 + (g - 0.5) * 2.0 * _Detail;
+                }
+                half3 nGeo = n;
+                half relief = 0;
+                #if defined(_YJ_TEX)
+                {
+                    // 真实贴图：从三个方向按世界坐标铺（模型不用展贴图）。颜色只取「相对平均色的明暗」乘到本来的颜色上，
+                    // 所以配色还是统一的那一套；法线贴图让表面有真实的凹凸。
+                    half3 w = abs(n);
+                    w = w * w * w * w * w * w;
+                    w /= (w.x + w.y + w.z);
+                    float3 q = i.positionWS / _TexTile;
+                    half3 tex = SAMPLE_TEXTURE2D(_TexMap, sampler_TexMap, q.zy).rgb * w.x
+                              + SAMPLE_TEXTURE2D(_TexMap, sampler_TexMap, q.xz).rgb * w.y
+                              + SAMPLE_TEXTURE2D(_TexMap, sampler_TexMap, q.xy).rgb * w.z;
+                    half3 tx = UnpackNormal(SAMPLE_TEXTURE2D(_TexNormalMap, sampler_TexNormalMap, q.zy));
+                    half3 ty = UnpackNormal(SAMPLE_TEXTURE2D(_TexNormalMap, sampler_TexNormalMap, q.xz));
+                    half3 tz = UnpackNormal(SAMPLE_TEXTURE2D(_TexNormalMap, sampler_TexNormalMap, q.xy));
+                    // 凑近时（几米以内）再叠一层密得多的：只取朝向最正的那一面，省采样
+                    float dist = distance(i.positionWS, _WorldSpaceCameraPos);
+                    half fine = _TexFineAmount * saturate(1.0 - dist / 5.0);
+                    if (fine > 0.01)
+                    {
+                        float2 fq = (w.x > w.y && w.x > w.z ? q.zy : w.y > w.z ? q.xz : q.xy) * _TexFine;
+                        half3 ft = SAMPLE_TEXTURE2D(_TexMap, sampler_TexMap, fq).rgb;
+                        half3 fn = UnpackNormal(SAMPLE_TEXTURE2D(_TexNormalMap, sampler_TexNormalMap, fq));
+                        tex *= lerp(half3(1, 1, 1), ft / max(_TexMean.rgb, 0.02), fine);
+                        tx.xy += fn.xy * fine * w.x;
+                        ty.xy += fn.xy * fine * w.y;
+                        tz.xy += fn.xy * fine * w.z;
+                    }
+                    albedo *= clamp(tex / max(_TexMean.rgb, 0.02), 0.16, 1.7);
+                    // 三个方向的法线合起来（whiteout 混合）
+                    tx = half3(tx.xy * _TexNormal + n.zy, abs(tx.z) * n.x);
+                    ty = half3(ty.xy * _TexNormal + n.xz, abs(ty.z) * n.y);
+                    tz = half3(tz.xy * _TexNormal + n.xy, abs(tz.z) * n.z);
+                    n = normalize(tx.zyx * w.x + ty.xzy * w.y + tz.xyz * w.z);
+                }
+                #endif
+                half up = saturate(nGeo.y);
 
                 // 天气：淋湿变深，积雪变白（屋檐下不湿不白）
                 half3 emission = _EmissionColor.rgb * i.color.a;
@@ -111,8 +179,13 @@ Shader "Yuanjing/Toon"
 
                 float4 shadowCoord = TransformWorldToShadowCoord(i.positionWS);
                 Light light = GetMainLight(shadowCoord);
-                half ndl = dot(n, light.direction);
+                // 明暗的大块面按模型本来的法线分（干净的两段），凹凸的细节另外叠上去
+                half ndl = dot(nGeo, light.direction);
                 half ramp = smoothstep(_ShadeStep - _ShadeSoft, _ShadeStep + _ShadeSoft, ndl);
+                #if defined(_YJ_TEX)
+                relief = dot(n, light.direction) - ndl;
+                ramp = saturate(ramp + relief * 0.9 * smoothstep(-0.35, 0.25, ndl));
+                #endif
                 half lit = ramp * light.shadowAttenuation;
                 // 云影：大块的明暗在地上慢慢飘过（只在俯视的场景里开，_YJCloud 是强度）
                 lit *= 1.0 - _YJCloud * smoothstep(0.42, 0.68, yjNoise(i.positionWS.xz * 0.045 + _Time.y * float2(0.016, 0.009)));
@@ -142,8 +215,13 @@ Shader "Yuanjing/Toon"
                 color += albedo * i.fogAndVertexLight.yzw;
                 #endif
 
-                // 边缘光：朝上的亮面边缘微微发亮，物体的轮廓更清楚
                 half3 v = GetWorldSpaceNormalizeViewDir(i.positionWS);
+                #if defined(_YJ_TEX)
+                // 一点高光：凹凸迎着光的地方亮一下
+                half3 hv = normalize(light.direction + v);
+                color += light.color * (_SunScale * _TexSpec * lit * pow(saturate(dot(n, hv)), 28.0));
+                #endif
+                // 边缘光：朝上的亮面边缘微微发亮，物体的轮廓更清楚
                 half rim = pow(1.0 - saturate(dot(n, v)), 3.0) * saturate(n.y * 0.6 + 0.4) * lit;
                 color += rim * _RimColor.rgb * _RimColor.a * light.color * _SunScale;
 

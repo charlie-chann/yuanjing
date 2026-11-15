@@ -50,14 +50,41 @@ def hall(name):
     red, redd, redl = C('red'), C('red_dark'), C('red_lit')
     PW, PD, PH = 17.2, 9.8, 0.7
     # 台基：下面一圈略宽的须弥座，上面铺砖
-    a.box((PW + 0.3, PD + 0.3, 0.16), color=sd, bevel=0.04)
+    a.box((PW + 0.3, PD + 0.3, 0.16), color=sd, bevel=0.04, mat='stone')
     # 这一层的顶要比上面那层石板低：两个面叠在同一高度会抢着显示，一直闪
-    a.box((PW, PD, PH - 0.16), (0, 0, 0.1), color=st, bevel=0.05, segs=2, grad=(tint(st, -0.06), st))
-    a.box((PW + 0.16, PD + 0.16, 0.12), (0, 0, PH - 0.12), color=sl, bevel=0.035, segs=2, top=C('slab_c'))
+    a.box((PW, PD, PH - 0.16), (0, 0, 0.1), color=st, bevel=0.05, segs=2, grad=(tint(st, -0.06), st), mat='brick')
+    a.box((PW + 0.16, PD + 0.16, 0.12), (0, 0, PH - 0.12), color=sl, bevel=0.035, segs=2, top=C('slab_c'), mat='stone')
+    # 台面铺方砖（每块略有深浅）
+    rng = a.rng
+    nx_, ny_ = 14, 8
+    slw, sld = (PW - 0.5) / nx_, (PD - 0.5) / ny_
+    for i in range(nx_):
+        for j in range(ny_):
+            # 屋里看不见的那几块不做
+            cx, cy = -PW / 2 + 0.25 + slw * (i + 0.5), -PD / 2 + 0.25 + sld * (j + 0.5)
+            if abs(cx) < 6.2 and -1.2 < cy < 3.0:
+                continue
+            c = vary(rng.choice([C('slab'), C('slab_b'), C('slab_c')]), rng, 0.03, 0.02)
+            a.prism([(-slw / 2 + 0.02, -sld / 2 + 0.02), (slw / 2 - 0.02, -sld / 2 + 0.02), (slw / 2 - 0.02, sld / 2 - 0.02), (-slw / 2 + 0.02, sld / 2 - 0.02)],
+                    PH - 0.02, PH + 0.035 + rng.uniform(-0.004, 0.004), tint(c, -0.1), bevel=0.018, top=c, loc=(cx, cy, 0), mat='slab')
+    # 台基侧面：砌石的缝（两层错缝）
+    seam = tint(sd, -0.06)
+    for (x0, y0, x1, y1) in ((-PW / 2, -PD / 2, PW / 2, -PD / 2), (-PW / 2, -PD / 2, -PW / 2, PD / 2), (PW / 2, -PD / 2, PW / 2, PD / 2)):
+        L = math.hypot(x1 - x0, y1 - y0)
+        ang = math.atan2(y1 - y0, x1 - x0)
+        nx, ny = (0, -1) if abs(y1 - y0) < 1e-6 else ((-1, 0) if x0 < 0 else (1, 0))
+        a.box((L, 0.016, 0.02), ((x0 + x1) / 2 + nx * 0.004, (y0 + y1) / 2 + ny * 0.004, 0.36), rot=(0, 0, ang), color=seam, bevel=0)
+        n = int(L / 1.15)
+        for row, (z0, zh) in enumerate(((0.17, 0.19), (0.38, 0.2))):
+            for i in range(n):
+                k = (i + (0.5 if row else 0.0)) / n
+                if abs(y1 - y0) < 1e-6 and abs(x0 + (x1 - x0) * k) < 2.5:
+                    continue
+                a.box((0.02, 0.016, zh), (x0 + (x1 - x0) * k + nx * 0.004, y0 + (y1 - y0) * k + ny * 0.004, z0), rot=(0, 0, ang), color=seam, bevel=0)
     # 台阶
     for k in range(4):
         d = 0.36 * (4 - k)
-        a.box((4.7, d, 0.175), (0, -PD / 2 - d / 2 + 0.02, k * 0.175), color=tint(st, 0.02 * k), bevel=0.025, top=sl)
+        a.box((4.7, d, 0.175), (0, -PD / 2 - d / 2 + 0.02, k * 0.175), color=tint(st, 0.02 * k), bevel=0.025, top=sl, mat='stone')
     for sx in (-1, 1):
         a.box((0.36, 1.62, 0.2), (sx * 2.55, -PD / 2 - 0.7, 0.24), rot=(math.atan2(0.7, 1.44), 0, 0), color=sl, bevel=0.04, base=False)
         a.box((0.4, 0.4, 0.5), (sx * 2.55, -PD / 2 - 1.5, 0), color=st, bevel=0.05, top=sl)
@@ -75,16 +102,40 @@ def hall(name):
     top = PH + CH
     # 柱子：前廊一排，墙身四角和中间
     cols = [(x, FY) for x in xs] + [(x, WY) for x in xs] + [(x, BY) for x in xs] + [(-6.6, 0.9), (6.6, 0.9)]
+    from props_hd import petal_ring
     for (x, y) in cols:
-        a.lathe([(0.3, 0), (0.31, 0.06), (0.27, 0.13), (0.24, 0.16)], (x, y, PH), segs=12, color=sl)
-        a.cyl(0.2, CH - 0.16, (x, y, PH + 0.16), red, segs=12, grad=(redd, redl))
+        # 柱础：方形石墩上一个覆盆（覆莲瓣），再一道圆台
+        a.box((0.62, 0.62, 0.058), (x, y, PH + 0.002), color=sd, bevel=0.015, top=st, mat='stone')
+        a.lathe([(0.3, PH + 0.06), (0.31, PH + 0.08), (0.28, PH + 0.13), (0.23, PH + 0.16)], (x, y, 0), segs=40, color=sl, mat='stone')
+        t = new_petals = None
+        sub = Asset(name + '_pb')
+        petal_ring(sub, 16, 0.24, PH + 0.1, 0.065, 0.05, 0.02, 25, sl, 'stone', up=False, rng=rng)
+        a.place(sub, (x, y, 0))
+        # 柱身：微微收分（上细下粗），朱漆
+        a.lathe([(0.205, PH + 0.155), (0.203, PH + 1.2), (0.198, PH + 2.4), (0.19, top - 0.01)], (x, y, 0), segs=36, color=red, mat='lacquer')
+        # 下面一道、上面一道金箍；上面那道之上一圈缠枝花纹带（金线、花朵凸起）
+        for zz in (PH + 0.34, top - 0.62):
+            a.lathe([(0.2, 0), (0.212, 0.008, C('gold_dark')), (0.216, 0.016, C('gold')), (0.212, 0.026, C('gold_dark')), (0.2, 0.03),
+                     (0.2, 0.05, C('gold_dark')), (0.212, 0.054, C('gold_dark')), (0.216, 0.062, C('gold')), (0.212, 0.072, C('gold_dark')), (0.2, 0.08)],
+                    (x, y, zz), segs=36, color=C('gold'), mat='toon')
+        zb = top - 0.5
+        a.lathe([(0.193, 0), (0.197, 0.004), (0.197, 0.3), (0.193, 0.304)], (x, y, zb), segs=36, color=C('navy'), mat='toon')
+        for k in range(14):
+            ang = 2 * math.pi * k / 14
+            cx, cy = x + 0.2 * math.cos(ang), y + 0.2 * math.sin(ang)
+            a.blob(0.024, (cx, cy, zb + 0.15), (0.45, 1, 1), C('gold'), top=C('gold_lit') if 'gold_lit' in __import__('palette').P else C('gold'), subdiv=2, bump=0.1)
+            for sg in (-1, 1):
+                a2 = ang + sg * 0.11
+                a.tube([(x + 0.199 * math.cos(ang), y + 0.199 * math.sin(ang), zb + 0.15 + sg * 0.02),
+                        (x + 0.199 * math.cos(a2), y + 0.199 * math.sin(a2), zb + 0.15 + sg * 0.09),
+                        (x + 0.199 * math.cos(a2 + sg * 0.12), y + 0.199 * math.sin(a2 + sg * 0.12), zb + 0.15 + sg * 0.06)], 0.005, C('gold'), segs=4)
     # 墙：两山和后墙是粉墙，下面一截石裙
     def wall(x0, y0, x1, y1):
         L = math.hypot(x1 - x0, y1 - y0)
         ang = math.atan2(y1 - y0, x1 - x0)
         cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-        a.box((L, 0.26, 0.95), (cx, cy, PH), rot=(0, 0, ang), color=C('wall_dark'), bevel=0.02, top=sl)
-        a.box((L, 0.2, CH - 0.95), (cx, cy, PH + 0.95), rot=(0, 0, ang), color=C('wall'), bevel=0.0, grad=(C('wall_dark'), C('wall')))
+        a.box((L, 0.26, 0.95), (cx, cy, PH), rot=(0, 0, ang), color=C('wall_dark'), bevel=0.02, top=sl, mat='brick')
+        a.box((L, 0.2, CH - 0.95), (cx, cy, PH + 0.95), rot=(0, 0, ang), color=C('wall'), bevel=0.0, grad=(C('wall_dark'), C('wall')), mat='plaster')
     wall(-6.6, WY, -6.6, BY)
     wall(6.6, WY, 6.6, BY)
     wall(-6.6, BY, 6.6, BY)
@@ -97,13 +148,13 @@ def hall(name):
             lw = w / n
             for k in range(n):
                 cx = x0 + lw * (k + 0.5)
-                a.box((lw - 0.03, 0.09, 3.0), (cx, WY, PH + 0.02), color=redd, bevel=0.012)
-                a.box((lw - 0.14, 0.11, 0.78), (cx, WY - 0.01, PH + 0.14), color=red, bevel=0.015)
-                a.box((lw - 0.26, 0.13, 0.5), (cx, WY - 0.02, PH + 0.28), color=redl, bevel=0.02)
+                a.box((lw - 0.03, 0.09, 3.0), (cx, WY, PH + 0.02), color=redd, bevel=0.012, mat='lacquer')
+                a.box((lw - 0.14, 0.11, 0.78), (cx, WY - 0.01, PH + 0.14), color=red, bevel=0.015, mat='lacquer')
+                a.box((lw - 0.26, 0.13, 0.5), (cx, WY - 0.02, PH + 0.28), color=redl, bevel=0.02, mat='lacquer')
                 _lattice(a, cx, WY - 0.03, PH + 1.08, lw - 0.14, 1.8, 2, 5)
         else:
-            a.box((w, 0.3, 1.0), ((x0 + x1) / 2, WY, PH), color=C('wall_dark'), bevel=0.02, top=sl)
-            a.box((w, 0.12, 2.02), ((x0 + x1) / 2, WY, PH + 1.0), color=redd, bevel=0.012)
+            a.box((w, 0.3, 1.0), ((x0 + x1) / 2, WY, PH), color=C('wall_dark'), bevel=0.02, top=sl, mat='brick')
+            a.box((w, 0.12, 2.02), ((x0 + x1) / 2, WY, PH + 1.0), color=redd, bevel=0.012, mat='lacquer')
             _lattice(a, (x0 + x1) / 2, WY - 0.04, PH + 1.12, w - 0.2, 1.76, 5, 5)
         # 门窗上面的横披
         a.box((w, 0.14, 0.42), ((x0 + x1) / 2, WY, PH + 3.04), color=red, bevel=0.012)
@@ -144,10 +195,10 @@ def hall(name):
     a.box((13.6, 7.0, 0.14), (0, 0, top + 0.42), color=redd, bevel=0.0)
     # 下层檐
     ez = top + 0.52
-    a.roof(8.5, 5.25, 3.5, z=ez, lift=0.7, inner=2.3, rows=6, ridge_r=0.12)
+    a.roof(8.5, 5.25, 3.5, z=ez, lift=0.7, inner=2.3, rows=6, ridge_r=0.12, caps=C('gold'))
     # 上层：一圈矮墙，开小窗
     uz0, uz1 = ez + 0.75, ez + 2.05
-    a.box((12.3, 5.9, uz1 - uz0 - 0.06), (0, 0, uz0), color=red, bevel=0.03, grad=(redd, red))
+    a.box((12.3, 5.9, uz1 - uz0 - 0.06), (0, 0, uz0), color=red, bevel=0.03, grad=(redd, red), mat='lacquer')
     for i in range(5):
         cx = (xs[i] + xs[i + 1]) / 2 * 0.9
         _lattice(a, cx, -2.98, uz0 + 0.5, 1.5, 0.55, 5, 2)
@@ -157,7 +208,7 @@ def hall(name):
     # 上层檐
     for (x0, y0, x1, y1, ox, oy) in ((-6.1, -2.95, 6.1, -2.95, 0, -1),):
         pass
-    a.roof(7.7, 4.45, 2.75, z=uz1 + 0.16, lift=0.8, rows=8, ridge_r=0.15, tip=0.6)
+    a.roof(7.7, 4.45, 2.75, z=uz1 + 0.16, lift=0.8, rows=8, ridge_r=0.15, tip=0.6, caps=C('gold'), bells=True)
     rz = uz1 + 0.16 + 2.75
     a.lathe([(0.0, 0), (0.2, 0.03), (0.24, 0.16), (0.12, 0.26), (0.2, 0.44), (0.15, 0.6), (0.05, 0.72), (0.0, 0.9)], (0, 0, rz + 0.12), segs=12, color=C('gold'))
     # 匾
@@ -200,7 +251,7 @@ def gate(name):
         x = -2.6 + i * 0.65
         a.box((0.26, 0.5, 0.14), (x, 0, 4.4), color=C('navy') if i % 2 == 0 else C('tile_lit'), bevel=0.02)
         a.box((0.2, 0.8, 0.12), (x, 0, 4.54), color=C('gold_dark'), bevel=0.02)
-    a.roof(3.6, 0.85, 0.7, z=4.68, lift=0.34, rows=4, ridge_r=0.09, tip=0.3, thick=0.09)
+    a.roof(3.6, 0.85, 0.7, z=4.68, lift=0.34, rows=4, ridge_r=0.09, tip=0.3, thick=0.09, course=0.3, caps=C('gold'))
     for sx in (-1, 1):
         _hang_lantern(a, sx * 1.2, 0, 3.0, 1.0)
     return a.finish(view=(20, 30, 1.0))
@@ -233,7 +284,7 @@ def pavilion(name):
             a.box((0.22, 0.34, 0.12), (px + math.cos(ang) * q, py + math.sin(ang) * q, 2.68), rot=(0, 0, ang),
                   color=C('navy') if k % 2 == 0 else C('tile_lit'), bevel=0.02)
     a.box((3.0, 3.0, 0.1), (0, 0, 2.78), color=C('red_dark'), bevel=0.02)
-    a.roof(2.4, 2.4, 1.5, z=2.86, lift=0.5, ridge_r=0.09, tip=0.45, rows=6)
+    a.roof(2.4, 2.4, 1.5, z=2.86, lift=0.5, ridge_r=0.09, tip=0.45, rows=6, caps=C('gold'), bells=True)
     # 钟
     a.box((0.14, 2.8, 0.14), (0, 0, 2.5), color=C('wood_dark'), bevel=0.02)
     a.cyl(0.025, 0.32, (0, 0, 2.2), C('rope_dark'), segs=6)
@@ -261,6 +312,8 @@ def dock(name):
         c = vary(rng.choice([C('plank'), C('plank_b'), C('plank_c')]), rng, 0.04, 0.03)
         a.box((w, d - 0.025, 0.07), (rng.uniform(-0.04, 0.04), y - d / 2, top - 0.07 + rng.uniform(-0.006, 0.006)), rot=(0, 0, rng.uniform(-0.012, 0.012)),
               color=tint(c, -0.1), bevel=0.012, top=c)
+        for sx in (-0.85, 0.85):
+            a.cyl(0.016, 0.012, (sx + rng.uniform(-0.02, 0.02), y - d / 2, top + 0.002), C('bronze_dark'), segs=6, top=C('bronze'))
         y -= d
     while y > -(Lm + Lp):
         d = rng.uniform(0.25, 0.32)
@@ -268,6 +321,8 @@ def dock(name):
         c = vary(rng.choice([C('plank'), C('plank_b'), C('plank_c')]), rng, 0.04, 0.03)
         a.box((w, d - 0.025, 0.07), (rng.uniform(-0.04, 0.04), y - d / 2, top - 0.07 + rng.uniform(-0.006, 0.006)), rot=(0, 0, rng.uniform(-0.012, 0.012)),
               color=tint(c, -0.1), bevel=0.012, top=c)
+        for sx in (-2.2, -0.85, 0.85, 2.2):
+            a.cyl(0.016, 0.012, (sx + rng.uniform(-0.02, 0.02), y - d / 2, top + 0.002), C('bronze_dark'), segs=6, top=C('bronze'))
         y -= d
     # 底下的纵梁
     for x in (-0.85, 0.85):

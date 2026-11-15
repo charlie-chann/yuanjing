@@ -217,7 +217,18 @@ public static partial class SanctuaryBuild
     {
         ConfigureAudio();
         var camGo = Camera.main.gameObject;
-        PlayerCamera follow = topDown ? camGo.AddComponent<TopDownCamera>() : camGo.AddComponent<ThirdPersonCamera>();
+        PlayerCamera follow;
+        if (topDown)
+        {
+            // 湖心小寺：三种跟法都挂上，由 ViewSwitcher 切换（默认俯视）
+            camGo.AddComponent<TopDownCamera>();
+            var tpc = camGo.AddComponent<ThirdPersonCamera>();
+            tpc.blockers = ~((1 << 2) | (1 << NoCameraLayer));
+            tpc.enabled = false;
+            camGo.AddComponent<FirstPersonCamera>().enabled = false;
+            follow = camGo.AddComponent<ViewSwitcher>();
+        }
+        else follow = camGo.AddComponent<ThirdPersonCamera>();
         string style = topDown ? "toon_" : "";
 
         var game = new GameObject("Game");
@@ -226,6 +237,24 @@ public static partial class SanctuaryBuild
 
         // 自己：外面一层带碰撞的胶囊（不缩放），里面是 Q 版小人
         var looks = FolkLooks.Select(l => AssetDatabase.LoadAssetAtPath<GameObject>($"{FolkDir}/Folk_{style}{l.name}.prefab")).ToArray();
+        // 湖心小寺：自己和别人都用动漫人物（Assets/Characters/Anime 下转好的那些，见 BuildAnime.cs）。
+        // 第 0 个是自己（shino），其余的给别的用户和香客，按人挑一张脸，再换发色衣服色（AnimeVariant）
+        if (topDown)
+        {
+            var anime = new System.Collections.Generic.List<GameObject>();
+            var me0 = AssetDatabase.LoadAssetAtPath<GameObject>($"{FolkDir}/Folk_anime_shino.prefab");
+            foreach (string f in System.IO.Directory.GetFiles(FolkDir, "Folk_anime_*.prefab"))
+            {
+                var g = AssetDatabase.LoadAssetAtPath<GameObject>(f.Replace('\\', '/'));
+                if (g != null && g != me0) anime.Add(g);
+            }
+            if (me0 != null && anime.Count > 0)
+            {
+                anime.Sort((x, y) => string.CompareOrdinal(x.name, y.name));
+                anime.Insert(0, me0);
+                looks = anime.ToArray();
+            }
+        }
         var playerRoot = new GameObject("Player");
         var cc = playerRoot.AddComponent<CharacterController>();
         cc.radius = 0.22f;

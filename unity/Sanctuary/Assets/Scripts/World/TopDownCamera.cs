@@ -12,7 +12,9 @@ namespace Yuanjing
         public Vector2 boundsMin = new Vector2(-12f, -22f), boundsMax = new Vector2(12f, 14f);
         public float maxPan = 7f;
 
-        Vector3 follow, pan, panTarget;
+        Vector3 follow, pan, panTarget, lastTarget, vel;
+        /// 走路时镜头慢慢转到人走的方向（每秒最多转几度）、往前多看几米
+        public float autoTurn = 15f, lookAhead = 1.4f;
         float dist, pit, focus, focusTarget, lastTouch = -100f;
         bool snapped;
         Camera cam;
@@ -22,11 +24,11 @@ namespace Yuanjing
         void Awake()
         {
             cam = GetComponent<Camera>();
-            if (cam != null) cam.fieldOfView = fov;
+            if (cam != null && GetComponent<ViewSwitcher>() == null) cam.fieldOfView = fov;
             dist = distance;
             pit = pitch;
             // 镜头离得远，名字要放大才看得清，也不能因为远就藏起来
-            Folk.TagScalePerMeter = 0.13f;
+            Folk.TagScalePerMeter = 0.17f;
             Folk.TagMaxScale = 5f;
             Folk.TagHideBeyond = 80f;
         }
@@ -67,6 +69,8 @@ namespace Yuanjing
 
         void OnDisable()
         {
+            // 换到别的视角时（ViewSwitcher 在管），这两个值由它接着设
+            if (GetComponent<ViewSwitcher>() != null) return;
             Shader.SetGlobalVector(SeeId, Vector4.zero);
             Shader.SetGlobalFloat("_YJCloud", 0f);
         }
@@ -78,7 +82,24 @@ namespace Yuanjing
             Shader.SetGlobalVector(SeeId, new Vector4(tp.x, tp.y, tp.z, seeRadius));
             if (!snapped) Snap(0);
             float dt = Time.deltaTime;
-            follow = Vector3.Lerp(follow, target.position, 1 - Mathf.Exp(-5f * dt));
+            if (dt > 0)
+            {
+                Vector3 v = (target.position - lastTarget) / dt;
+                v.y = 0;
+                if (v.magnitude > 8f) v = Vector3.zero;          // 瞬移（进场、传送）不算
+                vel = Vector3.Lerp(vel, v, 1 - Mathf.Exp(-4f * dt));
+            }
+            lastTarget = target.position;
+            float sp = vel.magnitude;
+            if (sp > 0.3f && Time.time - lastTouch > 1.5f)
+            {
+                // 镜头转到人走的方向：走得越快转得越快；人朝着镜头走（转身往回走）时不转，免得画面一下翻过来
+                float heading = Mathf.Atan2(vel.x, vel.z) * Mathf.Rad2Deg;
+                float diff = Mathf.DeltaAngle(yaw, heading);
+                if (Mathf.Abs(diff) < 150f) yaw = Mathf.MoveTowardsAngle(yaw, heading, autoTurn * Mathf.Clamp01(sp / 1.2f) * dt * Mathf.Clamp01(Mathf.Abs(diff) / 20f));
+            }
+            Vector3 ahead = sp > 0.2f ? vel / Mathf.Max(sp, 0.01f) * (lookAhead * Mathf.Clamp01(sp / 1.2f)) : Vector3.zero;
+            follow = Vector3.Lerp(follow, target.position + ahead, 1 - Mathf.Exp(-3.5f * dt));
             if (Time.time - lastTouch > 2.5f) panTarget = Vector3.Lerp(panTarget, Vector3.zero, 1 - Mathf.Exp(-2.5f * dt));
             pan = Vector3.Lerp(pan, panTarget, 1 - Mathf.Exp(-9f * dt));
             focus = Mathf.Lerp(focus, focusTarget, 1 - Mathf.Exp(-1.8f * dt));

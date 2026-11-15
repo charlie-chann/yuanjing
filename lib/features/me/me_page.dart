@@ -179,6 +179,17 @@ class MePage extends StatelessWidget {
             ),
           const SizedBox(height: 6),
           Center(child: Text('私信功能没有开放，这里只有正向的互动。', style: s.hint(12))),
+          // 素材署名：100STYLE 是 CC BY 4.0，必须署名；CMU 动捕库请求署名（docs/04 有完整清单）
+          const SizedBox(height: 18),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Text(
+              '人物动作部分来自 The 100STYLE Dataset - Ian Mason（CC BY 4.0）与 CMU Graphics Lab Motion Capture Database（mocap.cs.cmu.edu，NSF EIA-0196217 资助）。'
+              '人物形象来自 VRoid 官方 CC0 样例，动物、树木纹理来自 Quaternius、Poly Haven、ambientCG（CC0）。',
+              textAlign: TextAlign.center,
+              style: s.hint(10.5),
+            ),
+          ),
         ]);
       },
     );

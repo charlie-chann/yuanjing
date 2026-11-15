@@ -11,7 +11,8 @@ sys.path.insert(0, HERE)
 
 import kit  # noqa: E402
 
-MODULES = ['props', 'plants', 'buildings', 'terrain']
+# trees 排在 plants 后面：同名的树用新做法的那棵
+MODULES = ['props', 'props_hd', 'plants', 'trees', 'flowers', 'buildings', 'terrain', 'animals', 'critters_hd']
 
 
 def main():

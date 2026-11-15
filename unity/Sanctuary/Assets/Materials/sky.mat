@@ -28,21 +28,21 @@ Material:
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _TexB:
-        m_Texture: {fileID: 2800000, guid: 83930d2ae9cf648bd8b1ff84650365e8, type: 3}
+        m_Texture: {fileID: 2800000, guid: 9d22b867525b142bd9c42c4d2edb6cad, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
     - _Blend: 1
     - _ExpA: 3.29087
-    - _ExpB: 3.29087
+    - _ExpB: 0.86249995
     - _Flash: 0
     - _MaxBright: 40
     - _RotA: 1.6388369
-    - _RotB: 1.6388369
+    - _RotB: 0
     m_Colors:
-    - _Ground: {r: 0.72, g: 0.81, b: 0.92, a: 1}
+    - _Ground: {r: 0.7336, g: 0.77055997, b: 0.82616, a: 0.93200004}
     - _TintA: {r: 1, g: 1, b: 1, a: 1}
-    - _TintB: {r: 1, g: 1, b: 1, a: 1}
+    - _TintB: {r: 0.9139344, g: 0.94262296, b: 1, a: 0.93688524}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

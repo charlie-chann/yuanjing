@@ -1,0 +1,843 @@
+{
+ "name": "shibu",
+ "meta": {
+  "version": "",
+  "author": "",
+  "contactInformation": "",
+  "reference": "",
+  "title": "Sendagaya Shibu",
+  "allowedUserName": "Everyone",
+  "violentUssageName": "Allow",
+  "sexualUssageName": "Allow",
+  "commercialUssageName": "Allow",
+  "otherPermissionUrl": "",
+  "licenseName": "CC0",
+  "otherLicenseUrl": ""
+ },
+ "materials": [
+  {
+   "name": "F00_000_00_FaceMouth_00_FACE",
+   "tex": "F00_000_FaceMouth_00.png",
+   "shadeTex": "F00_000_FaceMouth_00.png",
+   "color": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "shade": [
+    0.97,
+    0.81,
+    0.86,
+    1
+   ],
+   "outline": 0.165,
+   "outlineColor": [
+    0.274509817,
+    0.09019608,
+    0.1254902,
+    1
+   ],
+   "blend": 0,
+   "cutoff": 0.5,
+   "cull": 2,
+   "queue": 2000
+  },
+  {
+   "name": "F00_000_00_EyeWhite_00_EYE",
+   "tex": "F00_000_EyeWhite_00.png",
+   "shadeTex": "F00_000_EyeWhite_00.png",
+   "color": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "shade": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "outline": 0.165,
+   "outlineColor": [
+    0.274509817,
+    0.09019608,
+    0.1254902,
+    1
+   ],
+   "blend": 0,
+   "cutoff": 0.5,
+   "cull": 2,
+   "queue": 2000
+  },
+  {
+   "name": "F00_000_00_FaceEyeline_00_FACE",
+   "tex": "F00_000_FaceEyeline_00.png",
+   "shadeTex": "F00_000_FaceEyeline_00.png",
+   "color": [
+    0.4431373,
+    0.160784319,
+    0.160784319,
+    1
+   ],
+   "shade": [
+    0.4039216,
+    0.200000018,
+    0.121568635,
+    1
+   ],
+   "outline": 0.165,
+   "outlineColor": [
+    0.274509817,
+    0.09019608,
+    0.1254902,
+    1
+   ],
+   "blend": 2,
+   "cutoff": 0.5,
+   "cull": 0,
+   "queue": 3000
+  },
+  {
+   "name": "F00_000_00_FaceEyelash_00_FACE",
+   "tex": "F00_000_FaceEyelash_00.png",
+   "shadeTex": "F00_000_FaceEyelash_00.png",
+   "color": [
+    0.4431373,
+    0.160784319,
+    0.160784319,
+    1
+   ],
+   "shade": [
+    0.4039216,
+    0.200000018,
+    0.121568635,
+    1
+   ],
+   "outline": 0.165,
+   "outlineColor": [
+    0.274509817,
+    0.09019608,
+    0.1254902,
+    1
+   ],
+   "blend": 2,
+   "cutoff": 0.5,
+   "cull": 0,
+   "queue": 4500
+  },
+  {
+   "name": "F00_000_00_FaceBrow_00_FACE",
+   "tex": "F00_000_FaceBrow_00.png",
+   "shadeTex": "F00_000_FaceBrow_00.png",
+   "color": [
+    0.1764706,
+    0.211764723,
+    0.450980425,
+    1
+   ],
+   "shade": [
+    0.1137255,
+    0.121568635,
+    0.227451,
+    1
+   ],
+   "outline": 0.193,
+   "outlineColor": [
+    0.274509817,
+    0.09019608,
+    0.1254902,
+    1
+   ],
+   "blend": 2,
+   "cutoff": 0.5,
+   "cull": 0,
+   "queue": 3000
+  },
+  {
+   "name": "F00_000_00_EyeIris_00_EYE",
+   "tex": "F00_000_EyeIris_00.png",
+   "shadeTex": "F00_000_EyeIris_00.png",
+   "color": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "shade": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "outline": 0.165,
+   "outlineColor": [
+    0.274509817,
+    0.09019608,
+    0.1254902,
+    1
+   ],
+   "blend": 1,
+   "cutoff": 0.5,
+   "cull": 2,
+   "queue": 2450
+  },
+  {
+   "name": "F00_000_00_EyeHighlight_00_EYE",
+   "tex": "F00_000_EyeHighlight_00.png",
+   "shadeTex": "F00_000_EyeHighlight_00.png",
+   "color": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "shade": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "outline": 0.165,
+   "outlineColor": [
+    0.274509817,
+    0.09019608,
+    0.1254902,
+    1
+   ],
+   "blend": 2,
+   "cutoff": 0.5,
+   "cull": 0,
+   "queue": 3000
+  },
+  {
+   "name": "F00_000_00_Face_00_SKIN",
+   "tex": "F00_000_Face_00.png",
+   "shadeTex": "F00_000_Face_00.png",
+   "color": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "shade": [
+    0.97,
+    0.81,
+    0.86,
+    1
+   ],
+   "outline": 0.075,
+   "outlineColor": [
+    0.274509817,
+    0.09019608,
+    0.1254902,
+    1
+   ],
+   "blend": 0,
+   "cutoff": 0.5,
+   "cull": 2,
+   "queue": 2000
+  },
+  {
+   "name": "F00_000_00_EyeExtra_01_EYE",
+   "tex": "F00_000_00_EyeExtra_01.png",
+   "shadeTex": "F00_000_00_EyeExtra_01.png",
+   "color": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "shade": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "outline": 0.193,
+   "outlineColor": [
+    0.274509817,
+    0.09019608,
+    0.1254902,
+    1
+   ],
+   "blend": 2,
+   "cutoff": 0.5,
+   "cull": 2,
+   "queue": 3000
+  },
+  {
+   "name": "F00_001_01_Body_00_SKIN",
+   "tex": "F00_001_Body_00.png",
+   "shadeTex": "F00_001_Body_00.png",
+   "color": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "shade": [
+    0.97,
+    0.81,
+    0.86,
+    1
+   ],
+   "outline": 0.075,
+   "outlineColor": [
+    0.274509817,
+    0.09019608,
+    0.1254902,
+    1
+   ],
+   "blend": 1,
+   "cutoff": 0.5,
+   "cull": 2,
+   "queue": 2450
+  },
+  {
+   "name": "F00_001_01_Tops_01_CLOTH",
+   "tex": "F00_001_Tops_01.png",
+   "shadeTex": "F00_001_Tops_01.png",
+   "color": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "shade": [
+    0.97,
+    0.81,
+    0.86,
+    1
+   ],
+   "outline": 0.075,
+   "outlineColor": [
+    0.274509817,
+    0.09019608,
+    0.1254902,
+    1
+   ],
+   "blend": 1,
+   "cutoff": 0.5,
+   "cull": 0,
+   "queue": 2450
+  },
+  {
+   "name": "F00_001_01_AccessoryNeck_01_CLOTH",
+   "tex": "F00_001_Accessory_01.png",
+   "shadeTex": "F00_001_Accessory_01.png",
+   "color": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "shade": [
+    0.97,
+    0.81,
+    0.86,
+    1
+   ],
+   "outline": 0.075,
+   "outlineColor": [
+    0.274509817,
+    0.09019608,
+    0.1254902,
+    1
+   ],
+   "blend": 1,
+   "cutoff": 0.5,
+   "cull": 0,
+   "queue": 2450
+  },
+  {
+   "name": "F00_001_01_Bottoms_01_CLOTH",
+   "tex": "F00_001_Bottoms_01.png",
+   "shadeTex": "F00_001_Bottoms_01.png",
+   "color": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "shade": [
+    0.97,
+    0.81,
+    0.86,
+    1
+   ],
+   "outline": 0.075,
+   "outlineColor": [
+    0.274509817,
+    0.09019608,
+    0.1254902,
+    1
+   ],
+   "blend": 1,
+   "cutoff": 0.5,
+   "cull": 0,
+   "queue": 2450
+  },
+  {
+   "name": "F00_001_01_Shoes_01_CLOTH",
+   "tex": "F00_001_Shoes_01.png",
+   "shadeTex": "F00_001_Shoes_01.png",
+   "color": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "shade": [
+    0.97,
+    0.81,
+    0.86,
+    1
+   ],
+   "outline": 0.075,
+   "outlineColor": [
+    0.274509817,
+    0.09019608,
+    0.1254902,
+    1
+   ],
+   "blend": 1,
+   "cutoff": 0.5,
+   "cull": 0,
+   "queue": 2450
+  },
+  {
+   "name": "F00_000_HairBack_00_HAIR",
+   "tex": "F00_000_HairBack_00.png",
+   "shadeTex": "F00_000_HairBack_00.png",
+   "color": [
+    0.09803922,
+    0.141176477,
+    0.219607845,
+    1
+   ],
+   "shade": [
+    0.250980467,
+    0.211764708,
+    0.435294122,
+    1
+   ],
+   "outline": 0.165,
+   "outlineColor": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "blend": 2,
+   "cutoff": 0.5,
+   "cull": 2,
+   "queue": 3000
+  },
+  {
+   "name": "F00_000_Hair_00_HAIR_01",
+   "tex": "F00_000_Hair_00_01.png",
+   "shadeTex": "F00_000_Hair_00_01.png",
+   "color": [
+    0.09803922,
+    0.141176477,
+    0.219607845,
+    1
+   ],
+   "shade": [
+    0.250980467,
+    0.211764708,
+    0.435294122,
+    1
+   ],
+   "outline": 0,
+   "outlineColor": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "blend": 1,
+   "cutoff": 0.5,
+   "cull": 0,
+   "queue": 2450
+  },
+  {
+   "name": "F00_000_Hair_00_HAIR_02",
+   "tex": "F00_000_Hair_00_02.png",
+   "shadeTex": "F00_000_Hair_00_02.png",
+   "color": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "shade": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "outline": 0,
+   "outlineColor": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "blend": 1,
+   "cutoff": 0.5,
+   "cull": 0,
+   "queue": 2450
+  }
+ ],
+ "meshes": [
+  {
+   "name": "Body",
+   "materials": [
+    "F00_001_01_Body_00_SKIN",
+    "F00_001_01_Tops_01_CLOTH",
+    "F00_001_01_AccessoryNeck_01_CLOTH",
+    "F00_001_01_Bottoms_01_CLOTH",
+    "F00_001_01_Shoes_01_CLOTH",
+    "F00_000_HairBack_00_HAIR"
+   ]
+  },
+  {
+   "name": "Face",
+   "materials": [
+    "F00_000_00_FaceMouth_00_FACE",
+    "F00_000_00_EyeWhite_00_EYE",
+    "F00_000_00_FaceEyeline_00_FACE",
+    "F00_000_00_FaceEyelash_00_FACE",
+    "F00_000_00_FaceBrow_00_FACE",
+    "F00_000_00_EyeIris_00_EYE",
+    "F00_000_00_EyeHighlight_00_EYE",
+    "F00_000_00_Face_00_SKIN",
+    "F00_000_00_EyeExtra_01_EYE"
+   ]
+  },
+  {
+   "name": "Hair001",
+   "materials": [
+    "F00_000_Hair_00_HAIR_01",
+    "F00_000_Hair_00_HAIR_02"
+   ]
+  }
+ ],
+ "human": {
+  "hips": "J_Bip_C_Hips",
+  "leftUpperLeg": "J_Bip_L_UpperLeg",
+  "rightUpperLeg": "J_Bip_R_UpperLeg",
+  "leftLowerLeg": "J_Bip_L_LowerLeg",
+  "rightLowerLeg": "J_Bip_R_LowerLeg",
+  "leftFoot": "J_Bip_L_Foot",
+  "rightFoot": "J_Bip_R_Foot",
+  "spine": "J_Bip_C_Spine",
+  "chest": "J_Bip_C_Chest",
+  "neck": "J_Bip_C_Neck",
+  "head": "J_Bip_C_Head",
+  "leftShoulder": "J_Bip_L_Shoulder",
+  "rightShoulder": "J_Bip_R_Shoulder",
+  "leftUpperArm": "J_Bip_L_UpperArm",
+  "rightUpperArm": "J_Bip_R_UpperArm",
+  "leftLowerArm": "J_Bip_L_LowerArm",
+  "rightLowerArm": "J_Bip_R_LowerArm",
+  "leftHand": "J_Bip_L_Hand",
+  "rightHand": "J_Bip_R_Hand",
+  "leftToes": "J_Bip_L_ToeBase",
+  "rightToes": "J_Bip_R_ToeBase",
+  "leftEye": "J_Adj_L_FaceEye",
+  "rightEye": "J_Adj_R_FaceEye",
+  "leftThumbProximal": "J_Bip_L_Thumb1",
+  "leftThumbIntermediate": "J_Bip_L_Thumb2",
+  "leftThumbDistal": "J_Bip_L_Thumb3",
+  "leftIndexProximal": "J_Bip_L_Index1",
+  "leftIndexIntermediate": "J_Bip_L_Index2",
+  "leftIndexDistal": "J_Bip_L_Index3",
+  "leftMiddleProximal": "J_Bip_L_Middle1",
+  "leftMiddleIntermediate": "J_Bip_L_Middle2",
+  "leftMiddleDistal": "J_Bip_L_Middle3",
+  "leftRingProximal": "J_Bip_L_Ring1",
+  "leftRingIntermediate": "J_Bip_L_Ring2",
+  "leftRingDistal": "J_Bip_L_Ring3",
+  "leftLittleProximal": "J_Bip_L_Little1",
+  "leftLittleIntermediate": "J_Bip_L_Little2",
+  "leftLittleDistal": "J_Bip_L_Little3",
+  "rightThumbProximal": "J_Bip_R_Thumb1",
+  "rightThumbIntermediate": "J_Bip_R_Thumb2",
+  "rightThumbDistal": "J_Bip_R_Thumb3",
+  "rightIndexProximal": "J_Bip_R_Index1",
+  "rightIndexIntermediate": "J_Bip_R_Index2",
+  "rightIndexDistal": "J_Bip_R_Index3",
+  "rightMiddleProximal": "J_Bip_R_Middle1",
+  "rightMiddleIntermediate": "J_Bip_R_Middle2",
+  "rightMiddleDistal": "J_Bip_R_Middle3",
+  "rightRingProximal": "J_Bip_R_Ring1",
+  "rightRingIntermediate": "J_Bip_R_Ring2",
+  "rightRingDistal": "J_Bip_R_Ring3",
+  "rightLittleProximal": "J_Bip_R_Little1",
+  "rightLittleIntermediate": "J_Bip_R_Little2",
+  "rightLittleDistal": "J_Bip_R_Little3",
+  "upperChest": "J_Bip_C_UpperChest"
+ },
+ "springs": [
+  {
+   "stiff": 0.75,
+   "gravity": 0,
+   "drag": 0.05,
+   "radius": 0.02,
+   "roots": [
+    "J_Sec_L_Bust1",
+    "J_Sec_R_Bust1"
+   ]
+  },
+  {
+   "stiff": 0.5,
+   "gravity": 0,
+   "drag": 0.05,
+   "radius": 0.02,
+   "roots": [
+    "J_Sec_L_SkirtBack",
+    "J_Sec_L_SkirtFront",
+    "J_Sec_L_SkirtSide",
+    "J_Sec_R_SkirtBack",
+    "J_Sec_R_SkirtFront",
+    "J_Sec_R_SkirtSide"
+   ]
+  },
+  {
+   "stiff": 0.4,
+   "gravity": 0,
+   "drag": 0.4,
+   "radius": 0.024,
+   "roots": [
+    "HairJoint-a04788eb-7a77-4b6e-95a1-3f403354b3fc"
+   ]
+  },
+  {
+   "stiff": 0.4,
+   "gravity": 0,
+   "drag": 0.4,
+   "radius": 0.024,
+   "roots": [
+    "HairJoint-c35bc030-3da3-4d49-ab7c-4aabeedc2de1"
+   ]
+  },
+  {
+   "stiff": 0.4,
+   "gravity": 0,
+   "drag": 0.4,
+   "radius": 0.024,
+   "roots": [
+    "HairJoint-f24a30fb-6c62-40b1-b06f-0e969332fc96"
+   ]
+  },
+  {
+   "stiff": 0.4,
+   "gravity": 0,
+   "drag": 0.4,
+   "radius": 0.012,
+   "roots": [
+    "HairJoint-0db13061-2c8b-4731-b8fe-864e6080e928"
+   ]
+  },
+  {
+   "stiff": 0.4,
+   "gravity": 0,
+   "drag": 0.4,
+   "radius": 0.012,
+   "roots": [
+    "HairJoint-1275757f-6fe5-4d78-be03-7138f9d26007"
+   ]
+  },
+  {
+   "stiff": 0.4,
+   "gravity": 0,
+   "drag": 0.4,
+   "radius": 0.024,
+   "roots": [
+    "HairJoint-7c3e840e-e897-4444-9f28-c78b33eaa6d6"
+   ]
+  },
+  {
+   "stiff": 0.4,
+   "gravity": 0,
+   "drag": 0.4,
+   "radius": 0.024,
+   "roots": [
+    "HairJoint-5b7d4f8d-4a41-452f-b278-3e04ef74d159"
+   ]
+  },
+  {
+   "stiff": 0.4,
+   "gravity": 0,
+   "drag": 0.4,
+   "radius": 0.0240705311,
+   "roots": [
+    "HairJoint-0436323a-45d9-4b3f-9caf-8c613e7ab228"
+   ]
+  },
+  {
+   "stiff": 0.4,
+   "gravity": 0,
+   "drag": 0.4,
+   "radius": 0.024,
+   "roots": [
+    "HairJoint-92a4c79d-a4ef-4650-87e3-545a0fb44ae4"
+   ]
+  },
+  {
+   "stiff": 0.4,
+   "gravity": 0,
+   "drag": 0.4,
+   "radius": 0.012,
+   "roots": [
+    "HairJoint-13e01abf-f503-4a07-a66f-e746d3276851"
+   ]
+  },
+  {
+   "stiff": 0.4,
+   "gravity": 0,
+   "drag": 0.4,
+   "radius": 0.012,
+   "roots": [
+    "HairJoint-098820b3-4aa3-48c9-94a4-2c89e3d2ac8b"
+   ]
+  },
+  {
+   "stiff": 0.4,
+   "gravity": 0,
+   "drag": 0.4,
+   "radius": 0.012,
+   "roots": [
+    "HairJoint-39978425-d125-4c40-8806-32f61b76cdc5"
+   ]
+  },
+  {
+   "stiff": 0.4,
+   "gravity": 0,
+   "drag": 0.4,
+   "radius": 0.012,
+   "roots": [
+    "HairJoint-6d9c818f-ed94-4f17-a332-09e58964f5de"
+   ]
+  },
+  {
+   "stiff": 0.4,
+   "gravity": 0,
+   "drag": 0.4,
+   "radius": 0.012,
+   "roots": [
+    "HairJoint-e9356468-a496-4b6f-b576-dc4a5b963d4d"
+   ]
+  }
+ ],
+ "expressions": {
+  "Neutral": [],
+  "A": [
+   {
+    "mesh": "Face.baked",
+    "index": 29,
+    "weight": 100
+   }
+  ],
+  "I": [
+   {
+    "mesh": "Face.baked",
+    "index": 30,
+    "weight": 100
+   }
+  ],
+  "U": [
+   {
+    "mesh": "Face.baked",
+    "index": 31,
+    "weight": 100
+   }
+  ],
+  "E": [
+   {
+    "mesh": "Face.baked",
+    "index": 32,
+    "weight": 100
+   }
+  ],
+  "O": [
+   {
+    "mesh": "Face.baked",
+    "index": 33,
+    "weight": 100
+   }
+  ],
+  "Blink": [
+   {
+    "mesh": "Face.baked",
+    "index": 12,
+    "weight": 100
+   }
+  ],
+  "Blink_L": [
+   {
+    "mesh": "Face.baked",
+    "index": 14,
+    "weight": 100
+   }
+  ],
+  "Blink_R": [
+   {
+    "mesh": "Face.baked",
+    "index": 13,
+    "weight": 100
+   }
+  ],
+  "Angry": [
+   {
+    "mesh": "Face.baked",
+    "index": 0,
+    "weight": 100
+   }
+  ],
+  "Fun": [
+   {
+    "mesh": "Face.baked",
+    "index": 1,
+    "weight": 100
+   }
+  ],
+  "Joy": [
+   {
+    "mesh": "Face.baked",
+    "index": 2,
+    "weight": 100
+   }
+  ],
+  "Sorrow": [
+   {
+    "mesh": "Face.baked",
+    "index": 3,
+    "weight": 100
+   }
+  ],
+  "Surprised": [
+   {
+    "mesh": "Face.baked",
+    "index": 4,
+    "weight": 100
+   }
+  ],
+  "Extra": [
+   {
+    "mesh": "Face.baked",
+    "index": 20,
+    "weight": 100
+   },
+   {
+    "mesh": "Face.baked",
+    "index": 40,
+    "weight": 100
+   }
+  ]
+ }
+}

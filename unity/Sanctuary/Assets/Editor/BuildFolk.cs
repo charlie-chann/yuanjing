@@ -47,6 +47,9 @@ public static partial class SanctuaryBuild
         // 只生成湖心小寺用的卡通版（写实版是山寺、教堂用的，那两座已经不要了）：同一副骨架和动作，换成卡通材质
         ToonMaterials();
         foreach (var look in FolkLooks) FolkPrefab(look, controller, true);
+        // 动漫人物（VRM 转来的）：有的话再各做一个预制体
+        int anime = AnimeFolkPrefabs();
+        if (anime > 0) Debug.Log($"[yuanjing] 动漫人物 {anime} 个");
         AssetDatabase.SaveAssets();
         Debug.Log("[yuanjing] 小人已生成");
     }

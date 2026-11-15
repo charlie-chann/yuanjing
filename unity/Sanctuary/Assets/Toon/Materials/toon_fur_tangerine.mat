@@ -1,0 +1,48 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!21 &2100000
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: toon_fur_tangerine
+  m_Shader: {fileID: 4800000, guid: ebbadf1b071c94fb78c0c68367ca8f1d, type: 3}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
+  m_ValidKeywords: []
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: -1
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_LockedProperties: 
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs: []
+    m_Ints: []
+    m_Floats:
+    - _Ambient: 0.5
+    - _Comb: 0.8
+    - _Curl: 0
+    - _CurlTurns: 1.5
+    - _Density: 7424.6055
+    - _Droop: 0.35
+    - _FurLength: 0.022
+    - _Gloss: 1
+    - _RootDark: 0.42
+    - _ShadeSoft: 0.3
+    - _ShadeStep: 0
+    - _StrandVary: 0.28
+    - _SunScale: 0.2
+    - _Thin: 1.6
+    - _TipLight: 1.16
+    m_Colors:
+    - _BaseColor: {r: 1, g: 1, b: 1, a: 1}
+    - _RimColor: {r: 1, g: 0.96, b: 0.86, a: 0.5}
+    - _ShadeColor: {r: 0.86, g: 0.8399999, b: 1, a: 1}
+  m_BuildTextureStacks: []
+  m_AllowLocking: 1

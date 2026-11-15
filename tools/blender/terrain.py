@@ -117,12 +117,15 @@ def ground(name):
     # 朝上
     if sum(f.normal.z for f in t.faces) < 0:
         bmesh.ops.reverse_faces(t, faces=t.faces)
+    # 地面用一张画好的贴图（tools/blender/ground_tex.py），贴图坐标就是它在范围里的位置
+    uv = t.loops.layers.uv['uv']
     for f in t.faces:
         for l in f.loops:
             c = colors[l.vert]
             l[col] = (c[0], c[1], c[2], 0)
-    a.merge(t)
-    a.opts['toon'] = {'sharp': 180}
+            l[uv].uv = (min(1.0, max(0.0, (l.vert.co.x - x0) / (x1 - x0))), min(1.0, max(0.0, (l.vert.co.y - y0) / (y1 - y0))))
+    a.merge(t, 'ground')
+    a.opts['ground'] = {'sharp': 180}
     export_map()
     return a.finish(ao=False, view=(0, 62, 0.42), floor=False)
 
@@ -215,7 +218,7 @@ def paving(name):
         for xx in (x0 + b / 2, x1 - b / 2):
             _slab(a, rng, xx, y0 + b + d * (j + 0.5), b, d - 0.03, z=H - 0.05, h=0.07, color=vary(C('stone_lit'), rng, 0.02), jitter=0.01)
     tw, td = x1 - x0 - 2 * b, y1 - y0 - 2 * b
-    nx_, ny_ = 12, 5
+    nx_, ny_ = 22, 7
     for i in range(nx_):
         for j in range(ny_):
             w, d = tw / nx_, td / ny_

@@ -7,10 +7,22 @@ using UnityEngine;
 public class CharacterImport : AssetPostprocessor
 {
     // 改了导入规则就把版本号加一，Unity 会自动重新导入
-    public override uint GetVersion() => 3;
+    public override uint GetVersion() => 10;
 
     void OnPreprocessModel()
     {
+        // 动作（tools/mocap/convert.py 转的动捕、tools/blender/pray_motions.py 做的关键帧）：人形骨骼，用它自己的骨架建基准
+        if (assetPath.StartsWith("Assets/Motion/"))
+        {
+            var mi = (ModelImporter)assetImporter;
+            mi.animationType = ModelImporterAnimationType.Human;
+            mi.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+            mi.importAnimation = true;
+            mi.materialImportMode = ModelImporterMaterialImportMode.None;
+            mi.resampleCurves = true;
+            mi.animationCompression = ModelImporterAnimationCompression.Optimal;
+            return;
+        }
         if (!assetPath.StartsWith("Assets/Characters/")) return;
         var imp = (ModelImporter)assetImporter;
         bool hair = assetPath.Contains("/Hair/");
@@ -24,6 +36,37 @@ public class CharacterImport : AssetPostprocessor
 
     void OnPreprocessAnimation()
     {
+        if (assetPath.StartsWith("Assets/Motion/"))
+        {
+            var mi = (ModelImporter)assetImporter;
+            var list = mi.defaultClipAnimations;
+            string file = Path.GetFileNameWithoutExtension(assetPath);
+            foreach (var c in list)
+            {
+                c.name = file;
+                // 第 0 帧是给人形基准用的 T 字姿势，不要
+                if (c.firstFrame < 1) c.firstFrame = 1;
+                bool loop = file.StartsWith("Idle") || file.StartsWith("Walk") || file.EndsWith("_Loop");
+                c.loopTime = loop;
+                c.loopPose = loop;                 // 首尾对齐，循环时不跳
+                // 原地播：水平位移和转身交给游戏里的移动，动画只管姿势；高度按双脚对齐（脚踩在原点上）
+                // 朝向一律按身体对齐：动捕里人可能是斜着、横着录的，不对齐的话走起来身子是歪的（像螃蟹走）
+                c.lockRootRotation = true;
+                c.keepOriginalOrientation = false;
+                // 但自己做的关键帧动作（鞠躬、叩首）不能按身体朝向对齐：那样会把身子往前弯的角度一起抹掉，鞠躬变成站直
+                // 关键帧做的（合掌、鞠躬、跪、坐）：位置按做的时候原样放（跪、坐时臀和膝的高度就是做好的，不能再按脚对齐）
+                bool keyed = !file.StartsWith("Idle") && !file.StartsWith("Walk");
+                bool low = file.StartsWith("Kneel") || file.StartsWith("Sit") || file.StartsWith("Kowtow");
+                c.lockRootHeightY = true;
+                c.keepOriginalPositionY = low;
+                c.heightFromFeet = !low;
+                c.lockRootPositionXZ = !file.StartsWith("Walk");
+                c.keepOriginalPositionXZ = keyed;
+                if (keyed) c.keepOriginalOrientation = false;
+            }
+            mi.clipAnimations = list;
+            return;
+        }
         if (!assetPath.Contains("UAL1")) return;
         var imp = (ModelImporter)assetImporter;
         var clips = imp.defaultClipAnimations;

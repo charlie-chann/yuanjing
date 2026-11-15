@@ -32,7 +32,7 @@ def _leaves(a, c, r, n, colors, size=0.34, sway=1.0, squash=1.0):
 def _canopy(a, c, r, base, top, leaf_colors, leaves=36, sway=0.8, squash=1.0, bump=0.12, subdiv=3, leaf_size=0.4):
     a.blob(r, c, (1, 1, squash), base, top=top, subdiv=subdiv, bump=bump, freq=1.0, sway=sway * 0.45)
     if leaves:
-        _leaves(a, c, r, int(leaves * 2.2 * max(0.6, r / 1.4)), leaf_colors, leaf_size, sway, squash)
+        _leaves(a, c, r, int(leaves * 3.4 * max(0.6, r / 1.4)), leaf_colors, leaf_size * 0.85, sway, squash)
 
 
 def _trunk(a, pts, radii, segs=10, c0=None, c1=None):
@@ -308,6 +308,93 @@ def grass(name):
     return total
 
 
+def ground_cover(name):
+    """贴地的细碎植物：三叶草、小雏菊、蕨、带穗的长草、路边的小草尖。数量很多，所以每个都很省"""
+    total = 0
+    gd, g, gl = C('grass_dark'), C('grass'), C('grass_lit')
+    # 三叶草：一小片，每棵三片圆叶
+    a = Asset('clover')
+    rng = a.rng
+    for i in range(11):
+        ang = rng.uniform(0, 6.28)
+        d = 0.3 * math.sqrt(rng.random())
+        x, y = d * math.cos(ang), d * math.sin(ang)
+        z = rng.uniform(0.03, 0.07)
+        c = vary(rng.choice([C('leaf'), C('leaf_lit'), g]), rng, 0.04)
+        r0 = rng.uniform(0, 2)
+        for q in range(3):
+            a2 = r0 + q * 2.094
+            a.disc(0.028, (x + 0.026 * math.cos(a2), y + 0.026 * math.sin(a2), z), c, segs=6, mat='leaf', rim=tint(c, 0.07), sway=0.5)
+    for i in range(2):
+        ang = rng.uniform(0, 6.28)
+        a.blob(0.022, (0.15 * math.cos(ang), 0.15 * math.sin(ang), 0.1), (1, 1, 0.9), C('white'), top=C('blossom_lit'), subdiv=1, bump=0.1, sway=0.8, mat='leaf')
+    a.opts['leaf'] = {'normal_up': 0.95, 'plain_normals': True}
+    total += a.finish(ao=False)
+    # 小雏菊：一片细碎的小白花
+    for v, col in {'w': C('flower_w'), 'y': C('flower_y'), 'b': C('flower_v')}.items():
+        a = Asset(f'daisy_{v}')
+        rng = a.rng
+        for i in range(9):
+            ang = rng.uniform(0, 6.28)
+            d = 0.28 * math.sqrt(rng.random())
+            x, y = d * math.cos(ang), d * math.sin(ang)
+            h = rng.uniform(0.08, 0.17)
+            _blade(a, (x, y, -0.01), ang, h, 0.014, 0.02, gd, g, 0.9, 1)
+            a.disc(0.03, (x, y, h), col, segs=7, mat='leaf', rim=tint(col, 0.05), cup=0.008, rot=rng.uniform(0, 3), sway=0.9)
+            a.disc(0.011, (x, y, h + 0.006), C('ginkgo') if v != 'y' else C('maple'), segs=5, mat='leaf', sway=0.9)
+        for i in range(5):
+            _blade(a, (rng.uniform(-0.2, 0.2), rng.uniform(-0.2, 0.2), -0.01), rng.uniform(0, 6.28), rng.uniform(0.06, 0.11), 0.03, 0.05, gd, gl, 0.9, 1)
+        a.opts['leaf'] = {'normal_up': 0.95, 'plain_normals': True}
+        total += a.finish(ao=False)
+    # 蕨
+    a = Asset('fern')
+    rng = a.rng
+    for i in range(7):
+        ang = 2 * math.pi * i / 7 + rng.uniform(-0.2, 0.2)
+        dx, dy = math.cos(ang), math.sin(ang)
+        ln = rng.uniform(0.34, 0.5)
+        c = vary(rng.choice([C('leaf'), C('leaf_dark'), C('pine_lit')]), rng, 0.04)
+        n = 7
+        for k in range(n):
+            t0, t1 = k / n, (k + 1) / n
+            w0, w1 = 0.09 * (1 - t0) + 0.01, 0.09 * (1 - t1) + 0.01
+            z0, z1 = 0.02 + 0.26 * math.sin(t0 * 2.2), 0.02 + 0.26 * math.sin(t1 * 2.2)
+            p0 = Vector((dx * ln * t0, dy * ln * t0, z0))
+            p1 = Vector((dx * ln * t1, dy * ln * t1, z1))
+            sd = Vector((-dy, dx, 0))
+            # 羽状的小叶：一节一节，中间留缝
+            a.quad([p0 - sd * w0, p0 + sd * w0, p1 * 0.97 + p0 * 0.03 + sd * w1 * 0.6, p1 * 0.97 + p0 * 0.03 - sd * w1 * 0.6], mat='leaf',
+                   colors=[tint(c, -0.05), tint(c, -0.05), tint(c, 0.07), tint(c, 0.07)], sway=(t0, t0, t1, t1), phase=i * 0.13)
+    a.opts['leaf'] = {'normal_up': 0.85, 'plain_normals': True}
+    total += a.finish(ao=False)
+    # 带穗的长草
+    a = Asset('grass_seed')
+    rng = a.rng
+    for i in range(10):
+        ang = rng.uniform(0, 6.28)
+        d = rng.uniform(0, 0.1)
+        h = rng.uniform(0.4, 0.7)
+        lean = rng.uniform(0.1, 0.3)
+        _blade(a, (d * math.cos(ang), d * math.sin(ang), -0.02), ang, h, 0.05, lean, mix(gd, g, 0.4), C('reed'), 1.3, 3)
+        if i % 2 == 0:
+            tx, ty = d * math.cos(ang) + math.cos(ang) * lean, d * math.sin(ang) + math.sin(ang) * lean
+            a.blob(0.028, (tx, ty, h + 0.03), (0.7, 0.7, 2.2), C('straw'), top=C('straw_lit'), subdiv=1, bump=0.1, sway=1.3, mat='leaf')
+    a.opts['leaf'] = {'normal_up': 0.9, 'plain_normals': True}
+    total += a.finish(ao=False)
+    # 很小的草尖：铺得满地都是，填在大草丛之间
+    for v, n in {'a': 5, 'b': 7}.items():
+        a = Asset(f'sprout_{v}')
+        rng = a.rng
+        for i in range(n):
+            ang = rng.uniform(0, 6.28)
+            d = rng.uniform(0, 0.09)
+            _blade(a, (d * math.cos(ang), d * math.sin(ang), -0.01), ang, rng.uniform(0.08, 0.16), 0.035, rng.uniform(0.03, 0.09),
+                   mix(gd, g, rng.random()), mix(g, gl, 0.5 + rng.random() * 0.5), 1.0, 1)
+        a.opts['leaf'] = {'normal_up': 0.95, 'plain_normals': True}
+        total += a.finish(ao=False)
+    return total
+
+
 def water_plants(name):
     """芦苇和荷花。原点在水面上"""
     total = 0
@@ -363,4 +450,4 @@ def water_plants(name):
 
 
 ASSETS = {'tree_wish': tree_wish, 'pines': pines, 'maples': maples, 'rounds': rounds, 'bamboo': bamboo, 'bushes': bushes, 'grass': grass,
-          'water_plants': water_plants}
+          'water_plants': water_plants, 'ground_cover': ground_cover}

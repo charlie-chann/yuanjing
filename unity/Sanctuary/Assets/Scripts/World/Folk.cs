@@ -19,6 +19,10 @@ namespace Yuanjing
         public Animator animator;
         /// 动画：站着、慢走、快走、坐着。直接用播放图按速度混合（不经过状态机：状态机在手机版里取不到片段）
         public AnimationClip idleClip, walkClip, walkFastClip, sitClip;
+        /// 合掌、鞠躬、跪拜、盘坐的动作（tools/blender/pray_motions.py 做的关键帧，Assets/Motion/）。有就用它们，没有才用老办法硬改关节
+        public AnimationClip[] actionClips;
+        /// 几段站立待机（动捕），每人挑一段
+        public AnimationClip[] idleClips;
         /// 装模型的子物体：坐下、跪下时整个往下沉，靠它
         public Transform model;
         public TextMesh nameTag;
@@ -31,6 +35,10 @@ namespace Yuanjing
         public float legScale = 1f, armScale = 0.9f;
 
         public Pose pose { get; private set; }
+        /// 场上所有人（避让、栈桥口排队用）
+        public static readonly List<Folk> All = new List<Folk>();
+        void OnEnable() => All.Add(this);
+        void OnDisable() => All.Remove(this);
         public bool Moving => path.Count > 0;
         public event Action Arrived;
         public event Action Step;
@@ -74,12 +82,29 @@ namespace Yuanjing
             graph = PlayableGraph.Create("Folk_" + name);
             graph.SetTimeUpdateMode(DirectorUpdateMode.GameTime);
             var output = AnimationPlayableOutput.Create(graph, "anim", animator);
-            var clips = new[] { idleClip, walkClip, walkFastClip != null ? walkFastClip : walkClip, sitClip != null ? sitClip : idleClip };
-            mixer = AnimationMixerPlayable.Create(graph, clips.Length);
-            slots = new AnimationClipPlayable[clips.Length];
-            for (int i = 0; i < clips.Length; i++)
+            if (idleClips != null && idleClips.Length > 0) idleClip = idleClips[Mathf.Abs(name.GetHashCode()) % idleClips.Length];
+            var baseClips = new[] { idleClip, walkClip, walkFastClip != null ? walkFastClip : walkClip, sitClip != null ? sitClip : idleClip };
+            var clips = new List<AnimationClip>(baseClips);
+            if (actionClips != null)
+                foreach (var c in actionClips)
+                    if (c != null) { actIndex[c.name] = clips.Count; clips.Add(c); }
+            actWeight = new float[actionClips != null ? actIndex.Count : 0];
+            // 另外几段待机挂在最后：站着时隔一阵换一段（换重心、看看四周），不总是同一段循环
+            idleSlot.Clear();
+            idleSlot.Add(0);
+            if (idleClips != null)
+                foreach (var c in idleClips)
+                    if (c != null && c != idleClip) { idleSlot.Add(clips.Count); clips.Add(c); }
+            idleW = new float[idleSlot.Count];
+            idleW[0] = 1;
+            idleNext = UnityEngine.Random.Range(12f, 35f);
+            mixer = AnimationMixerPlayable.Create(graph, clips.Count);
+            slots = new AnimationClipPlayable[clips.Count];
+            for (int i = 0; i < clips.Count; i++)
             {
                 slots[i] = AnimationClipPlayable.Create(graph, clips[i]);
+                // 脚贴地：人形动画按原来脚的位置修正
+                slots[i].SetApplyFootIK(true);
                 // 各段错开一点起点，人多的时候不会整齐划一
                 slots[i].SetTime(UnityEngine.Random.value * clips[i].length);
                 graph.Connect(slots[i], 0, mixer, i);
@@ -89,20 +114,156 @@ namespace Yuanjing
             if (Application.isPlaying) graph.Play();
         }
 
+        // ── 动作段：合掌、鞠躬、跪拜、盘坐 ──
+        // 播放图里除了走路、待机那四段，还挂着每一段动作；同一时间只有一段动作在播，换段时交叉淡化 0.25 秒。
+        // 动作段之上整体还有一个权重 actW：0 是走路待机，1 是动作。
+        readonly Dictionary<string, int> actIndex = new Dictionary<string, int>();
+        readonly List<int> idleSlot = new List<int>();
+        float[] idleW;
+        int idleNow;
+        float idleNext;
+        float[] actWeight;
+        readonly Queue<string> actQueue = new Queue<string>();
+        string actNow;
+        float actW, actTarget;
+        bool UseActions => actionClips != null && actionClips.Length > 0 && Pose_Allowed(shown);
+        static bool Pose_Allowed(Pose p) => p != Pose.Bench && p != Pose.Custom;
+
+        bool Has(string n) => actIndex.ContainsKey(n);
+
+        void QueueFor(Pose old, Pose p, bool instant)
+        {
+            actQueue.Clear();
+            bool standUp = old == Pose.Gassho || old == Pose.Bow;
+            bool kneeling = old == Pose.Kneel || old == Pose.KneelBow;
+            switch (p)
+            {
+                case Pose.Gassho:
+                    if (!standUp && !instant) actQueue.Enqueue("Gassho_In");
+                    actQueue.Enqueue("Gassho_Loop");
+                    break;
+                case Pose.Bow:
+                    if (!standUp && !instant) actQueue.Enqueue("Gassho_In");
+                    actQueue.Enqueue("Bow_Scrub");
+                    break;
+                case Pose.Kneel:
+                    if (!kneeling && !instant) actQueue.Enqueue("Kneel_Down");
+                    actQueue.Enqueue("Kneel_Loop");
+                    break;
+                case Pose.KneelBow:
+                    if (!kneeling && !instant) actQueue.Enqueue("Kneel_Down");
+                    actQueue.Enqueue("Kowtow_Scrub");
+                    break;
+                case Pose.CrossLegged:
+                    if (old != Pose.CrossLegged && !instant) actQueue.Enqueue("Sit_Down");
+                    actQueue.Enqueue("Sit_Loop");
+                    break;
+                case Pose.None:
+                    if (instant) break;
+                    if (kneeling) actQueue.Enqueue("Kneel_Up");
+                    else if (old == Pose.CrossLegged) actQueue.Enqueue("Sit_Up");
+                    else if (standUp) actQueue.Enqueue("Gassho_Out");
+                    break;
+            }
+            actQueue.TrimExcess();
+            // 正在播一段过渡（跪下去、坐下去、起身）还没播完：等它播完再接新的，不从半截切走
+            bool midTransition = !instant && actNow != null && !actNow.EndsWith("_Loop") && !actNow.EndsWith("_Scrub")
+                                 && slots[actIndex[actNow]].GetTime() < actionClips[actIndex[actNow] - 4].length - 0.15f;
+            if (actQueue.Count > 0 && midTransition) { actTarget = 1; return; }
+            if (actQueue.Count > 0) { Next(instant); actTarget = 1; if (instant) actW = 1; }
+            else { actTarget = 0; if (instant) actW = 0; }
+        }
+
+        void Next(bool instant)
+        {
+            if (actQueue.Count == 0) return;
+            string n = actQueue.Dequeue();
+            while (!Has(n) && actQueue.Count > 0) n = actQueue.Dequeue();
+            if (!Has(n)) return;
+            actNow = n;
+            var sl = slots[actIndex[n]];
+            sl.SetTime(n.EndsWith("_Loop") ? UnityEngine.Random.value * actionClips[actIndex[n] - 4].length : 0);
+            sl.SetSpeed(n.EndsWith("_Scrub") ? 0 : 1);
+            if (instant) for (int i = 0; i < actWeight.Length; i++) actWeight[i] = i == actIndex[n] - 4 ? 1 : 0;
+        }
+
+        /// 每帧：推进动作段（播完的段接下一段；拖着播的段按鞠躬进度定时刻），淡化各段权重
+        void UpdateActions(float dt)
+        {
+            if (actWeight == null) return;
+            if (actNow != null)
+            {
+                int i = actIndex[actNow];
+                var clip = actionClips[i - 4];
+                if (actNow.EndsWith("_Scrub")) slots[i].SetTime(Mathf.SmoothStep(0, 1, bowPhase) * clip.length * 0.999f);
+                else if (!actNow.EndsWith("_Loop") && slots[i].GetTime() >= clip.length - 0.12f)
+                {
+                    if (actQueue.Count > 0) Next(false);
+                    else if (pose == Pose.None)
+                    {
+                        // 从蒲团上站起来：原点挪到人站的地方，立刻换回站姿（不淡出，淡出的那一下身子会往回飘）
+                        if (actNow == "Sit_Up") { GlideSeat(); sitGlide = false; actW = 0; for (int j = 0; j < actWeight.Length; j++) actWeight[j] = 0; }
+                        actTarget = 0;
+                    }
+                }
+                // 合掌、盘坐时又要低头鞠躬：换成拖着播的那段，起来以后换回循环
+                string scrub = pose == Pose.Gassho ? "Gassho_Scrub" : pose == Pose.CrossLegged ? "SitBow_Scrub" : null;
+                string loop = pose == Pose.Gassho ? "Gassho_Loop" : pose == Pose.CrossLegged ? "Sit_Loop" : null;
+                if (scrub != null && actQueue.Count == 0 && Has(scrub))
+                {
+                    if (bowPhase > 0.001f && actNow == loop) { actQueue.Enqueue(scrub); Next(false); }
+                    else if (bowPhase <= 0.001f && actNow == scrub) { actQueue.Enqueue(loop); Next(false); }
+                }
+            }
+            float k = dt <= 0 ? 1 : Mathf.Clamp01(dt / 0.25f);
+            for (int j = 0; j < actWeight.Length; j++)
+            {
+                bool on = actNow != null && actIndex[actNow] - 4 == j;
+                actWeight[j] = Mathf.MoveTowards(actWeight[j], on ? 1 : 0, k);
+            }
+            actW = Mathf.MoveTowards(actW, actTarget, dt <= 0 ? 1 : dt / 0.35f);
+            if (actW <= 0.001f && actTarget == 0) actNow = null;
+            float sum = 0;
+            foreach (float w in actWeight) sum += w;
+            for (int j = 0; j < actWeight.Length; j++)
+                mixer.SetInputWeight(4 + j, sum > 1e-4f ? actWeight[j] / sum * actW : 0);
+        }
+
         /// 按速度（米/秒）和坐着的程度（0..1）给四段动画分权重
         void Mix(float speed, float sit)
         {
             float a = Mathf.InverseLerp(0.6f * walkSpeed, 1.2f * walkSpeed, speed);
             float w = Mathf.Clamp01(speed / (0.6f * walkSpeed));
             float stand = 1 - sit;
-            mixer.SetInputWeight(0, stand * (1 - w));
-            mixer.SetInputWeight(1, stand * w * (1 - a));
-            mixer.SetInputWeight(2, stand * w * a);
-            mixer.SetInputWeight(3, sit);
-            // 走路动画的快慢跟着实际速度，脚不打滑
-            float rate = speed > 0.05f ? Mathf.Clamp(speed / (0.8f * walkSpeed), 0.6f, 1.6f) : 1f;
-            slots[1].SetSpeed(rate);
-            slots[2].SetSpeed(rate);
+            float rest = 1 - Mathf.Clamp01(actW);
+            // 待机：几段之间慢慢换（1.5 秒淡入淡出）
+            float idleTotal = rest * stand * (1 - w);
+            if (idleW != null && idleW.Length > 1)
+            {
+                float dt = Time.deltaTime;
+                if (w < 0.01f && actW < 0.01f && (idleNext -= dt) <= 0)
+                {
+                    int n = UnityEngine.Random.Range(0, idleW.Length - 1);
+                    idleNow = n >= idleNow ? n + 1 : n;
+                    idleNext = UnityEngine.Random.Range(15f, 40f);
+                    slots[idleSlot[idleNow]].SetTime(UnityEngine.Random.value * 2f);
+                }
+                float sum = 0;
+                for (int k = 0; k < idleW.Length; k++) { idleW[k] = Mathf.MoveTowards(idleW[k], k == idleNow ? 1 : 0, dt / 1.5f); sum += idleW[k]; }
+                for (int k = 0; k < idleW.Length; k++) mixer.SetInputWeight(idleSlot[k], idleTotal * idleW[k] / Mathf.Max(sum, 1e-4f));
+            }
+            else mixer.SetInputWeight(0, idleTotal);
+            mixer.SetInputWeight(1, rest * stand * w * (1 - a));
+            mixer.SetInputWeight(2, rest * stand * w * a);
+            mixer.SetInputWeight(3, rest * sit);
+            // 走路动画的快慢：按这段动画自己一秒走多远（换算到这个人的身高）来定，脚不打滑
+            for (int i = 1; i <= 2; i++)
+            {
+                var c = i == 1 ? walkClip : (walkFastClip != null ? walkFastClip : walkClip);
+                float clipSpeed = c.averageSpeed.magnitude * (animator.isHuman ? animator.humanScale : 1f) * transform.lossyScale.y;
+                float rate = speed > 0.05f ? Mathf.Clamp(speed / Mathf.Max(0.05f, clipSpeed > 0.05f ? clipSpeed : 0.8f * walkSpeed), 0.5f, 1.8f) : 1f;
+                slots[i].SetSpeed(rate);
+            }
         }
 
         void OnDestroy()
@@ -139,18 +300,90 @@ namespace Yuanjing
         public void SetName(string text, Color color)
         {
             if (nameTag == null) return;
-            nameTag.text = text;
-            nameTag.color = color;
+            var tag = nameTag.GetComponent<NameTag>() ?? nameTag.gameObject.AddComponent<NameTag>();
+            tag.Set(text, color);
             nameTag.gameObject.SetActive(!string.IsNullOrEmpty(text));
         }
 
         /// 换一个姿势。椅子上坐着（Bench）用动作库的坐姿动画，其余在站姿上叠加。
-        public void SetPose(Pose p)
+        public void SetPose(Pose p) => SetPose(p, false);
+
+        /// instant：直接到位（一进场就已经坐着的人），不播起身、坐下的过程
+        public void SetPose(Pose p, bool instant)
         {
             if (p == pose) return;
+            var old = pose;
             pose = p;
             if (p != Pose.None) shown = p;
+            if (UseActions) QueueFor(old, p, instant);
 
+        }
+
+        /// 坐下前站在圆蒲团前面多远（米，按 1.25 米高的人；见 tools/blender/pray_motions.py 的 STAND_Y × 0.806）
+        public const float SeatStep = 0.24f;
+
+        /// 坐下、起身、跪下这些过渡动作正在播：这时人不挪地方（不然脚在地上滑）
+        public bool InTransition => actNow != null && actW > 0.5f && (actNow.EndsWith("_Up") || actNow.EndsWith("_Down"));
+
+        /// 坐到蒲团上：人站在蒲团前面的草垫上，面朝 yaw。坐下那段动作播的时候，人一边蹲一边往后挪到蒲团上（挪的节奏跟着动作），
+        /// 起身时反过来挪回草垫上
+        public void SitOn(Vector3 seatGround, float yaw)
+        {
+            path.Clear();
+            velocity = Vector3.zero;
+            var mover = controller != null ? controller.transform : transform;
+            if (controller != null) controller.enabled = false;
+            sitFrom = new Vector3(mover.position.x, seatGround.y, mover.position.z);
+            sitTo = seatGround;
+            sitGlide = GlideMode;
+            if (!GlideMode) mover.position = seatGround;
+            transform.rotation = Quaternion.Euler(0, yaw, 0);
+            faceYaw = yaw;
+            hasFace = true;
+            SetPose(Pose.CrossLegged);
+            // 原点刚挪到蒲团下：坐下那段的第一帧身子正好在前面草垫上，直接换过去不淡入（淡入的那 0.25 秒身子会先缩回蒲团上再走出来）
+            if (!GlideMode && actNow != null && actIndex.TryGetValue(actNow, out int i))
+            {
+                actW = 1;
+                for (int j = 0; j < actWeight.Length; j++) actWeight[j] = j == i - 4 ? 1 : 0;
+            }
+        }
+
+        Vector3 sitFrom, sitTo;
+        bool sitGlide;
+        /// false：坐下时原点直接放到蒲团下（动作自己带着「先站在前面一步」的位移）；true：原点一路挪过去（动作里没有位移时用）
+        public static bool GlideMode = false;
+
+        /// 一进场就坐着的人：记下蒲团和前面站的地方，起身时挪回草垫上
+        public void SeatedAt(Vector3 seatGround, Vector3 standPoint)
+        {
+            sitTo = seatGround;
+            sitFrom = new Vector3(standPoint.x, seatGround.y, standPoint.z);
+            sitGlide = true;
+        }
+
+        /// 坐下、起身时把人在草垫和蒲团之间挪过去（动作里臀往后找蒲团的那 1.5 秒）
+        void GlideSeat()
+        {
+            if (!sitGlide || actNow == null || !actIndex.TryGetValue(actNow, out int i)) return;
+            float t = (float)slots[i].GetTime();
+            var mover = controller != null ? controller.transform : transform;
+            if (actNow == "Sit_Down") mover.position = Vector3.Lerp(sitFrom, sitTo, Mathf.SmoothStep(0, 1, Mathf.InverseLerp(0.3f, 1.6f, t)));
+            else if (actNow == "Sit_Up") mover.position = Vector3.Lerp(sitTo, sitFrom, Mathf.SmoothStep(0, 1, Mathf.InverseLerp(0.7f, 2.0f, t)));
+        }
+
+        /// 站起来那段动作播完时，身子在原点前面一步（草垫上）：把原点挪过去，再交给走路、待机
+        void Recenter()
+        {
+            if (hips == null) return;
+            Vector3 off = hips.position - transform.position;
+            off.y = 0;
+            if (off.magnitude < 0.05f || off.magnitude > 0.6f) return;
+            var mover = controller != null ? controller.transform : transform;
+            bool cc = controller != null && controller.enabled;
+            if (cc) controller.enabled = false;
+            mover.position += off;
+            if (cc) controller.enabled = true;
         }
 
         /// 鞠躬的深浅（0 直起，1 最低），由外面按节奏推
@@ -218,13 +451,31 @@ namespace Yuanjing
                 return to;
             }
             velocity = to / dist * speed;
+            // 避让：前面 0.9 米内有人，就往侧边让一点（各自往右让，不会两人原地顶牛）
+            Vector3 dir = to / dist, side = Vector3.Cross(Vector3.up, dir);
+            Vector3 push = Vector3.zero;
+            Vector3 me = transform.position;
+            foreach (var o in All)
+            {
+                if (o == this || o == null) continue;
+                Vector3 d = o.transform.position - me;
+                d.y = 0;
+                float m = d.magnitude;
+                if (m > 0.9f || m < 1e-3f) continue;
+                float ahead = Vector3.Dot(d, dir);
+                if (ahead < -0.1f) continue;
+                float k = (0.9f - m) / 0.9f;
+                push -= d / m * k * 0.6f;
+                push += side * k * 0.5f;
+            }
+            if (dist > 0.3f) velocity += push * speed;
             faceYaw = Quaternion.LookRotation(to).eulerAngles.y;
             hasFace = true;
             return velocity * dt;
         }
 
         /// 这一帧的位移：有路径走路径，没有就用 Drive 给的速度。由主角控制器或香客自己调用。
-        public Vector3 Motion(float dt) => path.Count > 0 ? PathStep(dt) : velocity * dt;
+        public Vector3 Motion(float dt) => InTransition ? Vector3.zero : path.Count > 0 ? PathStep(dt) : velocity * dt;
 
         public CharacterController controller;
         /// 不用碰撞胶囊走路时，高度跟着脚下的地面走
@@ -234,6 +485,8 @@ namespace Yuanjing
         {
             float dt = Time.deltaTime;
             Vector3 move = Motion(dt);
+            var moverT = controller != null ? controller.transform : transform;
+            Vector3 before = moverT.position;
             if (controller != null && controller.enabled)
             {
                 move.y = -2f * dt;
@@ -244,16 +497,24 @@ namespace Yuanjing
                 // 没有碰撞胶囊（香客，或者自己在自动走路线）：水平移动，高度贴着脚下的地面、台阶、蒲团
                 var mover = controller != null ? controller.transform : transform;
                 Vector3 pos = mover.position + new Vector3(move.x, 0, move.z);
-                if (groundFollow && Physics.Raycast(pos + Vector3.up * 0.8f, Vector3.down, out var hit, 2.5f, ~(1 << 2), QueryTriggerInteraction.Ignore))
+                // 坐着、跪着的时候不跟着地面走（坐下时原点就放在蒲团下面的地上，草垫的碰撞会把人顶高）
+                if (groundFollow && pose == Pose.None && Physics.Raycast(pos + Vector3.up * 0.8f, Vector3.down, out var hit, 2.5f, ~(1 << 2), QueryTriggerInteraction.Ignore))
                     pos.y = Mathf.MoveTowards(pos.y, hit.point.y, 2.5f * dt);
                 mover.position = pos;
             }
-            float speed = dt > 1e-5f ? new Vector2(move.x, move.z).magnitude / dt : 0;
+            // 走路动画的快慢按「真正走了多远」算：撞到东西被挡住时脚不会在原地蹭
+            Vector3 moved = moverT.position - before;
+            float speed = dt > 1e-5f ? Mathf.Min(new Vector2(move.x, move.z).magnitude, new Vector2(moved.x, moved.z).magnitude) / dt : 0;
             if (float.IsNaN(speed) || float.IsInfinity(speed)) speed = 0;
             moveSpeed = Mathf.Lerp(moveSpeed, speed, 1 - Mathf.Exp(-10f * dt));
             bool sitting = pose == Pose.Bench || pose == Pose.CrossLegged;
             sitW = Mathf.MoveTowards(sitW, sitting ? 1 : 0, dt / 0.6f);
-            if (graph.IsValid()) Mix(moveSpeed, Mathf.SmoothStep(0, 1, sitW));
+            if (graph.IsValid())
+            {
+                UpdateActions(dt);
+                GlideSeat();
+                Mix(moveSpeed, actionClips != null && actionClips.Length > 0 && pose == Pose.CrossLegged ? 0 : Mathf.SmoothStep(0, 1, sitW));
+            }
             stepDist += speed * dt;
             if (stepDist > 0.42f)
             {
@@ -343,6 +604,13 @@ namespace Yuanjing
         {
             // 模型被隐藏时动画不再刷新骨骼，这时不能再去改姿势
             if (handler == null || !model.gameObject.activeInHierarchy) return;
+            if (actionClips != null && actionClips.Length > 0 && Pose_Allowed(shown))
+            {
+                // 姿势全由动作段给（高度也是动作里做好的），这里只补关节缩放
+                ApplyProportions();
+                model.localPosition = Vector3.zero;
+                return;
+            }
             if (weight <= 0.001f)
             {
                 ApplyProportions();
@@ -485,10 +753,14 @@ namespace Yuanjing
             Mix(speed, state == "SitIdle" ? 1 : 0);
             for (int i = 0; i < slots.Length; i++) slots[i].SetTime(time);
             graph.Evaluate(0);
-            pose = p;
+            pose = Pose.None;
+            bowPhase = bow;
+            SetPose(p, true);
             shown = p;
             weight = p == Pose.None ? 0 : 1;
-            bowPhase = bow;
+            UpdateActions(0);
+            Mix(speed, 0);
+            graph.Evaluate(0);
             sink = 0;
             ApplyPose(0);
             if (nameTag != null && head != null)

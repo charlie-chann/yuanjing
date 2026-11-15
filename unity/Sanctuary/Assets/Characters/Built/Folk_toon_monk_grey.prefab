@@ -438,6 +438,8 @@ MonoBehaviour:
   walkClip: {fileID: 7400000, guid: 8d62b44f7490b4f8d9ad144a0373b269, type: 2}
   walkFastClip: {fileID: 7400000, guid: 60d2a3030b0be4b94a9c848d5b99841c, type: 2}
   sitClip: {fileID: 7400000, guid: a70a4217e2c7f4897962a4600696465a, type: 2}
+  actionClips: []
+  idleClips: []
   model: {fileID: 1167407470284455922}
   nameTag: {fileID: 3165611895937171077}
   walkSpeed: 0.85

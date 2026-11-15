@@ -225,3 +225,23 @@ class SanctuaryOffering(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
     __table_args__ = (Index("ix_sanctuary_offerings_scene_id", "scene", "id"),)
+
+
+class PetBond(Base):
+    """湖心小寺里的小动物和一个人的交情。摸它、喂它会涨，它就记住你了：
+    熟了会在你上岛时跑来迎接、跟着你走，还会叼礼物来。"""
+
+    __tablename__ = "pet_bonds"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    pet: Mapped[str] = mapped_column(String(16))
+    affinity: Mapped[int] = mapped_column(Integer, default=0)
+    # 每天摸和喂各只有前几次涨交情，这里记今天已经算了几次
+    day: Mapped[date | None] = mapped_column(Date)
+    pets_today: Mapped[int] = mapped_column(Integer, default=0)
+    feeds_today: Mapped[int] = mapped_column(Integer, default=0)
+    # 哪天收过它的礼物、哪天它来迎接过（一天一次）
+    gift_day: Mapped[date | None] = mapped_column(Date)
+    greet_day: Mapped[date | None] = mapped_column(Date)
+
+    __table_args__ = (UniqueConstraint("user_id", "pet", name="uq_pet_bonds_user_pet"),)

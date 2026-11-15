@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import settings
 from .db import Base, SessionLocal, engine
-from .routers import ai, files, me, plaza, sanctuary, wish
+from .routers import ai, files, me, pets, plaza, sanctuary, wish
 from .seed import seed
 
 logging.basicConfig(level=logging.INFO)
@@ -29,6 +29,7 @@ app = FastAPI(title="愿境", lifespan=lifespan)
 app.include_router(me.router)
 app.include_router(plaza.router)
 app.include_router(sanctuary.router)
+app.include_router(pets.router)
 app.include_router(ai.router)
 app.include_router(files.router)
 app.include_router(wish.router)

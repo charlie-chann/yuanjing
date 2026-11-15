@@ -12,11 +12,16 @@ namespace Yuanjing
         float yaw, pitch = 16f, yawTarget, pitchTarget = 16f, dist;
         float lastTouch = -100f;
         bool snapped;
+        Vector3 lastTarget, vel;
+        /// 走路时镜头慢慢绕到人身后（每秒最多转几度）
+        public float autoTurn = 40f;
 
         public override float Yaw => yaw;
 
         void Awake()
         {
+            // 和别的跟法挂在同一台镜头上时（ViewSwitcher），这些由它统一管
+            if (GetComponent<ViewSwitcher>() != null) return;
             Folk.TagScalePerMeter = 0.24f;
             Folk.TagMaxScale = 2.4f;
             Folk.TagHideBeyond = 26f;
@@ -57,7 +62,23 @@ namespace Yuanjing
         {
             if (target == null) return;
             if (!snapped) Snap(target.eulerAngles.y);
-            Apply(Time.deltaTime);
+            float dt = Time.deltaTime;
+            if (dt > 0)
+            {
+                Vector3 v = (target.position - lastTarget) / dt;
+                v.y = 0;
+                if (v.magnitude > 8f) v = Vector3.zero;
+                vel = Vector3.Lerp(vel, v, 1 - Mathf.Exp(-4f * dt));
+            }
+            lastTarget = target.position;
+            float sp = vel.magnitude;
+            if (sp > 0.3f && Time.time - lastTouch > 1.2f)
+            {
+                float heading = Mathf.Atan2(vel.x, vel.z) * Mathf.Rad2Deg;
+                float diff = Mathf.DeltaAngle(yawTarget, heading);
+                if (Mathf.Abs(diff) < 150f) yawTarget = Mathf.MoveTowardsAngle(yawTarget, heading, autoTurn * Mathf.Clamp01(sp / 1.0f) * dt * Mathf.Clamp01(Mathf.Abs(diff) / 15f));
+            }
+            Apply(dt);
         }
 
         void Apply(float dt)

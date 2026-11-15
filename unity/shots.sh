@@ -3,7 +3,7 @@
 cd "$(dirname "$0")"
 [ "$3" = "build" ] && { ./run.sh SanctuaryBuild.Build${SCENE:-Temple} || exit 1; }
 rm -f shots/_*.png
-./run.sh SanctuaryBuild.Preview -scene ${SCENE:-Temple} -width 603 -height 1311 -shots "$2" || exit 1
+./run.sh SanctuaryBuild.Preview -scene ${SCENE:-Temple} -width 603 -height 1311 -shots "$2" ${PLAYER:+-player "$PLAYER"} ${PET:+-pet "$PET"} || exit 1
 python3 - "$1" <<'PY'
 import sys, glob
 from PIL import Image

@@ -13,7 +13,7 @@ using Yuanjing;
 public class TextureRules : AssetPostprocessor
 {
     // 改了规则就加一，所有贴图会重新导入
-    public override uint GetVersion() => 2;
+    public override uint GetVersion() => 4;
 
     void OnPreprocessTexture()
     {
@@ -31,6 +31,61 @@ public class TextureRules : AssetPostprocessor
                 imp.mipMapsPreserveCoverage = true;
                 imp.alphaTestReferenceValue = 0.45f;
             }
+            return;
+        }
+        // 湖心小寺的贴图：地面那张很大、要清楚（各向异性开高，斜着看不糊）；颗粒图是平铺的灰度图
+        if (assetPath.StartsWith("Assets/Toon/Textures/") && name.StartsWith("m_"))
+        {
+            // 表面细节贴图（tools/textures/prep.py）：按世界坐标平铺，凑近看要清楚；_n 是法线
+            bool normal = name.EndsWith("_n");
+            imp.textureType = normal ? TextureImporterType.NormalMap : TextureImporterType.Default;
+            imp.sRGBTexture = !normal;
+            imp.maxTextureSize = 2048;
+            imp.mipmapEnabled = true;
+            imp.filterMode = FilterMode.Trilinear;
+            imp.anisoLevel = 8;
+            imp.wrapMode = TextureWrapMode.Repeat;
+            var t = imp.GetPlatformTextureSettings("iPhone");
+            t.overridden = true;
+            t.maxTextureSize = 2048;
+            t.format = normal ? TextureImporterFormat.ASTC_5x5 : TextureImporterFormat.ASTC_6x6;
+            imp.SetPlatformTextureSettings(t);
+            return;
+        }
+        if (assetPath.StartsWith("Assets/Toon/Textures/") && name.StartsWith("leaf_"))
+        {
+            // 叶子的距离场贴图（tools/textures/leaves.py）：存的是数不是颜色；远处缩小后保住覆盖面积，树冠不会越远越稀
+            imp.sRGBTexture = false;
+            imp.alphaSource = TextureImporterAlphaSource.FromInput;
+            imp.alphaIsTransparency = false;
+            imp.maxTextureSize = 1024;
+            imp.mipmapEnabled = true;
+            imp.mipMapsPreserveCoverage = true;
+            imp.alphaTestReferenceValue = 0.5f;
+            imp.filterMode = FilterMode.Trilinear;
+            imp.anisoLevel = 8;
+            imp.wrapMode = TextureWrapMode.Clamp;
+            var t = imp.GetPlatformTextureSettings("iPhone");
+            t.overridden = true;
+            t.maxTextureSize = 1024;
+            t.format = TextureImporterFormat.ASTC_4x4;
+            imp.SetPlatformTextureSettings(t);
+            return;
+        }
+        if (assetPath.StartsWith("Assets/Toon/Textures/"))
+        {
+            bool grain = name.Contains("grain");
+            imp.maxTextureSize = 4096;
+            imp.mipmapEnabled = true;
+            imp.filterMode = FilterMode.Trilinear;
+            imp.anisoLevel = 8;
+            imp.wrapMode = grain ? TextureWrapMode.Repeat : TextureWrapMode.Clamp;
+            imp.sRGBTexture = !grain;
+            var tios = imp.GetPlatformTextureSettings("iPhone");
+            tios.overridden = true;
+            tios.maxTextureSize = 4096;
+            tios.format = grain ? TextureImporterFormat.ASTC_6x6 : TextureImporterFormat.ASTC_5x5;
+            imp.SetPlatformTextureSettings(tios);
             return;
         }
         if (assetPath.StartsWith("Assets/Textures/"))
@@ -175,7 +230,7 @@ public static partial class SanctuaryBuild
         SetProp(so, "m_ShadowDistance", p => p.floatValue = 48f);
         SetProp(so, "m_ShadowCascadeCount", p => p.intValue = 3);
         SetProp(so, "m_SoftShadowsSupported", p => p.boolValue = true);
-        SetProp(so, "m_SoftShadowQuality", p => p.intValue = 3);
+        SetProp(so, "m_SoftShadowQuality", p => p.intValue = 2);
         SetProp(so, "m_SupportsHDR", p => p.boolValue = true);
         // 多重采样在 iOS 模拟器上和后期一起用会报错，改用镜头上的后期抗锯齿（见 BuildEnvironment）
         // 真机 4 倍多重采样；模拟器不支持和后期一起用，关掉。镜头上另有 SMAA。
@@ -427,6 +482,41 @@ public static partial class SanctuaryBuild
         Directory.CreateDirectory("../shots");
         int w = int.Parse(Arg("-width") ?? "804"), h = int.Parse(Arg("-height") ?? "1748");
         // 预览时摆上几位香客（运行时才会出现的人，这里手动摆）
+        // 带骨骼动作的小动物：出图时摆成待机动作里的一帧（不跑游戏的话它们是僵直的）
+        foreach (var cr in UnityEngine.Object.FindObjectsByType<Yuanjing.Critter>(FindObjectsSortMode.None))
+        {
+            if (cr.rig == null) continue;
+            // 名字牌、食盆、礼物平时是运行时才收起来的，出图时先藏好
+            if (cr.nameTag != null) cr.nameTag.gameObject.SetActive(false);
+            if (cr.food != null) cr.food.SetActive(false);
+            if (cr.giftInMouth != null) cr.giftInMouth.SetActive(false);
+            var idle = cr.rig.GetClip("Idle");
+            if (idle != null) idle.SampleAnimation(cr.rig.gameObject, 0.6f);
+            // -pet "编号,x,y,z,朝向[,动作,时刻]|编号,..."：把几只摆到指定位置
+            foreach (string one in (Arg("-pet") ?? "").Split('|'))
+            {
+                if (one.Length == 0) continue;
+                var pp0 = one.Split(',');
+                if (cr.id != pp0[0]) continue;
+                var pp = System.Linq.Enumerable.ToArray(System.Linq.Enumerable.Skip(pp0, 1));
+                cr.transform.SetPositionAndRotation(new Vector3(float.Parse(pp[0]), float.Parse(pp[1]), float.Parse(pp[2])), Quaternion.Euler(0, pp.Length > 3 ? float.Parse(pp[3]) : 0, 0));
+                if (pp.Length > 4 && cr.rig.GetClip(pp[4]) != null) cr.rig.GetClip(pp[4]).SampleAnimation(cr.rig.gameObject, pp.Length > 5 ? float.Parse(pp[5]) : 0.3f);
+            }
+        }
+        // -player "x,y,z,朝向,姿势"：把自己摆到这里出图（不写就留在原地）。姿势：None Gassho Bow Kneel CrossLegged……
+        if (Arg("-player") != null)
+        {
+            var pf = Arg("-player").Split(',');
+            var playerGo = GameObject.Find("Player");
+            var folk = playerGo != null ? playerGo.GetComponentInChildren<Yuanjing.Folk>() : null;
+            if (folk != null)
+            {
+                playerGo.transform.position = new Vector3(float.Parse(pf[0]), float.Parse(pf[1]), float.Parse(pf[2]));
+                folk.transform.localRotation = Quaternion.Euler(0, pf.Length > 3 ? float.Parse(pf[3]) : 0, 0);
+                var pose = pf.Length > 4 ? (Yuanjing.Folk.Pose)Enum.Parse(typeof(Yuanjing.Folk.Pose), pf[4], true) : Yuanjing.Folk.Pose.None;
+                folk.EditorPose("Move", 0, 0.3f, pose, 0);
+            }
+        }
         foreach (string shot in (Arg("-shots") ?? "").Split(';'))
         {
             var f = shot.Split('|');

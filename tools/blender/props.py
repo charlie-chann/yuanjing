@@ -77,12 +77,19 @@ def burner(name):
 
 
 def cushion(name):
-    """蒲团：草编的，一圈一圈"""
+    """蒲团：下面一张方的草编坐垫（膝盖和脚放在上面），上面靠后一个圆的蒲团（臀坐在上面）。
+    尺寸 Unity 那边要用（BuildIslet.cs 的座位、Tests/PlaythroughTest.cs 的穿模检查）：
+    方垫 0.8×0.8、厚 0.05，中心在原点往 +y（朝大殿）0.12；圆蒲团半径 0.2、顶面高 0.18，中心在原点。"""
     a = Asset(name)
     s1, s2, s3 = C('straw'), C('straw_lit'), C('straw_dark')
-    prof = [(0.0, 0.0), (0.33, 0.0, s3), (0.38, 0.04, s1), (0.385, 0.09, s3), (0.36, 0.13, s2), (0.3, 0.145, s1), (0.24, 0.15, s2), (0.18, 0.152, s1),
-            (0.12, 0.154, s2), (0.06, 0.155, s1), (0.0, 0.155)]
-    a.lathe(prof, segs=18, color=s1)
+    # 方垫：四边包一圈深色的布边，中间草编
+    a.box((0.8, 0.8, 0.05), (0, 0.12, 0), color=s1, bevel=0.012, top=s2, segs=2)
+    for (w, d, x, y) in ((0.8, 0.05, 0, 0.12 - 0.375), (0.8, 0.05, 0, 0.12 + 0.375), (0.05, 0.7, -0.375, 0.12), (0.05, 0.7, 0.375, 0.12)):
+        a.box((w, d, 0.053), (x, y, 0), color=s3, bevel=0.01)
+    # 圆蒲团：一圈一圈的草编，顶上被坐得微微凹下去
+    prof = [(0.0, 0.05), (0.17, 0.05, s3), (0.2, 0.07, s1), (0.205, 0.11, s3), (0.195, 0.15, s2), (0.17, 0.172, s1), (0.12, 0.18, s2),
+            (0.07, 0.176, s1), (0.0, 0.172)]
+    a.lathe(prof, segs=28, color=s1)
     return a.finish(dist=0.4)
 
 
@@ -183,4 +190,107 @@ def beach_bits(name):
     return total
 
 
-ASSETS = {'rocks': rocks, 'lantern': lantern, 'burner': burner, 'cushion': cushion, 'koi': koi, 'fence': fence, 'stele': stele, 'hat': hat, 'beach_bits': beach_bits}
+def details(name):
+    """让院子有人气的小东西：洗手的石钵、长凳、扫帚、木牌架、指路牌、落叶、蘑菇"""
+    total = 0
+    st, sl, sd = C('stone'), C('stone_lit'), C('stone_dark')
+    # 石钵：一块凿空的石头盛着水，竹筒往里滴水，上面搁一把竹勺
+    a = Asset('basin')
+    a.rock((1.1, 0.95, 0.62), color=sd, top=st, n=30, bevel=0.05, sink=0.05)
+    a.lathe([(0.0, 0.5, C('lakebed')), (0.3, 0.5, sl), (0.36, 0.56, sl), (0.4, 0.58, st), (0.42, 0.54)], segs=14, color=sl)
+    a.lathe([(0.0, 0.535, mix(C('lakebed'), C('white'), 0.35)), (0.3, 0.535)], segs=14, color=C('lakebed'))
+    bm, bd = C('bamboo'), C('bamboo_dark')
+    a.cyl(0.035, 0.95, (-0.55, 0.1, 0), bd, segs=7, grad=(bd, bm))
+    a.tube([(-0.55, 0.1, 0.86), (-0.3, 0.06, 0.8), (-0.12, 0.03, 0.74)], 0.028, bm, segs=7)
+    for z in (0.3, 0.6):
+        a.cyl(0.04, 0.02, (-0.55, 0.1, z), tint(bd, -0.06), segs=7)
+    a.tube([(0.5, -0.2, 0.6), (0.1, -0.02, 0.62)], 0.012, C('straw'), segs=5)
+    a.lathe([(0.0, 0.0), (0.05, 0.0, C('straw_dark')), (0.055, 0.06, C('straw')), (0.045, 0.06), (0.04, 0.012), (0.0, 0.012)], (0.06, 0.0, 0.59), segs=8, color=C('straw'))
+    for i in range(5):
+        ang = i * 1.3
+        a.rock((0.22, 0.18, 0.12), loc=(0.62 * math.cos(ang), 0.56 * math.sin(ang), 0), color=vary(st, a.rng, 0.05), top=C('moss') if i % 2 else sl, n=14)
+    total += a.finish(dist=0.6)
+    # 长凳
+    a = Asset('bench')
+    w, wl, wd = C('wood'), C('wood_lit'), C('wood_dark')
+    for i, y in enumerate((-0.13, 0.0, 0.13)):
+        a.box((1.5, 0.115, 0.045), (0, y, 0.4), color=vary(w, a.rng, 0.04), bevel=0.012, top=vary(wl, a.rng, 0.03))
+    for sx in (-0.6, 0.6):
+        a.box((0.07, 0.36, 0.4), (sx, 0, 0), color=wd, bevel=0.012)
+        a.box((0.09, 0.42, 0.05), (sx, 0, 0), color=wd, bevel=0.012)
+    a.box((1.2, 0.05, 0.06), (0, 0, 0.16), color=wd, bevel=0.01)
+    total += a.finish(dist=0.5)
+    # 扫帚：靠在什么东西上的，这里先斜着立
+    a = Asset('broom')
+    a.tube([(0, 0, 0.32), (0.05, 0.0, 1.5)], 0.016, C('bamboo_dark'), segs=6, color2=C('straw'))
+    for i in range(14):
+        ang = a.rng.uniform(0, 6.28)
+        r = a.rng.uniform(0.02, 0.16)
+        a.tube([(0, 0, 0.36), (r * math.cos(ang) * 0.5, r * math.sin(ang) * 0.5, 0.2), (r * math.cos(ang), r * math.sin(ang), 0.0)], 0.009,
+               vary(C('straw_dark'), a.rng, 0.05), segs=4)
+    a.lathe([(0.03, 0), (0.04, 0.01), (0.04, 0.05), (0.03, 0.06)], (0, 0, 0.33), segs=6, color=C('rope_dark'))
+    total += a.finish(ao=False)
+    # 木牌架：两根柱子三道横杆，挂满写了愿望的小木牌
+    a = Asset('plaque_rack')
+    for sx in (-1.0, 1.0):
+        a.box((0.1, 0.1, 1.75), (sx, 0, 0), color=wd, bevel=0.015, grad=(C('wood_deep'), w))
+        a.box((0.2, 0.2, 0.08), (sx, 0, 0), color=sd, bevel=0.02, top=st)
+    a.roof(1.25, 0.24, 0.16, z=1.78, lift=0.05, pitch=0.3, amp=0.012, rows=2, thick=0.04, ridge_r=0.03, tip=0.1, course=0.12)
+    for row, z in enumerate((1.55, 1.12, 0.7)):
+        a.box((2.0, 0.05, 0.045), (0, 0, z), color=w, bevel=0.01)
+        n = 9
+        for i in range(n):
+            x = -0.85 + 1.7 * i / (n - 1) + a.rng.uniform(-0.03, 0.03)
+            if a.rng.random() < 0.15:
+                continue
+            c = vary(a.rng.choice([C('plank_c'), C('wood_lit'), C('paper')]), a.rng, 0.04)
+            tilt = a.rng.uniform(-0.12, 0.12)
+            for side in (-1, 1):
+                p0 = (x, side * 0.035, z - 0.02)
+                a.quad([(x - 0.07, side * 0.035, z - 0.3), (x + 0.07, side * 0.035, z - 0.3), (x + 0.07 + tilt * 0.02, side * 0.035, z - 0.1),
+                        (x, side * 0.035, z - 0.05), (x - 0.07 + tilt * 0.02, side * 0.035, z - 0.1)], mat='leaf',
+                       colors=[tint(c, -0.06)] * 2 + [c, tint(c, 0.04), c], sway=(0.5, 0.5, 0.15, 0.0, 0.15))
+            a.cyl(0.006, 0.07, (x, 0, z - 0.06), C('cloth_red'), segs=4)
+    a.opts['leaf'] = {'normal_up': 0.3, 'plain_normals': True}
+    total += a.finish(dist=0.6, view=(20, 30, 1.0))
+    # 指路牌
+    a = Asset('signpost')
+    a.box((0.09, 0.09, 1.5), color=wd, bevel=0.015, grad=(C('wood_deep'), w))
+    a.rock((0.4, 0.36, 0.2), color=st, top=C('moss'), n=14)
+    for z, ang, c in ((1.2, 0.25, C('plank_c')), (0.95, -2.7, C('plank'))):
+        a.prism([(-0.36, -0.07), (0.28, -0.07), (0.4, 0.0), (0.28, 0.07), (-0.36, 0.07)], -0.018, 0.018, tint(c, -0.1), top=c, bevel=0.008,
+                loc=(0.0, -0.065, z), rot=(math.pi / 2, 0, ang))
+    total += a.finish(dist=0.5)
+    # 落叶：贴在地上的一小片
+    for v, cols in {'green': [C('leaf'), C('leaf_lit'), C('ginkgo')], 'maple': [C('maple'), C('maple_lit'), C('maple_dark')],
+                    'ginkgo': [C('ginkgo'), C('ginkgo_lit'), C('maple_lit')], 'petal': [C('blossom'), C('blossom_lit'), C('white')]}.items():
+        a = Asset(f'fallen_{v}')
+        rng = a.rng
+        for i in range(16):
+            ang = rng.uniform(0, 6.28)
+            d = 1.1 * math.sqrt(rng.random())
+            x, y = d * math.cos(ang), d * math.sin(ang)
+            r = rng.uniform(0, 6.28)
+            s = rng.uniform(0.05, 0.09) if v != 'petal' else rng.uniform(0.03, 0.05)
+            c = vary(rng.choice(cols), rng, 0.05)
+            dx, dy = math.cos(r) * s, math.sin(r) * s
+            px, py = -dy * 0.55, dx * 0.55
+            z = 0.012 + 0.002 * i
+            a.quad([(x - dx, y - dy, z), (x + px, y + py, z + 0.004), (x + dx, y + dy, z), (x - px, y - py, z + 0.004)], mat='leaf',
+                   colors=[tint(c, -0.06), c, tint(c, 0.06), c], sway=(0, 0, 0, 0))
+        a.opts['leaf'] = {'normal_up': 1.0, 'plain_normals': True}
+        total += a.finish(ao=False)
+    # 蘑菇
+    a = Asset('mushrooms')
+    for i, (x, y, s, c) in enumerate(((0, 0, 1.0, C('cloth_red')), (0.12, 0.06, 0.7, C('cloth_red')), (-0.1, 0.09, 0.55, C('maple_lit')), (0.03, -0.12, 0.45, C('paper')))):
+        a.cyl(0.018 * s, 0.09 * s, (x, y, 0), C('paper'), r2=0.014 * s, segs=6)
+        a.lathe([(0.0, 0.085 * s), (0.065 * s, 0.085 * s, tint(c, -0.1)), (0.07 * s, 0.1 * s, c), (0.045 * s, 0.135 * s, tint(c, 0.06)), (0.0, 0.15 * s)], (x, y, 0), segs=9, color=c)
+        if i < 2:
+            for q in range(4):
+                ang = q * 1.7 + i
+                a.blob(0.009 * s, (x + 0.04 * s * math.cos(ang), y + 0.04 * s * math.sin(ang), 0.128 * s), (1, 1, 0.5), C('white'), subdiv=1, bump=0)
+    total += a.finish(dist=0.2)
+    return total
+
+
+ASSETS = {'rocks': rocks, 'lantern': lantern, 'burner': burner, 'cushion': cushion, 'koi': koi, 'fence': fence, 'stele': stele, 'hat': hat, 'beach_bits': beach_bits, 'details': details}

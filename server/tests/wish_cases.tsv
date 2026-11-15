@@ -1,0 +1,1091 @@
+# 愿境 App 愿望分类器盲测集（未参考词库/实现，仅依据意图名单编写）
+# 格式：愿望原文<TAB>用户所选分类<TAB>可接受的意图编号（逗号分隔）
+# 含约15%刁钻样本：分类与内容不符、负面报复(mood.letgo_hurt)、无意义输入(xx.blank)、名单外冷门愿望(xx.general/xx.short)
+上岸	career	career.short,career.general,career.civil,career.postgrad
+升职加薪	career	career.promotion,wealth.raise
+事业顺利	career	career.general,career.short
+工作顺顺利利	career	career.general,career.short
+offer多多	career	career.job,career.campus,career.short
+英国留学申请拿到offer	career	career.abroad
+希望能去美国读研 签证也顺利	career	career.abroad,life.visa
+港三新申请成功！	career	career.abroad
+希望能被理想的大学录取	career	career.admission
+志愿填报顺利 被第一志愿录取	career	career.admission
+录取通知书快来吧	career	career.admission
+考上军校	career	career.army
+弟弟体检政审都过 顺利参军	career	career.army
+警校面试过	career	career.army,career.interview
+美术联考上230	career	career.artexam
+艺考校考全过！	career	career.artexam
+希望能平衡好工作和生活 不要天天加班	career	career.balance
+下班准点 不想996了	career	career.balance
+领导别再针对我了	career	career.boss
+和新领导相处融洽	career	career.boss
+在公司受了委屈 希望能被公正对待	career	career.bully
+不要再被同事甩锅了	career	career.bully,career.colleague
+保研成功！	career	career.baoyan
+推免名额给我吧	career	career.baoyan
+秋招拿到心仪的offer	career	career.campus
+春招上岸 别再空窗了	career	career.campus,career.job
+一建过	career	career.cert
+法考主观题过！	career	career.cert
+CFA一级pass	career	career.cert,career.cpa
+四级过	career	career.cet
+六级500+	career	career.cet
+四六级一次过！！	career	career.cet
+考公上岸	career	career.civil
+考编成功 当老师	career	career.civil,career.teacher_cert
+国考进面	career	career.civil,career.written
+和同事好好相处	career	career.colleague
+希望新部门的同事都好相处	career	career.colleague,career.newjob
+比赛拿金奖	career	career.compete
+舞蹈比赛拿第一	career	career.compete
+数学竞赛省一	career	career.contest
+信息学奥赛进省队	career	career.contest
+CPA今年过三门	career	career.cpa
+初级会计一次过	career	career.cpa
+戒掉拖延症 每天按计划学习	career	career.discipline
+自律！不再刷手机到半夜	career	career.discipline
+进字节	career	career.dream
+希望能进腾讯	career	career.dream
+考试通过	career	career.exam
+期末不挂科	career	career.exam,career.grades
+明天的考试全会	career	career.exam
+考试的时候不要紧张 正常发挥	career	career.exam_nerves
+希望我一上考场别脑子空白	career	career.exam_nerves
+高考考上600分	career	career.gaokao
+女儿高考顺利 金榜题名	career	career.gaokao,career.kid_study
+2027高考加油	career	career.gaokao
+希望成绩能进步 考进前十	career	career.grades
+数学及格吧求你了	career	career.grades
+GPA拉到3.8	career	career.grades
+顺利毕业 拿到双证	career	career.graduate
+延毕别来	career	career.graduate
+找到好实习	career	career.internship
+暑期实习转正	career	career.internship,career.probation
+面试顺利	career	career.interview
+明天二面过过过	career	career.interview
+希望HR面不要挂	career	career.interview
+找到工作	career	career.job
+希望下个月能找到工作 失业三个月了😭	career	career.job
+找个钱多事少离家近的工作	career	career.job
+儿子成绩提高 上课认真听讲	career	career.kid_study
+孩子作业能自己写 不用我盯	career	career.kid_study
+雅思7分	career	career.language
+托福100+	career	career.language
+日语N1一把过	career	career.language,career.cert
+别裁我 求稳	career	career.layoff
+公司裁员别轮到我	career	career.layoff
+希望我能带好团队 下属都服我	career	career.manage
+第一次当leader 别搞砸	career	career.manage
+执业医师考试通过	career	career.medical_cert
+护士资格证考过	career	career.medical_cert
+规培结业考试过	career	career.medical_cert
+新公司快点适应	career	career.newjob
+入职顺利 融入新团队	career	career.newjob
+SCI一投就中	career	career.paperpub
+小论文快点接收！	career	career.paperpub
+找到自己真正想做的事	career	career.passion
+迷茫了 希望知道自己该干嘛	career	career.passion,mood.lost
+申博成功	career	career.phd
+考博上岸	career	career.phd
+博士顺利毕业	career	career.phd,career.graduate
+查重率低于10%	career	career.plagiarism
+知网查重一次过	career	career.plagiarism
+考研上岸	career	career.postgrad
+一战成硕！	career	career.postgrad
+考研数学考130	career	career.postgrad
+试用期顺利转正	career	career.probation
+项目顺利上线 不出bug	career	career.project
+这个项目验收一次过	career	career.project
+升职	career	career.promotion
+今年升主管	career	career.promotion
+我的小说能签约出版	career	career.publish
+作品被更多人看到	career	career.publish
+我的努力能被领导看见	career	career.recognition
+被认可 被肯定	career	career.recognition
+考研复试过	career	career.retest,career.postgrad
+调剂成功 有学上	career	career.retest
+复试别刷我	career	career.retest
+宝宝上幼儿园了 希望我能顺利重返职场	career	career.return
+全职妈妈想重新找工作	career	career.return,career.job
+这个月开单	career	career.sales
+业绩冲第一	career	career.sales
+卖出十套房 冲业绩	career	career.sales
+拿到国奖	career	career.scholarship
+奖学金是我的	career	career.scholarship
+学会python	career	career.skill
+学好PS 做设计	career	career.skill
+专注学习 提高效率	career	career.study
+上课不犯困	career	career.study
+答辩时候不结巴	career	career.speech
+年会演讲顺利	career	career.speech
+汇报顺利 老板满意	career	career.speech
+创业成功	career	career.startup
+自己开公司能活下去	career	career.startup
+跳槽成功 涨薪30%	career	career.switch
+顺利转行做产品经理	career	career.switch
+教资面试过	career	career.teacher_cert
+教师资格证笔试全过	career	career.teacher_cert
+公开课讲得好	career	career.teaching
+班上的孩子都听话 好好学习	career	career.teaching
+毕业论文顺利写完	career	career.thesis
+毕设答辩通过	career	career.thesis
+笔试过！	career	career.written
+行测申论都考高分	career	career.written,career.civil
+性格测评别挂我	career	career.written
+中考考上重点高中	career	career.zhongkao
+体育中考满分	career	career.zhongkao
+儿子中考加油	career	career.zhongkao,career.kid_study
+驾照一次过	career	career.driving
+科目二别挂	career	career.driving
+科三过过过	career	career.driving
+希望奶奶身体健康	career	health.parents,health.general,health.longevity
+早日暴富	career	wealth.short,wealth.general
+希望前同事被开除 让他也尝尝滋味	career	mood.letgo_hurt
+希望抢我功劳的人倒霉	career	mood.letgo_hurt
+狗狗病快好	career	pet.sick
+希望他也喜欢我	career	life.crush
+最近好焦虑 睡不着	career	mood.anxiety,health.sleep
+年终奖多发点	career	wealth.bonus
+1	career	career.blank
+啊	career	career.blank
+哈哈哈哈	career	career.blank
+？？	career	career.blank
+希望我养的蜂能多产蜜	career	career.general,wealth.business
+想学会开挖掘机	career	career.skill,career.general
+健康	health	health.short,health.general
+身体健康	health	health.general,health.short
+平安健康	health	health.general,health.short
+无病无灾	health	health.general,health.short
+全家人都健健康康的	health	health.general,health.parents
+鼻炎快点好 春天别再打喷嚏了	health	health.allergy
+过敏别再犯了 浑身痒死了	health	health.allergy
+花粉过敏快走开🤧	health	health.allergy
+焦虑症快点好起来 不想再心慌了	health	health.anxiety
+惊恐发作别再来了	health	health.anxiety
+活检结果是良性	health	health.biopsy
+病理报告良性良性良性🙏	health	health.biopsy
+甲状腺穿刺结果良性	health	health.biopsy,health.nodule
+顺产 少受点罪	health	health.birth
+宝宝平安出生 母子平安	health	health.birth,health.newborn
+预产期快到了希望一切顺利	health	health.birth
+妈妈的癌症能控制住	health	health.cancer,health.parents
+化疗顺利 肿瘤缩小	health	health.cancer
+抗癌成功 五年无复发	health	health.cancer
+体检报告一切正常	health	health.checkup
+复查结果都好	health	health.checkup
+胃镜结果没问题	health	health.checkup,health.stomach
+儿子健健康康长大	health	health.child
+宝宝少生病	health	health.child
+女儿发烧快退	health	health.child_sick
+宝宝咳嗽快好起来	health	health.child_sick
+孩子肺炎早点出院	health	health.child_sick
+高血压控制住	health	health.pressure,health.chronic
+慢性病稳定 不再加重	health	health.chronic
+甲减指标正常	health	health.chronic
+感冒快好	health	health.cold
+发烧快退吧 好难受	health	health.cold
+甲流快滚	health	health.cold
+爸爸在icu 希望他挺过来	health	health.critical,health.parents
+外婆脱离危险	health	health.critical,health.parents
+月经规律	health	health.cycle
+大姨妈准时来 不要再推迟了	health	health.cycle
+多囊调理好	health	health.cycle,health.gyne
+抑郁症好起来	health	health.depression
+希望我能停药 抑郁不再复发	health	health.depression
+好好吃饭 不挑食	health	health.diet
+三餐规律	health	health.diet
+遇到好医生	health	health.doctor
+挂上专家号	health	health.doctor
+戒酒	health	health.drink
+少喝点酒 老公别天天应酬喝	health	health.drink,health.partner
+耳鸣快好	health	health.ear
+突发性耳聋恢复听力	health	health.ear
+精力充沛 不再天天犯困	health	health.energy
+每天元气满满	health	health.energy
+坚持运动	health	health.exercise
+每天走一万步	health	health.exercise
+尿酸降下来	health	health.gout
+痛风别再发作	health	health.gout
+健身增肌	health	health.gym
+卧推100kg	health	health.gym
+宫颈hpv转阴	health	health.gyne
+子宫肌瘤别长大了	health	health.gyne,health.nodule
+戒奶茶！！！	health	health.habit
+少吃糖	health	health.habit
+头痛快好	health	health.headache
+偏头痛别再来	health	health.headache
+心脏没问题	health	health.heart
+心律不齐好转	health	health.heart
+抵抗力强一点 少生病	health	health.immune
+免疫力up	health	health.immune
+脚踝扭伤快好	health	health.injury
+韧带恢复好 能继续打球	health	health.injury
+试管一次成功	health	health.ivf
+移植成功！胚胎着床	health	health.ivf
+保胎顺利 宝宝稳稳的	health	health.keep_baby
+孕早期不出血	health	health.keep_baby
+NT检查顺利	health	health.keep_baby,health.checkup
+肾功能正常	health	health.kidney
+肌酐降下来	health	health.kidney
+脂肪肝没了	health	health.liver
+转氨酶正常	health	health.liver
+长命百岁	health	health.longevity
+爷爷活到一百岁	health	health.longevity,health.parents
+妈妈更年期顺利度过	health	health.menopause,health.parents
+潮热失眠好一点	health	health.menopause,health.sleep
+双相情绪稳定 早日康复	health	health.mental
+强迫症好转	health	health.mental
+宝宝出生后健健康康	health	health.newborn
+新生儿黄疸快退	health	health.newborn
+乳腺结节消失	health	health.nodule
+肠息肉切了别再长	health	health.nodule
+膝盖不疼了	health	health.pain
+关节炎好转	health	health.pain
+爸妈身体健康	health	health.parents
+老妈的腿脚好起来	health	health.parents,health.pain
+爸爸手术后恢复好	health	health.parents,health.surgery,health.recover
+老公身体健康 少熬夜	health	health.partner
+老婆身体好好的	health	health.partner
+好孕来	health	health.pregnancy
+今年怀上宝宝	health	health.pregnancy
+求一个健康的宝宝 好孕好孕	health	health.pregnancy
+血压正常	health	health.pressure
+戒烟成功	health	health.quit
+老爸戒烟	health	health.quit,health.parents
+早日康复	health	health.recover
+病快点好	health	health.recover
+跑完全马	health	health.run
+半马破二	health	health.run
+早睡早起	health	health.schedule
+不熬夜了 12点前睡	health	health.schedule
+睡个好觉	health	health.sleep
+失眠快好	health	health.sleep
+颈椎病好了	health	health.spine
+腰间盘突出快好吧	health	health.spine
+胃好起来	health	health.stomach
+肠胃好一点 不拉肚子	health	health.stomach
+奶奶中风后能走路	health	health.stroke,health.parents
+脑梗恢复好	health	health.stroke
+血糖稳定	health	health.sugar
+妊娠糖尿病控制住	health	health.sugar,health.birth
+手术顺利	health	health.surgery
+明天的手术一切顺利 麻醉醒得快	health	health.surgery
+牙齿别疼了	health	health.teeth
+拔智齿顺利	health	health.teeth
+调理好体质 不再怕冷	health	health.weak
+气血足一点	health	health.weak
+眼睛近视别再涨了	health	health.eyes
+干眼症好了	health	health.eyes
+fighting! 身体棒棒	health	health.general,health.short
+希望自己能瘦下来	health	looks.slim
+发大财	health	wealth.short,wealth.general
+考研上岸	health	career.postgrad
+我家猫咪的肾病控制住	health	pet.chronic,pet.sick
+希望男朋友回心转意	health	life.reunite
+希望渣男得报应	health	mood.letgo_hurt
+希望欺负我的人生病	health	mood.letgo_hurt
+痘痘快点消	health	looks.acne
+不想焦虑了	health	mood.anxiety
+早日找到对象	health	life.single
+嗯	health	health.blank
+aaa	health	health.blank
+测试一下	health	health.blank
+666	health	health.blank
+希望我的口吃能好一点	health	health.general,health.short
+想治好晕车	health	health.general,health.short
+心想事成	life	life.short,life.general
+万事如意	life	life.short,life.general
+一切顺利	life	life.short,life.general
+好运连连	life	life.luck,life.short
+锦鲤附体🐟	life	life.luck
+最近运气好一点吧 倒霉透了	life	life.luck
+脱单	life	life.single
+2027脱单！	life	life.single
+希望今年能遇到对的人	life	life.single,life.love
+想谈恋爱了	life	life.single,life.love
+和男朋友甜甜蜜蜜	life	life.love
+恋爱顺利 一直在一起	life	life.love
+希望他也喜欢我	life	life.crush
+暗恋的学长能注意到我	life	life.crush
+和喜欢的女孩子表白成功	life	life.crush
+复合	life	life.reunite
+希望前男友回来找我	life	life.reunite,life.makeup
+和他和好吧 吵架太难受了	life	life.makeup
+和老公别再吵架了	life	life.makeup,life.family
+希望对象专一 不要骗我	life	life.loyal
+他心里只有我一个	life	life.loyal
+异地恋早点结束 奔现	life	life.longdist
+异地两年了 希望明年能在一个城市	life	life.longdist
+今年结婚	life	life.marriage
+婚姻幸福美满	life	life.marriage
+婚礼顺顺利利	life	life.marriage
+家庭和睦	life	life.family
+一家人和和美美	life	life.family
+爸妈支持我的决定	life	life.approve
+希望家里人能理解我不想结婚	life	life.approve
+多陪陪爸妈	life	life.filial
+带爸妈出去旅游一次	life	life.filial,life.travel
+过年一家人团团圆圆	life	life.festival
+中秋能回家团聚	life	life.festival,life.ticket
+春运抢到回家的票	life	life.ticket
+12306候补成功	life	life.ticket
+航班别延误	life	life.ontime
+高铁准点	life	life.ontime
+快递快点到	life	life.parcel
+双十一的快递别丢	life	life.parcel
+钥匙找回来	life	life.lostfound
+丢的耳机能找回	life	life.lostfound
+抢到周杰伦演唱会门票	life	life.concert
+五月天演唱会内场票！	life	life.concert
+哥哥的新剧大爆	life	life.idol,life.show
+见到我的偶像一面	life	life.idol
+签证顺利下来	life	life.visa
+移民加拿大成功	life	life.visa
+去冰岛看极光	life	life.sky,life.abroad_trip
+看一次流星雨	life	life.sky
+日出好看 不要云	life	life.sky,life.sunny
+去日本旅行	life	life.abroad_trip
+欧洲自由行 顺顺利利	life	life.abroad_trip
+去云南大理玩	life	life.travel
+国庆出去旅游人别太多	life	life.travel
+去西藏看雪山	life	life.highland
+川西自驾 不要高反	life	life.highland,life.safety
+去三亚看海	life	life.sea
+海岛潜水！	life	life.sea
+去迪士尼玩一整天	life	life.park
+环球影城不排队	life	life.park
+明天出游别下雨	life	life.sunny
+运动会那天大晴天	life	life.sunny
+今年冬天下场大雪	life	life.snow
+南方能看到下雪❄️	life	life.snow
+夏天别太热了	life	life.weather
+天气凉快点	life	life.weather
+出行平安	life	life.safety
+一路平安 安全到家	life	life.safety
+搬家顺利	life	life.home
+找到合适的房子租	life	life.home
+室友好相处	life	life.roommate
+楼上别再半夜蹦迪了	life	life.roommate
+认识更多好朋友	life	life.friend
+和闺蜜一直好下去	life	life.friend
+人际关系顺顺的	life	life.social
+遇到贵人	life	life.mentor
+有贵人相助	life	life.mentor
+摇号中签	life	life.draw
+车牌摇中	life	life.draw
+抽卡出金！	life	life.gacha
+原神十连双金	life	life.gacha
+欧皇附体 抽到限定	life	life.gacha
+王者上王者	life	life.game
+吃鸡多吃几把	life	life.game
+lol上钻石	life	life.game
+学会做蛋糕	life	life.cook
+厨艺进步 做饭好吃	life	life.cook
+吃遍成都的火锅	life	life.food
+吃到好吃的	life	life.food
+学会弹吉他	life	life.music
+钢琴十级	life	life.music,career.cert
+画画进步	life	life.painting
+今年读完50本书	life	life.reading
+多读书	life	life.reading
+找到新爱好	life	life.hobby
+坚持手工 做出好看的作品	life	life.hobby
+种的多肉别死	life	life.plants
+阳台的花都开了🌸	life	life.plants
+宝宝快快长大	life	life.baby
+宝宝早点学会走路	life	life.baby
+孩子健康快乐成长	life	life.kids,health.child
+女儿开朗一点 多交朋友	life	life.kids
+孩子上幼儿园不哭	life	life.school
+儿子适应小学生活	life	life.school
+生日快乐！	life	life.birthday
+今年生日能收到花	life	life.birthday
+纪念日约会顺利	life	life.anniversary
+恋爱一周年快乐	life	life.anniversary
+新年快乐 新的一年顺顺利利	life	life.newyear
+2027新年新气象	life	life.newyear
+想过自由自在的生活	life	life.freedom
+不被束缚 想去哪就去哪	life	life.freedom
+平安喜乐	life	life.peaceful
+岁岁平安	life	life.peaceful
+国泰民安	life	life.country
+祖国繁荣昌盛	life	life.country
+世界和平	life	life.peace
+不要再有战争了	life	life.peace
+能多帮助别人	life	life.charity
+捐的物资能送到山区孩子手里	life	life.charity
+主队夺冠！	life	life.team
+国足进世界杯	life	life.team
+追的番快更新	life	life.show
+追的剧大结局he	life	life.show
+登山顺利登顶	life	life.outdoor
+学会滑雪	life	life.outdoor
+想去太空看看地球	life	life.space
+坐一次火箭🚀	life	life.space
+生活越来越好	life	life.general
+日子过得开心点	life	life.general,mood.happy
+老公早日康复	life	health.partner,health.recover
+今年发财	life	wealth.short,wealth.general
+雅思7.5	life	career.language
+希望小三不得好死	life	mood.letgo_hurt
+希望前任和他对象早点分	life	mood.letgo_hurt
+狗狗走丢了 求求快回家	life	pet.lost
+皮肤变好	life	looks.skin
+抑郁好起来	life	health.depression
+.	life	life.blank
+嗯嗯	life	life.blank
+abc	life	life.blank
+我	life	life.blank
+希望小区门口的路早点修好	life	life.general,life.short
+想集齐所有的盲盒隐藏款	life	life.general,life.hobby,life.luck
+变美	looks	looks.short,looks.general
+变好看	looks	looks.short,looks.general
+越来越美✨	looks	looks.short,looks.general
+漂漂亮亮的	looks	looks.short,looks.general
+希望自己变得更好看	looks	looks.general,looks.short,looks.face
+瘦	looks	looks.slim,looks.short
+瘦到90斤	looks	looks.slim
+减肥成功	looks	looks.slim
+暑假瘦二十斤	looks	looks.slim
+120斤→100斤 冲！	looks	looks.slim
+马甲线	looks	looks.abs
+练出八块腹肌	looks	looks.abs,looks.muscle
+不长痘	looks	looks.acne
+闭口快消	looks	looks.acne
+下巴别爆痘了	looks	looks.acne
+痘印快点淡掉	looks	looks.acne_marks
+痘坑能填平	looks	looks.acne_marks
+拜拜肉没了	looks	looks.arms
+手臂瘦下来	looks	looks.arms
+小肚子平坦	looks	looks.belly
+肚腩消失	looks	looks.belly
+身材好好	looks	looks.body
+想要好身材 前凸后翘	looks	looks.body
+别人别再说我胖了	looks	looks.body_shame
+不再因为长相被嘲笑	looks	looks.body_shame
+气质变好	looks	looks.charm
+有气质的女生	looks	looks.charm
+胸大一点	looks	looks.chest
+罩杯升级	looks	looks.chest
+喜欢镜子里的自己	looks	looks.confident
+接受自己的长相 不再自卑	looks	looks.confident,mood.inferior
+管住嘴 不吃夜宵	looks	looks.cravings
+不再暴食	looks	looks.cravings
+黑眼圈淡掉	looks	looks.dark_circle
+眼袋没了	looks	looks.dark_circle
+明天约会美美的	looks	looks.date
+面试那天状态最好	looks	looks.date
+同学聚会惊艳全场	looks	looks.date
+气色好 脸色红润	looks	looks.dull
+皮肤不再暗沉蜡黄	looks	looks.dull,looks.skin
+眉毛长浓一点	looks	looks.eyebrows
+双眼皮	looks	looks.eyes
+眼睛变大	looks	looks.eyes
+颜值up	looks	looks.face
+长得好看点吧	looks	looks.face
+脸小一点	looks	looks.face_slim
+瘦脸 下颌线清晰	looks	looks.face_slim
+逆袭变美	looks	looks.glowup
+大学四年蜕变	looks	looks.glowup
+白头发别再长了	looks	looks.gray_hair
+少白头变黑	looks	looks.gray_hair
+头发多多 又黑又亮	looks	looks.hair
+头发长得快一点	looks	looks.hair
+不脱发了	looks	looks.hairloss
+发际线回来吧	looks	looks.hairloss
+程序员不秃头	looks	looks.hairloss
+剪个好看的发型	looks	looks.hairstyle
+烫头别翻车	looks	looks.hairstyle
+变帅	looks	looks.handsome
+做个帅哥	looks	looks.handsome
+长高	looks	looks.height
+再长高5cm	looks	looks.height
+长到180	looks	looks.height
+蜜桃臀	looks	looks.hips
+臀部翘一点	looks	looks.hips
+保持身材	looks	looks.keep_fit
+过年别胖	looks	looks.keep_fit
+腿变细	looks	looks.legs
+直腿 不要O型腿	looks	looks.legs
+嘴唇好看 不干裂	looks	looks.lips
+学会化妆	looks	looks.makeup
+眼妆画好看	looks	looks.makeup
+增肌	looks	looks.muscle
+练成肌肉男	looks	looks.muscle,looks.workout
+鼻子挺一点	looks	looks.nose
+会穿搭	looks	looks.outfit
+穿衣好看	looks	looks.outfit
+拍照上镜	looks	looks.photo
+毕业照好看	looks	looks.photo
+鼻头黑头没了	looks	looks.pores
+毛孔细腻	looks	looks.pores
+产后恢复身材	looks	looks.postpartum
+生完宝宝腰围回来	looks	looks.postpartum,looks.waist
+不驼背 体态好	looks	looks.posture
+改善圆肩	looks	looks.posture,looks.shoulders
+不水肿	looks	looks.puffy
+早上起来脸别肿	looks	looks.puffy,looks.face_slim
+疤痕消失	looks	looks.scar
+手上的疤淡一点	looks	looks.scar
+敏感肌好转	looks	looks.sensitive
+脸别再红了 屏障修复	looks	looks.sensitive
+直角肩	looks	looks.shoulders
+天鹅颈美背	looks	looks.shoulders
+皮肤好	looks	looks.skin
+皮肤水嫩嫩	looks	looks.skin
+斑淡掉	looks	looks.spots
+雀斑消失	looks	looks.spots
+变成温柔风的女生	looks	looks.style
+想变成酷girl	looks	looks.style
+牙齿整齐 笑起来好看	looks	looks.teeth
+矫正顺利	looks	looks.teeth
+声音好听	looks	looks.voice
+细腰	looks	looks.waist
+腰围一尺八	looks	looks.waist
+万人迷	looks	looks.wanren
+桃花朵朵 人见人爱	looks	looks.wanren,life.single
+婚礼上最美	looks	looks.wedding
+做最美新娘👰	looks	looks.wedding
+增重	looks	looks.weight_up
+胖一点 太瘦了	looks	looks.weight_up
+变白	looks	looks.white
+白到发光	looks	looks.white
+坚持健身	looks	looks.workout
+每天练普拉提	looks	looks.workout
+没有皱纹	looks	looks.wrinkles
+法令纹淡一点	looks	looks.wrinkles
+冻龄	looks	looks.young
+永远18岁	looks	looks.young
+割双眼皮顺利	looks	looks.surgery,looks.eyes
+医美效果好	looks	looks.surgery
+玻尿酸不翻车	looks	looks.surgery
+发财	looks	wealth.short,wealth.general
+外公手术顺利	looks	health.surgery,health.parents
+找到好工作	looks	career.job
+狗子乖一点	looks	pet.behave
+希望那个说我丑的人也变丑	looks	mood.letgo_hurt
+希望前任看到我变美后悔死	looks	mood.letgo_hurt,looks.glowup
+早日脱单	looks	life.single
+四六级过	looks	career.cet
+嘿	looks	looks.blank
+11111	looks	looks.blank
+xx	looks	looks.blank
+啦啦啦	looks	looks.blank
+想要好看的指甲	looks	looks.general,looks.short
+希望耳朵不要招风	looks	looks.general,looks.short
+开心	mood	mood.short,mood.happy
+天天开心	mood	mood.happy,mood.short
+快乐	mood	mood.short,mood.happy
+好心情	mood	mood.short
+希望每天都开开心心的😊	mood	mood.happy
+心想事成	mood	mood.general,mood.short
+一切都好	mood	mood.general,mood.short
+快点适应大学生活	mood	mood.adapt
+刚到新城市 希望快点适应	mood	mood.adapt
+不要再生气了	mood	mood.anger
+别动不动就发火	mood	mood.anger,mood.stable
+不焦虑	mood	mood.anxiety
+别再焦虑了 好累	mood	mood.anxiety
+不再执着于他	mood	mood.attachment,mood.breakup
+学会放手	mood	mood.attachment
+想有个归属感	mood	mood.belong
+找到属于自己的地方	mood	mood.belong
+做自己	mood	mood.beself
+不再讨好别人 做真实的自己	mood	mood.beself,mood.boundary
+走出被背叛的阴影	mood	mood.betrayal
+被最好的朋友出卖了 希望能走出来	mood	mood.betrayal
+学会拒绝别人	mood	mood.boundary
+别再当老好人了	mood	mood.boundary
+放下前任	mood	mood.breakup
+分手三个月了 希望能彻底走出来	mood	mood.breakup
+忘了他吧	mood	mood.breakup
+内心平静	mood	mood.calm
+心静下来	mood	mood.calm
+治愈童年	mood	mood.childhood
+原生家庭的伤快点好	mood	mood.childhood
+更自信	mood	mood.confidence
+自信一点	mood	mood.confidence
+有勇气说出来	mood	mood.courage
+勇敢一点 去做想做的事	mood	mood.courage
+好想哭	mood	mood.cry
+哭出来就好了	mood	mood.cry
+走出低谷	mood	mood.down
+最近好丧 希望能好起来	mood	mood.down
+emo快结束吧	mood	mood.down,mood.short
+不再害怕	mood	mood.fear
+别再怕黑了	mood	mood.fear
+释怀	mood	mood.forgive
+原谅自己也原谅他	mood	mood.forgive,mood.guilt
+感恩遇到的一切	mood	mood.gratitude
+谢谢所有爱我的人	mood	mood.gratitude
+走出失去亲人的悲伤	mood	mood.grief
+妈妈走了 希望我能慢慢好起来	mood	mood.grief,mood.grief_elder
+清明节想爸爸了	mood	mood.grief_day,mood.grief_elder
+今天是外婆的忌日	mood	mood.grief_day,mood.grief_elder
+奶奶在天上好好的	mood	mood.grief_elder
+外公我好想你	mood	mood.grief_elder,mood.missing
+没能见爷爷最后一面 好遗憾	mood	mood.grief_farewell,mood.grief_elder
+来不及说再见	mood	mood.grief_farewell
+不再自责	mood	mood.guilt
+都是我的错 希望能放下	mood	mood.guilt
+想家了	mood	mood.homesick
+在国外好想回家	mood	mood.homesick
+期待明天	mood	mood.hope
+未来会更好的	mood	mood.hope
+不自卑	mood	mood.inferior
+别再觉得自己比别人差	mood	mood.inferior
+不烦躁	mood	mood.irritable
+最近好烦 什么都烦	mood	mood.irritable
+不嫉妒别人	mood	mood.jealousy
+看到别人好就难受 希望能改掉	mood	mood.jealousy
+希望讨厌的人倒霉	mood	mood.letgo_hurt
+希望前任过得不好	mood	mood.letgo_hurt
+希望欺负我的人遭报应	mood	mood.letgo_hurt
+不孤单	mood	mood.lonely
+有人陪就好了	mood	mood.lonely
+走出流产的伤痛	mood	mood.loss_baby
+宝宝 妈妈会一直记得你	mood	mood.loss_baby
+不迷茫	mood	mood.lost
+不知道该往哪走 希望找到方向	mood	mood.lost,career.passion
+值得被爱	mood	mood.lovable
+希望有人真心爱我	mood	mood.lovable,life.single
+活在当下	mood	mood.mindful
+专注眼前的事	mood	mood.mindful
+想他	mood	mood.missing
+好想你啊	mood	mood.missing
+有动力	mood	mood.motivation
+不想摆烂了 找回动力	mood	mood.motivation
+不紧张	mood	mood.nervous
+上台别紧张	mood	mood.nervous,career.speech
+深夜别再emo	mood	mood.night
+凌晨三点又睡不着 心里好乱	mood	mood.night,health.sleep
+不内耗	mood	mood.overthink
+别想太多	mood	mood.overthink
+不再被欺负	mood	mood.protect
+在学校没人欺负我	mood	mood.protect
+好好休息一下	mood	mood.rest
+想躺平一周	mood	mood.rest
+重新开始	mood	mood.restart
+清零 重启人生	mood	mood.restart
+不难过	mood	mood.sad
+别难过了	mood	mood.sad
+有安全感	mood	mood.safety
+不再患得患失	mood	mood.safety
+爱自己	mood	mood.selflove
+好好爱自己 先爱自己	mood	mood.selflove
+不那么敏感	mood	mood.sensitive
+别人一句话就想半天 希望钝感一点	mood	mood.sensitive,mood.overthink
+不社恐	mood	mood.social
+敢和陌生人说话	mood	mood.social
+情绪稳定	mood	mood.stable
+做一个情绪稳定的大人	mood	mood.stable
+压力小一点	mood	mood.stress
+好累 撑不住了	mood	mood.stress
+内心强大	mood	mood.strong
+变得强大 不被打倒	mood	mood.strong
+被理解	mood	mood.understood
+希望有人懂我	mood	mood.understood
+等结果好煎熬 快点出来吧	mood	mood.wait
+等offer等到心慌	mood	mood.wait,career.job
+好委屈	mood	mood.wronged
+明明不是我的错 凭什么骂我	mood	mood.wronged
+后悔当初没珍惜 希望放下遗憾	mood	mood.regret
+不再后悔	mood	mood.regret
+健康平安	mood	health.general,health.short
+妈妈手术顺利	mood	health.surgery
+发财发财	mood	wealth.short,wealth.general
+面试通过	mood	career.interview
+复合	mood	life.reunite
+猫咪在喵星要开心	mood	pet.rainbow
+抑郁症快点好	mood	health.depression,mood.down
+💩	mood	mood.blank
+啊啊	mood	mood.blank
+你	mood	mood.blank
+test	mood	mood.blank
+希望能听懂猫说话之外也能听懂人话的潜台词	mood	mood.general,mood.short
+希望有一天能放下手机好好看看天	mood	mood.general,mood.mindful
+猫咪健康	pet	pet.health,pet.short
+狗狗平安	pet	pet.short,pet.health
+毛孩子健康长寿	pet	pet.health,pet.long
+希望我家咪咪健健康康	pet	pet.health
+宠物平安	pet	pet.short,pet.general
+领养一只小猫	pet	pet.adopt
+领养成功 有个新家人	pet	pet.adopt
+狗狗不要分离焦虑 我上班它别叫一天	pet	pet.anxiety,pet.bark
+我一出门它就哭 希望它能适应	pet	pet.anxiety
+猫咪两天不吃东西了 快好起来	pet	pet.appetite
+豆豆没精神 希望快点活蹦乱跳	pet	pet.appetite,pet.sick
+小奶猫健康长大	pet	pet.babies
+狗宝宝们都长大	pet	pet.babies
+狗狗别乱叫了 邻居要投诉了	pet	pet.bark
+晚上别嚎了	pet	pet.bark
+乖乖的	pet	pet.behave,pet.short
+二哈听话一点	pet	pet.behave
+鹦鹉学会说话	pet	pet.bird,pet.train
+玄凤健康	pet	pet.bird
+猫咪顺利生宝宝	pet	pet.birth
+母狗生产顺利 母子平安	pet	pet.birth
+猫咪别再咬人了	pet	pet.bite
+别抓我了 手全是伤	pet	pet.bite
+别拆家了	pet	pet.chew
+沙发别再被咬了	pet	pet.chew
+体检结果没事	pet	pet.checkup
+B超正常	pet	pet.checkup
+出差这周寄养顺利	pet	pet.boarding
+寄养的时候别生病	pet	pet.boarding
+猫咪肾衰控制住	pet	pet.chronic
+狗狗心脏病稳定	pet	pet.chronic
+希望它更亲我	pet	pet.close
+猫猫愿意让我抱	pet	pet.close
+抢救成功 挺过来	pet	pet.critical
+狗狗在医院 求求你撑住	pet	pet.critical
+希望它走的时候不痛苦	pet	pet.farewell
+最后的日子好好陪它	pet	pet.farewell
+鱼儿都活着	pet	pet.fish
+金鱼别再死了	pet	pet.fish
+捡到的小猫活下来	pet	pet.found
+路边捡的小狗快点好起来	pet	pet.found,pet.sick
+猫太瘦了 胖一点	pet	pet.gain
+长点肉吧	pet	pet.gain
+洗澡别哭	pet	pet.grooming
+美容剪毛不炸毛	pet	pet.grooming
+仓鼠长寿	pet	pet.hamster
+龙猫健康	pet	pet.hamster
+狗子每天都开心	pet	pet.happy
+希望球球快乐	pet	pet.happy
+猫咪受伤快好	pet	pet.injury
+狗狗骨折恢复好	pet	pet.injury
+一直陪着我	pet	pet.long
+陪我很久很久	pet	pet.long
+走丢的猫快回家	pet	pet.lost
+我家狗跑丢了 求好心人送回	pet	pet.lost
+想念老家的狗	pet	pet.miss
+去外地读书 好想家里的猫	pet	pet.miss
+绝育顺利	pet	pet.neuter
+公猫绝育快点恢复	pet	pet.neuter
+新来的猫快适应	pet	pet.newhome
+刚接回家 希望别躲床底	pet	pet.newhome,pet.shy
+老狗健康 慢点变老	pet	pet.old
+十六岁的老猫健健康康	pet	pet.old
+别乱尿了	pet	pet.pee
+猫咪学会用猫砂	pet	pet.pee
+不挑食	pet	pet.picky
+狗粮好好吃	pet	pet.picky
+兔兔健康	pet	pet.rabbit
+豚鼠活久一点	pet	pet.rabbit
+喵星上的你要开心	pet	pet.rainbow
+汪星人在天堂好好的	pet	pet.rainbow
+下辈子还做我的猫	pet	pet.reunite
+来世再见 小黑	pet	pet.reunite
+守宫健康	pet	pet.reptile
+蛇蛇顺利蜕皮	pet	pet.reptile
+猫咪病好	pet	pet.sick
+狗狗快点好起来	pet	pet.sick
+不再胆小	pet	pet.shy
+敢见陌生人	pet	pet.shy
+猫藓快好	pet	pet.skin
+别掉毛了	pet	pet.skin
+拉肚子快好	pet	pet.stomach
+呕吐快停	pet	pet.stomach
+流浪猫都有家	pet	pet.stray
+小区的流浪狗冬天别冻着	pet	pet.stray
+手术顺利	pet	pet.surgery
+猫咪手术成功醒过来	pet	pet.surgery
+两只猫和平相处	pet	pet.together
+新狗狗和老狗处得来	pet	pet.together
+学会握手	pet	pet.train
+学会定点上厕所	pet	pet.train,pet.pee
+坐飞机带猫顺利	pet	pet.travel
+带狗狗去旅行	pet	pet.travel
+乌龟长大	pet	pet.turtle
+巴西龟冬眠顺利	pet	pet.turtle
+听懂我说的话	pet	pet.understand
+能和猫说话就好了	pet	pet.understand
+疫苗打完 不应激	pet	pet.vaccine
+驱虫顺利	pet	pet.vaccine
+猫瘟挺过去	pet	pet.virus
+细小快好 求求了	pet	pet.virus
+传腹能治好	pet	pet.virus
+想养一只柯基	pet	pet.want
+爸妈同意我养猫	pet	pet.want,life.approve
+狗狗减肥成功	pet	pet.weight
+猫咪太胖了 瘦一点	pet	pet.weight
+小可爱永远健康	pet	pet.health
+暴富	pet	wealth.short,wealth.general
+妈妈的病快好	pet	health.parents,health.recover
+希望虐猫的人遭报应	pet	mood.letgo_hurt
+希望偷我狗的人倒大霉	pet	mood.letgo_hurt,pet.lost
+考研上岸	pet	career.postgrad
+脱单	pet	life.single
+想要变瘦	pet	looks.slim
+喵	pet	pet.blank
+汪汪	pet	pet.blank
+1234	pet	pet.blank
+测试	pet	pet.blank
+希望我家的蜜蜂都活下来	pet	pet.general,pet.short
+蜗牛别跑出来	pet	pet.general,pet.short
+暴富	wealth	wealth.short,wealth.general
+发财	wealth	wealth.short,wealth.general
+暴富暴富暴富！！！	wealth	wealth.short,wealth.general
+💰💰💰	wealth	wealth.short,wealth.general,wealth.blank
+有钱	wealth	wealth.short,wealth.general
+希望今年财运亨通	wealth	wealth.general,wealth.short
+搞钱搞钱	wealth	wealth.short,wealth.general
+想变得很有钱很有钱	wealth	wealth.general,wealth.short
+2027年一定要发大财	wealth	wealth.general,wealth.short
+钱包鼓起来吧	wealth	wealth.general,wealth.short
+年终奖多发点吧求求了	wealth	wealth.bonus
+希望年终奖能有三个月	wealth	wealth.bonus
+今年的年终奖别再缩水了🙏	wealth	wealth.bonus
+年底奖金到账！	wealth	wealth.bonus
+最近手头好紧，希望撑到发工资	wealth	wealth.broke
+穷到吃土了，来点钱吧	wealth	wealth.broke
+这个月生活费快没了 救命	wealth	wealth.broke
+希望别再月光了，手里能宽裕点	wealth	wealth.broke,wealth.save
+店里生意越来越好	wealth	wealth.business
+开业大吉 生意兴隆 财源广进	wealth	wealth.business
+希望我家小超市客人多多	wealth	wealth.business
+老公的厂子订单多起来	wealth	wealth.business,wealth.partner
+提车！想要一辆特斯拉model y	wealth	wealth.car
+今年能攒够钱买辆车	wealth	wealth.car,wealth.save
+希望摇到号买新能源车	wealth	wealth.car,life.draw
+车险理赔顺利下来	wealth	wealth.claim
+保险公司赶紧把赔偿款打过来	wealth	wealth.claim
+工伤赔偿能拿到	wealth	wealth.claim
+想换台macbook pro	wealth	wealth.computer
+新电脑！！打游戏不卡的那种	wealth	wealth.computer
+想要一台ps5	wealth	wealth.console
+switch2快到我碗里来	wealth	wealth.console
+抖音粉丝涨到10w开始接广告	wealth	wealth.creator
+小红书账号能变现	wealth	wealth.creator
+b站up主恰饭顺利	wealth	wealth.creator
+信用卡早点还完 再也不刷了	wealth	wealth.creditcard,wealth.debt
+网贷全部上岸	wealth	wealth.creditcard,wealth.debt
+花呗借呗清零	wealth	wealth.creditcard,wealth.debt
+大饼涨到20万刀	wealth	wealth.crypto
+币圈回本就跑	wealth	wealth.crypto
+希望下周签下那个大客户	wealth	wealth.deal
+合同顺利签下来，单子拿下	wealth	wealth.deal
+今年把欠的钱都还清	wealth	wealth.debt
+早日还完债 无债一身轻	wealth	wealth.debt
+希望爸妈不用再那么辛苦，我能养他们	wealth	wealth.family
+让家里人过上好日子	wealth	wealth.family
+淘宝店爆单	wealth	wealth.ecommerce
+拼多多店铺销量翻倍	wealth	wealth.ecommerce
+希望早日实现财务自由 不用上班	wealth	wealth.freedom
+40岁退休躺平	wealth	wealth.freedom
+接单接到手软 自由职业也能稳定收入	wealth	wealth.freelance
+设计外包的单子多一点	wealth	wealth.freelance
+基金回本吧 绿了一年了	wealth	wealth.fund
+定投的基金赚钱	wealth	wealth.fund
+A轮融资顺利到账	wealth	wealth.funding
+天使轮能拿到投资	wealth	wealth.funding,career.startup
+想换个大冰箱和洗烘套装	wealth	wealth.gadget
+戴森吹风机拿下	wealth	wealth.gadget
+早日买房 有自己的家	wealth	wealth.house
+首付凑齐！	wealth	wealth.house
+上海能有套小房子	wealth	wealth.house
+月入过万	wealth	wealth.income
+月薪3w	wealth	wealth.income
+工资能涨到两万	wealth	wealth.income,wealth.raise
+投资顺顺利利 稳赚不赔	wealth	wealth.invest
+理财收益高一点	wealth	wealth.invest
+攒钱买个金手镯	wealth	wealth.jewelry
+金价跌一点我好去买金豆豆	wealth	wealth.jewelry
+钻戒！	wealth	wealth.jewelry
+奶粉钱尿不湿钱都够	wealth	wealth.kids
+希望能供得起孩子上好学校	wealth	wealth.kids,wealth.tuition
+借给朋友的五万能还回来	wealth	wealth.lendback
+表哥欠我的钱快点还	wealth	wealth.lendback
+直播间人气爆了 带货大卖	wealth	wealth.live
+直播带货一场卖10万	wealth	wealth.live
+房贷批下来	wealth	wealth.loan
+经营贷顺利审批	wealth	wealth.loan
+中彩票	wealth	wealth.lottery
+双色球一等奖！！	wealth	wealth.lottery
+刮刮乐中个大的	wealth	wealth.lottery
+想要一块劳力士	wealth	wealth.luxury
+攒钱买那台相机	wealth	wealth.luxury,wealth.gadget
+爸爸的医药费能凑齐	wealth	wealth.medical
+看病的钱够用	wealth	wealth.medical
+存款100万	wealth	wealth.million,wealth.save
+赚到人生第一个一千万	wealth	wealth.million
+不再为钱焦虑，和钱好好相处	wealth	wealth.mindset
+希望我配得上更多的钱，不再觉得自己不配有钱	wealth	wealth.mindset
+老公今年财运好 升职加薪	wealth	wealth.partner
+男朋友生意顺利	wealth	wealth.partner
+客户尾款快点结清	wealth	wealth.payment
+工程款赶紧回来	wealth	wealth.payment
+甲方快打钱！！	wealth	wealth.payment
+老了有足够的养老钱	wealth	wealth.pension
+爸妈退休金涨一点	wealth	wealth.pension,wealth.family
+iPhone 18 pro max 我来了	wealth	wealth.phone
+换个新手机吧 旧的卡死了	wealth	wealth.phone
+年会抽奖抽到一等奖	wealth	wealth.raffle
+希望抽奖中个大奖	wealth	wealth.raffle
+涨工资！	wealth	wealth.raise
+老板给我加薪20%	wealth	wealth.raise
+过年红包多多	wealth	wealth.redpacket
+零花钱多一点 嘿嘿	wealth	wealth.redpacket
+退款快点到账	wealth	wealth.refund
+押金能退回来	wealth	wealth.refund
+装修顺利 钱别超预算	wealth	wealth.renovate
+新房装修款攒够了	wealth	wealth.renovate
+下个月房租交得起	wealth	wealth.rent
+希望房租别涨	wealth	wealth.rent
+空着的那套房子快点租出去	wealth	wealth.rentout
+租客靠谱 按时交租	wealth	wealth.rentout
+奶茶店赚钱	wealth	wealth.restaurant
+火锅店天天排队	wealth	wealth.restaurant
+今年存下5万	wealth	wealth.save
+攒钱攒钱攒钱	wealth	wealth.save
+被骗的钱能追回来	wealth	wealth.scam
+刷单被骗了，希望警察帮我追回	wealth	wealth.scam
+闲鱼上的东西都卖掉	wealth	wealth.secondhand
+二手相机快点出掉	wealth	wealth.secondhand
+老家的房子顺利卖出去	wealth	wealth.sellhouse
+房子挂了半年了 求卖出	wealth	wealth.sellhouse
+想买买买不用看价格	wealth	wealth.shopping
+双十一清空购物车	wealth	wealth.shopping
+副业月入五千	wealth	wealth.side
+下班摆摊能赚钱	wealth	wealth.side
+少点冲动消费	wealth	wealth.spend
+别再乱花钱了 管住手	wealth	wealth.spend
+大A涨起来 我的股票回本	wealth	wealth.stock
+持仓全红	wealth	wealth.stock
+攒够钱去日本玩	wealth	wealth.travelfund
+旅行基金存满一万	wealth	wealth.travelfund
+孩子的学费凑够	wealth	wealth.tuition
+大学学费贷款批下来	wealth	wealth.tuition,wealth.loan
+彩礼钱凑齐	wealth	wealth.wedding
+婚礼的钱够用	wealth	wealth.wedding
+天降横财	wealth	wealth.windfall
+路上捡到钱哈哈	wealth	wealth.windfall
+突然多一笔意外收入	wealth	wealth.windfall
+想要一个LV包包	wealth	wealth.bag
+攒钱买香奈儿cf	wealth	wealth.bag
+妈妈手术顺利	wealth	health.surgery
+希望爸爸的病快点好起来	wealth	health.parents,health.recover
+考研上岸	wealth	career.postgrad
+脱单	wealth	life.single
+希望他能回来找我	wealth	life.reunite
+希望那个骗我钱的人倒大霉	wealth	mood.letgo_hurt
+希望抢我客户的同事被开除	wealth	mood.letgo_hurt
+猫咪身体健康	wealth	pet.health
+瘦到100斤	wealth	looks.slim
+你	wealth	wealth.blank
+123	wealth	wealth.blank
+啊啊啊	wealth	wealth.blank
+测试	wealth	wealth.blank
+。。。	wealth	wealth.blank
+希望我收藏的邮票能升值	wealth	wealth.general,wealth.invest
+想把爷爷的老宅子修好	wealth	wealth.general,wealth.renovate
+团团今天去做绝育了，希望它麻醉醒得快，伤口别感染，早点回家吃罐罐	pet	pet.neuter,pet.surgery
+旺财别再翻垃圾桶了 拉肚子三天了	pet	pet.stomach
+我家布丁16岁了 希望她最后的日子不痛苦 走的时候我在身边	pet	pet.farewell,pet.old
+橘座减肥成功 少吃点猫条	pet	pet.weight
+咪咪快回家吧😭😭 我门都没关好	pet	pet.lost
+希望奶糖和新来的猫猫不打架	pet	pet.together
+小金毛疫苗第三针顺利	pet	pet.vaccine
+狗子去了汪星 希望你在那边有吃不完的骨头	pet	pet.rainbow
+可乐在宠物店洗澡别应激	pet	pet.grooming
+希望我们家cookie能活到20岁	pet	pet.long
+冬天我的守宫别冻着	pet	pet.reptile
+领养的流浪狗能信任我	pet	pet.close,pet.found
+猫猫猫猫猫	pet	pet.short,pet.general
+狗狗和我心有灵犀	pet	pet.understand,pet.close
+妹妹的仓鼠别死了 不然她要哭死	pet	pet.hamster
+仔仔细小转阴！！	pet	pet.virus
+希望自己不要那么在意别人的看法 活得轻松点	mood	mood.overthink,mood.sensitive,mood.beself
+最近工作压力好大，晚上总失眠，希望能放松一点	mood	mood.stress,health.sleep
+一个人在外地过年 有点孤独	mood	mood.lonely,mood.homesick
+不想再为他哭了	mood	mood.breakup,mood.cry
+嘤嘤嘤 被老板骂了好委屈	mood	mood.wronged,career.bully
+希望渣男出门被车撞（开玩笑的）	mood	mood.letgo_hurt
+好emo啊 谁来抱抱我	mood	mood.down,mood.lonely
+做个快乐小狗🐶	mood	mood.happy
+从今天起好好生活 重新出发	mood	mood.restart
+别再因为小事爆炸了	mood	mood.anger,mood.stable
+宝宝没保住 希望下次能好好来	mood	mood.loss_baby
+每天都要happy呀	mood	mood.happy
+等体检结果的这几天 好难熬	mood	mood.wait
+不再想太多 睡前别脑补	mood	mood.overthink
+希望我能有勇气辞职	mood	mood.courage,career.switch
+减肥减肥！！！这次一定要瘦到95	looks	looks.slim
+希望脸上的痘痘和痘印都快点没了	looks	looks.acne,looks.acne_marks
+skin care有效果 皮肤好起来	looks	looks.skin
+大象腿变筷子腿	looks	looks.legs
+希望穿上婚纱那天是最瘦最美的自己	looks	looks.wedding
+好想变成白幼瘦	looks	looks.white,looks.slim
+不想再当胖子了	looks	looks.slim
+颜值逆袭 让所有人刮目相看	looks	looks.glowup
+牙套快点摘掉	looks	looks.teeth
+想要一头大波浪	looks	looks.hairstyle
+宝妈身材恢复 肚子上的妊娠纹淡一点	looks	looks.postpartum
+雅思口语6.5 别再卡了	career	career.language
+期末绩点别太难看	career	career.grades
+今年一定考过cpa审计！	career	career.cpa
+希望在字节的实习能留用	career	career.internship,career.dream
+孩子期中考试数学进步	career	career.kid_study,career.grades
+四级425就行 求你了	career	career.cet
+希望爸爸妈妈身体健康 我也早点找到工作	health	health.parents,career.job
+最近老是胃疼 希望不是什么大病	health	health.stomach,health.checkup
+减重二十斤 降低血脂	health	health.chronic,looks.slim,health.general
+女儿这次手足口快好	health	health.child_sick
+希望房子快点卖出去 换个学区房	wealth	wealth.sellhouse,wealth.house
+奖金到手就去旅游	wealth	wealth.bonus,wealth.travelfund
+希望家里的奶茶店和老公的工作都顺利	wealth	wealth.restaurant,wealth.partner
+希望能和闺蜜一起去看海	life	life.sea,life.friend
+今年春节回老家 机票别涨价	life	life.ticket,life.festival
+奶奶活检结果良性就好 别的不求	wealth	health.biopsy
+儿子高考考好	wealth	career.gaokao,career.kid_study
+雅思过7分 不然钱白花了	wealth	career.language
+希望老板倒闭 拖欠工资的黑心老板	wealth	mood.letgo_hurt,wealth.payment
+希望我的猫别再拉肚子	wealth	pet.stomach
+想要一个属于我的家，不用再寄人篱下	wealth	wealth.house,life.home
+希望能在月球上买块地	wealth	wealth.general,wealth.short
+宝宝顺产	career	health.birth
+想去冰岛看极光	career	life.sky,life.abroad_trip
+希望我瘦到100斤 面试更自信	career	looks.slim
+猫咪手术顺利	career	pet.surgery
+希望HR那个骂我的人被炒	career	mood.letgo_hurt
+领导今天没骂我 希望他明天出车祸	career	mood.letgo_hurt
+希望我做的木工椅子能卖出去	career	career.general,wealth.secondhand,wealth.side
+今年年终奖能拿到	health	wealth.bonus
+希望我的头发别再掉了	health	looks.hairloss,health.general
+看到他和别人在一起 心里难受 希望不再想他	health	mood.breakup
+希望我养的狗健健康康	health	pet.health
+找到工作稳定下来	health	career.job
+希望害我住院的那个司机赔钱	health	wealth.claim
+希望打呼噜别吵到老婆	health	health.sleep,health.general
+奶奶早日康复	life	health.parents,health.recover
+希望那个绿茶永远找不到男朋友	life	mood.letgo_hurt
+猫咪别乱尿了	life	pet.pee
+股票回本	life	wealth.stock
+四级过！	life	career.cet
+减肥	life	looks.slim
+希望能找到失散多年的表姐	life	life.general,life.short
+希望妈妈的乳腺结节是良性的	looks	health.nodule,health.biopsy,health.parents
+攒钱去做全脸皮秒	looks	looks.surgery,wealth.save
+压力好大 别再爆痘了	looks	looks.acne,mood.stress
+希望前女友胖成猪	looks	mood.letgo_hurt
+考研复试顺利	looks	career.retest,career.postgrad
+狗子也要变漂亮 剪毛别丑	looks	pet.grooming
+想拥有像猫一样的眼睛和尾巴	looks	looks.general,looks.short,looks.eyes
+希望全家身体健康	mood	health.general,health.parents
+希望我老公戒烟	mood	health.quit,health.partner
+今年买房	mood	wealth.house
+想去迪士尼	mood	life.park
+希望欺负过我的室友毕不了业	mood	mood.letgo_hurt
+希望那个抢我男朋友的人也被甩	mood	mood.letgo_hurt
+狗狗在天堂好好的	mood	pet.rainbow
+希望梦里能飞起来	mood	mood.general,mood.short
+雅思8分	pet	career.language
+妈妈心脏手术顺利	pet	health.surgery,health.heart,health.parents
+跟男朋友和好	pet	life.makeup
+希望踢流浪猫的保安得报应	pet	mood.letgo_hurt
+希望养狗的邻居被投诉罚款 天天叫吵死了	pet	mood.letgo_hurt,pet.bark
+我想变成一只猫	pet	pet.general,pet.short
+希望家里的蚂蚁工坊顺利繁殖	pet	pet.general,pet.short

@@ -276,6 +276,8 @@ class _PlazaPageState extends State<PlazaPage> {
     return SkinPage(
       title: '愿望广场',
       subtitle: '只有正向的分享。点赞、夸夸、加好友都会得金币。',
+      // 「写一条」放在标题右边（和商城、我的页的金币牌同一个位置），不再浮在列表上挡住别人的字
+      trailing: SButton('写一条', small: true, onTap: _compose),
       builder: (context, s) {
         return Stack(children: [
           Column(children: [
@@ -315,14 +317,13 @@ class _PlazaPageState extends State<PlazaPage> {
                       ])
                     : ListView.builder(
                         controller: _scroll,
-                        padding: const EdgeInsets.fromLTRB(22, 8, 22, 170),
+                        padding: const EdgeInsets.fromLTRB(22, 8, 22, 120),
                         itemCount: _items.length,
                         itemBuilder: (context, n) => _card(s, _items[n]),
                       ),
               ),
             ),
           ]),
-          Positioned(right: 22, bottom: 108, child: SButton('写一条', onTap: _compose)),
         ]);
       },
     );

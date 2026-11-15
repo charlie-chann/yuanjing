@@ -189,7 +189,8 @@ def test_islet_presence_and_offerings(client, login):
     assert client.post("/sanctuary/temple/beat", json={}, headers=a).status_code == 404
     s = client.post("/sanctuary/islet/beat", json={"seat": -1, "seats": 20}, headers=a).json()
     assert s["weather"] in ("clear", "rain", "storm", "snow") and s["count"] >= 1
-    seats = [p["seat"] for p in s["people"]]
+    # 坐着的人座位不重复、在范围内；不坐的人（在岛上走动的香客）座位是 -1
+    seats = [p["seat"] for p in s["people"] if p["seat"] >= 0]
     assert len(seats) == len(set(seats)) and all(0 <= x < 20 for x in seats)
     free = next(i for i in range(20) if i not in seats)
     client.post("/sanctuary/islet/beat", json={"seat": free, "seats": 20, "action": "bow"}, headers=b)
@@ -208,3 +209,75 @@ def test_islet_presence_and_offerings(client, login):
     client.post("/sanctuary/islet/leave", headers=b)
     s = client.post("/sanctuary/islet/beat", json={}, headers=a).json()
     assert not [p for p in s["people"] if not p["npc"]]
+
+
+def test_pets_bond_greet_and_gift(client, login):
+    """小动物：摸和喂涨交情（每天各算 3 次）、喂要花金币、熟了会迎接和送礼物"""
+    a = login()
+    s = client.get("/pets", headers=a).json()
+    assert len(s["pets"]) == 10 and all(p["level"] == 0 and not p["greet"] and p["gift"] is None for p in s["pets"])
+    coins = s["coins"]
+    assert client.post("/pets/dragon/pet", headers=a).status_code == 404
+    # 摸 4 次：只有前 3 次算
+    rs = [client.post("/pets/teddy/pet", headers=a).json() for _ in range(4)]
+    assert [r["counted"] for r in rs] == [True, True, True, False] and rs[-1]["affinity"] == 3
+    assert rs[2]["level_up"] and rs[2]["level"] == 1 and rs[-1]["pets_left"] == 0
+    # 喂 3 次：每次花 2 金币、涨 2
+    for i in range(3):
+        r = client.post("/pets/teddy/feed", headers=a).json()
+        assert r["counted"] and r["coins"] == coins - 2 * (i + 1)
+    assert r["affinity"] == 9 and r["level"] == 1 and r["feeds_left"] == 0
+    r = client.post("/pets/teddy/feed", headers=a).json()
+    assert not r["counted"] and r["affinity"] == 9
+    # 别的动物、别的人互不影响
+    assert client.get("/pets", headers=login()).json()["pets"][0]["affinity"] == 0
+    assert [p["affinity"] for p in client.get("/pets", headers=a).json()["pets"]] == [9] + [0] * 9
+
+
+def test_pets_best_friend_gift(client, login, db_session=None):
+    """交情到「最好的朋友」：当天第一次上岛来迎接、必有礼物，礼物一天只能收一次"""
+    from app.db import SessionLocal
+    from app.models import PetBond, User
+    a = login()
+    client.post("/pets/shiba/pet", headers=a)
+    with SessionLocal() as db:
+        b = db.query(PetBond).order_by(PetBond.id.desc()).first()
+        b.affinity = 30
+        db.commit()
+    s = {p["id"]: p for p in client.get("/pets", headers=a).json()["pets"]}
+    assert s["shiba"]["level"] == 3 and s["shiba"]["greet"] and s["shiba"]["gift"] == "一根捡来的树枝"
+    # 再取一次：今天已经迎接过了，礼物还在（还没收）
+    s = {p["id"]: p for p in client.get("/pets", headers=a).json()["pets"]}
+    assert not s["shiba"]["greet"] and s["shiba"]["gift"]
+    before = client.get("/pets", headers=a).json()["coins"]
+    g = client.post("/pets/shiba/gift", headers=a).json()
+    assert 4 <= g["got"] <= 9 and g["coins"] == before + g["got"] and g["name"] == "年糕"
+    assert client.post("/pets/shiba/gift", headers=a).json()["got"] == 0
+    assert {p["id"]: p for p in client.get("/pets", headers=a).json()["pets"]}["shiba"]["gift"] is None
+
+
+def test_crowd_follows_time():
+    """内置香客：任何时刻 10 到 50 人；同一时刻算两次一样；随时有人来有人走；早晚比凌晨多"""
+    from datetime import datetime, timedelta
+    from app.config import settings
+    from app.routers.sanctuary import npcs_at
+    t0 = datetime(2026, 11, 15, 0, 0, tzinfo=settings.tz)
+    counts, churn, prev = [], 0, None
+    for k in range(24 * 6):
+        t = t0 + timedelta(minutes=10 * k)
+        ps = npcs_at("islet", t, 216, set())
+        assert 10 <= len(ps) <= 50
+        assert ps == npcs_at("islet", t, 216, set())
+        ids = {p["id"] for p in ps}
+        assert len({p["seat"] for p in ps if p["seat"] >= 0}) == sum(p["seat"] >= 0 for p in ps)
+        if prev is not None:
+            churn += len(ids ^ prev)
+        prev = ids
+        counts.append(len(ps))
+    assert churn > 24 * 6
+    night = sum(counts[2 * 6:5 * 6]) / 18
+    evening = sum(counts[18 * 6:20 * 6]) / 12
+    assert evening > night * 2
+    p = npcs_at("islet", t0 + timedelta(hours=18), 216, set())[0]
+    assert p["plan"] and p["stay"] > 0 and 0 <= p["since"] < p["stay"]
+

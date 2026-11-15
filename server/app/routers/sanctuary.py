@@ -32,6 +32,13 @@ NPC_NAMES = (
     "晚风", "栀子", "阿宁", "小满", "云起", "知南", "听雨", "青禾", "一苇", "星野", "念安", "见山",
     "松月", "阿梨", "初七", "向晚", "木木", "简兮", "半夏", "南乔", "清欢", "予安", "微澜", "山岚",
     "阿布", "时雨", "小鹿", "沐阳", "十里", "禾川", "朝颜", "之遥", "鹿鸣", "溪午", "明澈", "长安",
+    "林间", "小舟", "叶子", "阿遥", "暮云", "清和", "怀瑾", "晴川", "白露", "知秋", "月白", "苏木",
+    "阿森", "小橙", "北辰", "南风", "雨眠", "夏至", "以宁", "野菊", "江屿", "听澜", "竹西", "临溪",
+    "七七", "阿柒", "一一", "糖糖", "小雅", "思远", "若水", "春和", "景明", "初晴", "归舟", "明月",
+    "西窗", "晓风", "阿朵", "小柚", "海棠", "云舒", "安然", "知行", "念念", "岁岁", "朝朝", "暮暮",
+    "青柠", "白茶", "麦子", "阿凉", "蒲公英", "小葵", "风铃", "砚池", "墨白", "梧桐", "芦花", "远山",
+    "阿九", "十一", "小白", "阿橘", "南星", "疏影", "梅子", "清越", "望舒", "星河", "寒山", "照水",
+    "可可", "豆豆", "阿禾", "阿茶", "知了", "林夕", "听风", "一诺", "长歌", "未央", "子衿", "无忧",
 )
 
 
@@ -52,35 +59,109 @@ def weather_at(scene: str, t: datetime) -> str:
     return "snow" if local.month in (11, 12, 1, 2) else "rain"
 
 
-def npcs_at(scene: str, t: datetime, seats: int, taken: set[int]) -> list[dict]:
-    """此刻在场的内置香客。每位各有各的作息：一段时间来、一段时间不来，来了就固定坐一个位置。"""
+# 内置香客在岛上会做的事（客户端按代号找地方）：
+#   s 去蒲团静坐  i 香炉前上香  h 大殿前拜  t 许愿树下  p 池塘边看鱼  v 钟亭  e 石碑前  l 栈桥上看湖
+ACTIVITIES = "sihtpvel"
+# 一天里每个小时大概有多少人（凌晨少，早上和傍晚是高峰）
+CROWD_BY_HOUR = (11, 10, 10, 10, 11, 14, 22, 36, 44, 40, 32, 28, 27, 29, 30, 32, 36, 44, 48, 46, 38, 30, 22, 15)
+CROWD_MIN, CROWD_MAX = 10, 50
+
+
+def crowd_target(t: datetime) -> float:
+    """此刻岛上大概该有多少内置香客：按小时的曲线（相邻小时之间平滑过渡），再叠一个慢慢变的起伏，每天不一样"""
     local = t.astimezone(settings.tz)
-    # 早晚人多，凌晨人少，但任何时候都不会冷清（三十六位里来几成）
-    share = (36, 32, 30, 30, 30, 34, 40, 46, 44, 40, 38, 40, 44, 42, 40, 40, 42, 48, 54, 60, 64, 62, 52, 42)[local.hour]
-    limit = max(0, min(seats - len(taken) - 2, seats * 2 // 3))
-    ts = int(t.timestamp())
-    out = []
-    used = set(taken)
-    for i, name in enumerate(NPC_NAMES):
-        if len(out) >= limit:
-            break
-        stay = 480 + _hash("stay", scene, i) % 1200  # 一次待 8 到 28 分钟
-        block = (ts + _hash("offset", scene, i) % stay) // stay
-        if _hash("come", scene, i, block) % 100 >= share:
+    h = local.hour + local.minute / 60
+    a, b = CROWD_BY_HOUR[int(h) % 24], CROWD_BY_HOUR[(int(h) + 1) % 24]
+    k = h - int(h)
+    base = a + (b - a) * k
+    # 半小时一档的起伏（±20%），档与档之间线性过渡
+    blk = (local.hour * 60 + local.minute) / 30
+    n0 = _hash("crowd", local.date(), int(blk)) % 1000 / 1000
+    n1 = _hash("crowd", local.date(), int(blk) + 1) % 1000 / 1000
+    wave = n0 + (n1 - n0) * (blk - int(blk))
+    return max(CROWD_MIN, min(CROWD_MAX, base * (0.8 + 0.4 * wave)))
+
+
+def _visit(scene: str, i: int, t: datetime, target: float):
+    """第 i 位内置香客此刻在不在、来了多久、打算待多久、要做哪些事。
+    每人把时间分成一段段（每段 30–60 分钟），每段里按「此刻该有多少人」的比例决定来不来；来的话在段里某个时刻来，待 6–40 分钟。"""
+    ts = t.timestamp()
+    period = 1800 + _hash("period", scene, i) % 1800
+    # 平均每人在场的时长占比，用来把「该有多少人」换算成「每段来的概率」
+    for back in (0, 1):
+        block = int((ts + _hash("offset", scene, i) % period) // period) - back
+        start_block = block * period - _hash("offset", scene, i) % period
+        stay = 360 + _hash("stay", scene, i, block) % 2040
+        arrive = start_block + _hash("arrive", scene, i, block) % max(1, period - stay)
+        when = datetime.fromtimestamp(arrive, t.tzinfo)
+        chance = min(1.0, crowd_target(when) / len(NPC_NAMES) * period / 1380)
+        if _hash("come", scene, i, block) % 10000 / 10000 >= chance:
             continue
-        seat = _hash("seat", scene, i, block) % seats
-        while seat in used:
-            seat = (seat + 1) % seats
-        used.add(seat)
-        out.append({"id": f"n{i}", "name": name, "seat": seat, "npc": True, "action": None})
+        if arrive <= ts < arrive + stay:
+            # 要做的事：多数人以静坐为主，顺便去一两个地方；有些人只是来逛逛
+            r = _hash("plan", scene, i, block)
+            n = 1 + r % 3
+            plan = ""
+            for k in range(n):
+                c = ACTIVITIES[1 + (r >> (4 + 3 * k)) % (len(ACTIVITIES) - 1)]
+                if c not in plan:
+                    plan += c
+            if (r >> 20) % 100 < 72:
+                plan = plan[:1] + "s" + plan[1:] if (r >> 24) % 2 else "s" + plan
+            return int(ts - arrive), int(stay), plan
+    return None
+
+
+def npcs_at(scene: str, t: datetime, seats: int, taken: set[int]) -> list[dict]:
+    """此刻在场的内置香客：10 到 50 人，按时间自动多少，随时有人来、有人走。
+    同一时刻所有人看到的一样（全由时间算出来，不存库）。每人带着「来了多久、待多久、要做哪些事」，客户端照着演。"""
+    target = crowd_target(t)
+    out, used = [], set(taken)
+    # 内置香客最多坐满三分之二的蒲团，真人来了总有位子
+    cap = len(taken) + seats * 2 // 3
+    for i, name in enumerate(NPC_NAMES):
+        v = _visit(scene, i, t, target)
+        if v is None:
+            continue
+        since, stay, plan = v
+        seat = -1
+        if "s" in plan and len(used) < cap:
+            seat = _hash("seat", scene, i, stay) % seats
+            while seat in used:
+                seat = (seat + 1) % seats
+            used.add(seat)
+        out.append({"id": f"n{i}", "name": name, "seat": seat, "npc": True, "action": None, "plan": plan, "since": since, "stay": stay})
+    # 保证在 10 到 50 之间：多了去掉来得最晚的，少了请几位「刚到」的
+    out.sort(key=lambda p: -p["since"])
+    if len(out) > CROWD_MAX:
+        for p in out[CROWD_MAX:]:
+            used.discard(p["seat"])
+        out = out[:CROWD_MAX]
+    i = 0
+    present = {p["id"] for p in out}
+    while len(out) < CROWD_MIN and i < len(NPC_NAMES):
+        j = (_hash("fill", scene, t.date(), i) + i) % len(NPC_NAMES)
+        i += 1
+        if f"n{j}" in present:
+            continue
+        present.add(f"n{j}")
+        block = int(t.timestamp() // 1800)
+        since = _hash("fillsince", scene, j, block) % 900
+        seat, plan = -1, "lp"
+        if len(used) < cap:
+            seat, plan = _hash("seat", scene, j, block) % seats, "s"
+            while seat in used:
+                seat = (seat + 1) % seats
+            used.add(seat)
+        out.append({"id": f"n{j}", "name": NPC_NAMES[j], "seat": seat, "npc": True, "action": None, "plan": plan, "since": since, "stay": 1800})
     return out
 
 
 class BeatIn(BaseModel):
-    seat: int = Field(default=-1, ge=-1, le=200)
+    seat: int = Field(default=-1, ge=-1, le=400)
     action: str | None = None
     # 这座殿一共有多少个座位、树上有多少个能挂的位置（由场景决定，客户端报上来）
-    seats: int = Field(default=32, ge=1, le=200)
+    seats: int = Field(default=32, ge=1, le=400)
 
 
 def _scene(scene: str) -> str:

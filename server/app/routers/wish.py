@@ -1,4 +1,4 @@
-"""许愿回应：用户写下愿望 → 匹配到意图 → 从 104.8 万条回应里挑一条最近没听过的，返回文字和每句的语音地址。"""
+"""许愿回应：用户写下愿望 → 匹配到意图 → 从 10 万多条回应里挑一条最近没听过的，返回文字和每句的语音地址。"""
 from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException

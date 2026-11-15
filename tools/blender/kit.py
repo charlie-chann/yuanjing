@@ -31,6 +31,9 @@ def stable_seed(s):
 def new_bm():
     b = bmesh.new()
     b.loops.layers.float_color.new('col')
+    # 指定法线：叶片卡要让法线统一朝树冠外（光照才成团、柔和），存在这一层里，第四个数是 0.5 表示「用这个」
+    # （没写过的面，这一层是全 0 或全 1，两种都不会被当成指定法线）
+    b.loops.layers.float_color.new('nrm')
     b.loops.layers.uv.new('uv')
     return b
 
@@ -65,6 +68,18 @@ def sway_grad(b, z0, z1, amount, faces=None, power=1.0):
             l[col] = (c[0], c[1], c[2], amount * t)
 
 
+def edge_light(b, faces, up=1.13, side=1.06, down=0.9):
+    """倒角出来的那一圈窄面：朝上的提亮、朝下的压暗。棱上一道亮边，远看轮廓更清楚"""
+    col = b.loops.layers.float_color['col']
+    for f in faces:
+        if not f.is_valid:
+            continue
+        k = up if f.normal.z > 0.2 else down if f.normal.z < -0.2 else side
+        for l in f.loops:
+            c = l[col]
+            l[col] = (min(1.0, c[0] * k), min(1.0, c[1] * k), min(1.0, c[2] * k), c[3])
+
+
 def xform(loc=(0, 0, 0), rot=(0, 0, 0), scale=(1, 1, 1)):
     if isinstance(scale, (int, float)):
         scale = (scale, scale, scale)
@@ -72,9 +87,19 @@ def xform(loc=(0, 0, 0), rot=(0, 0, 0), scale=(1, 1, 1)):
     return Matrix.Translation(loc) @ Euler(rot, 'XYZ').to_matrix().to_4x4() @ S
 
 
+# 哪些模型的普通表面换成带真实贴图的材质（石头、木头……贴图见 tools/textures/prep.py）。
+# 名字写前缀也行：'rock' 管 rock_a、rock_b……。模型里特意指定了材质的部件（发光的灯室、叶子）不受影响。
+REMAP = {
+    'lantern': 'stone', 'rock': 'stone', 'stele': 'stone', 'basin': 'stone', 'islet_paving': 'stone',
+    'bench': 'wood', 'signpost': 'wood', 'plaque_rack': 'wood', 'fence': 'wood', 'dock': 'wood',
+    'cushion': 'straw', 'boat': 'wood_dark',
+}
+
+
 class Asset:
     def __init__(self, name):
         self.name = name
+        self.remap = next((v for k, v in REMAP.items() if name == k or name.startswith(k + '_')), None)
         self.parts = {}
         self.rng = random.Random(stable_seed(name))
         self.opts = {}          # 部件的导出选项：{'leaf': {'normal_up': 0.7}}
@@ -86,6 +111,8 @@ class Asset:
         return self.parts[mat]
 
     def merge(self, t, mat='toon', M=None):
+        if mat == 'toon' and self.remap:
+            mat = self.remap
         if M is not None:
             bmesh.ops.transform(t, matrix=M, verts=t.verts)
             if M.determinant() < 0:
@@ -113,15 +140,18 @@ class Asset:
         bmesh.ops.create_cube(t, size=1.0)
         for v in t.verts:
             v.co = Vector((v.co.x * size[0], v.co.y * size[1], v.co.z * size[2] + (size[2] / 2 if base else 0)))
+        bev = []
         if bevel > 0:
-            bmesh.ops.bevel(t, geom=t.edges[:], offset=min(bevel, min(size) * 0.45), offset_type='OFFSET',
-                            segments=segs, profile=0.5, affect='EDGES', clamp_overlap=True)
+            bev = bmesh.ops.bevel(t, geom=t.edges[:], offset=min(bevel, min(size) * 0.45), offset_type='OFFSET',
+                                  segments=segs, profile=0.5, affect='EDGES', clamp_overlap=True)['faces']
         paint(t, None, color, sway, self.rng.random(), glow)
         if grad:
             z0 = 0 if base else -size[2] / 2
             paint_grad(t, grad[0], grad[1], z0, z0 + size[2])
         if top is not None:
-            paint(t, [f for f in t.faces if f.normal.z > 0.9], top, sway, 0, glow)
+            paint(t, [f for f in t.faces if f.normal.z > 0.9 and f not in bev], top, sway, 0, glow)
+        if glow <= 0:
+            edge_light(t, bev)
         self.merge(t, mat, xform(loc, rot))
 
     def cyl(self, r, h, loc=(0, 0, 0), color=(1, 1, 1), r2=None, segs=14, bevel=0.0, rot=(0, 0, 0), mat='toon',
@@ -131,15 +161,17 @@ class Asset:
         bmesh.ops.create_cone(t, cap_ends=True, cap_tris=False, segments=segs, radius1=r,
                               radius2=r if r2 is None else r2, depth=h)
         bmesh.ops.translate(t, verts=t.verts, vec=(0, 0, h / 2))
+        bev = []
         if bevel > 0:
             edges = [e for e in t.edges if abs(e.verts[0].co.z - e.verts[1].co.z) < 1e-5]
-            bmesh.ops.bevel(t, geom=edges, offset=bevel, offset_type='OFFSET', segments=1, profile=0.5,
-                            affect='EDGES', clamp_overlap=True)
+            bev = bmesh.ops.bevel(t, geom=edges, offset=bevel, offset_type='OFFSET', segments=1, profile=0.5,
+                                  affect='EDGES', clamp_overlap=True)['faces']
         paint(t, None, color, 0, 0, glow)
         if grad:
             paint_grad(t, grad[0], grad[1], 0, h)
         if top is not None:
-            paint(t, [f for f in t.faces if f.normal.z > 0.9], top, 0, 0, glow)
+            paint(t, [f for f in t.faces if f.normal.z > 0.9 and f not in bev], top, 0, 0, glow)
+        edge_light(t, bev)
         self.merge(t, mat, xform(loc, rot))
 
     def lathe(self, profile, loc=(0, 0, 0), segs=16, color=(1, 1, 1), rot=(0, 0, 0), scale=1, mat='toon', glow=0.0,
@@ -285,12 +317,44 @@ class Asset:
         bmesh.ops.recalc_face_normals(t, faces=t.faces)
         if bevel > 0:
             edges = [e for e in t.edges if e.verts[0].co.z > z1 - 1e-5 and e.verts[1].co.z > z1 - 1e-5]
-            bmesh.ops.bevel(t, geom=edges, offset=bevel, offset_type='OFFSET', segments=segs, profile=0.5,
-                            affect='EDGES', clamp_overlap=True)
+            bev = bmesh.ops.bevel(t, geom=edges, offset=bevel, offset_type='OFFSET', segments=segs, profile=0.5,
+                                  affect='EDGES', clamp_overlap=True)['faces']
+        else:
+            bev = []
         paint(t, None, color)
         if top is not None:
-            paint(t, [f for f in t.faces if f.normal.z > 0.9], top)
+            paint(t, [f for f in t.faces if f.normal.z > 0.9 and f not in bev], top)
+            # 倒角那一圈用顶面的颜色再提亮：石板的边沿一道亮线
+            paint(t, [f for f in bev if f.is_valid], top)
+        edge_light(t, bev, up=1.1, side=1.1)
         self.merge(t, mat, xform(loc, rot))
+
+    def card(self, base, axis, side, length, width, mat, tint=(1, 1, 1), normal=(0, 0, 1), bend=0.06, rows=2, taper=0.0, sway=1.0):
+        """一张带贴图坐标的叶片卡（贴图上画的是一小枝叶子）：从 base 沿 axis 伸出去 length 长、width 宽，略微弯一点。
+        贴图坐标 v=0 在根部（接在枝上），v=1 在梢（叶子着色器按它决定叶梢抖多少）。normal 是指定的光照法线；
+        sway 是这一枝整体随风摆的幅度（存在顶点色第四个数里）。"""
+        t = new_bm()
+        col = t.loops.layers.float_color['col']
+        nl = t.loops.layers.float_color['nrm']
+        uv = t.loops.layers.uv['uv']
+        A, S = Vector(axis).normalized(), Vector(side).normalized()
+        F = S.cross(A).normalized()
+        N = Vector(normal).normalized()
+        B = Vector(base)
+        rws = []
+        for i in range(rows + 1):
+            v = i / rows
+            c = B + A * (length * v) + F * (bend * length * math.sin(math.pi * v))
+            w = width * 0.5 * (1 - taper * abs(v - 0.5) * 2)
+            rws.append((t.verts.new(c - S * w), t.verts.new(c + S * w), v))
+        for i in range(rows):
+            (a0, b0, v0), (a1, b1, v1) = rws[i], rws[i + 1]
+            f = t.faces.new((a0, b0, b1, a1))
+            for l, (u, v) in zip(f.loops, ((0, v0), (1, v0), (1, v1), (0, v1))):
+                l[col] = (tint[0], tint[1], tint[2], sway)
+                l[uv].uv = (u, v)
+                l[nl] = (N.x * 0.5 + 0.5, N.y * 0.5 + 0.5, N.z * 0.5 + 0.5, 0.5)
+        self.merge(t, mat)
 
     def quad(self, pts, color=(1, 1, 1), mat='leaf', sway=(0, 0, 0, 0), colors=None, phase=None):
         """一片四边形或三角形（草叶、竹叶、布条）。sway 给每个角一个摆动值"""
@@ -329,7 +393,7 @@ class Asset:
 
     # ---------- 屋顶 ----------
     def roof(self, W, D, H, z=0.0, loc=(0, 0), lift=0.5, curve=2.2, pitch=0.36, amp=0.035, inner=None, rows=8,
-             thick=0.12, ca=None, cb=None, eave=None, under=None, ridge=None, ridge_r=0.13, hips=True, mat='toon',
+             course=0.4, caps=None, bells=False, thick=0.12, ca=None, cb=None, eave=None, under=None, ridge=None, ridge_r=0.13, hips=True, mat='toon',
              tip=0.45, finial=True):
         """中式屋顶（四面坡，檐角上翘，瓦垄起伏）。W、D 是檐口的半宽半深，H 是檐口到屋脊的高。
         inner：只留离檐口这么近的一圈（重檐的下层）。"""
@@ -340,6 +404,9 @@ class Asset:
         ridge = ridge or C('ridge')
         dmax = min(W, D)
         dlim = dmax if inner is None else min(inner, dmax)
+        # 一排瓦大约 course 米宽：大屋顶排数跟着加，才看得出一片片瓦
+        if amp > 0 and pitch >= 0.3:
+            rows = max(rows, int(round(dlim / course)))
 
         def height(x, y):
             d = min(W - abs(x), D - abs(y))
@@ -389,7 +456,8 @@ class Asset:
                             x, y = f(u, d)
                             ridge_v = (int(round((u + L) / step)) % 2 == 0)
                             zz = height(x, y) - drop + (amp if (corr and ridge_v) else 0)
-                            vs.append((vert(x, y, zz, (round(x, 4), round(y, 4), si if corr else 0)), ridge_v, d))
+                            vs.append((vert(x, y, zz, (round(x, 4), round(y, 4), si if corr else 0)), ridge_v, d,
+                                       (d - ds[j]) / max(1e-6, ds[j + 1] - ds[j])))
                         # 去掉重复的点
                         uniq = []
                         for v in vs:
@@ -406,17 +474,23 @@ class Asset:
                         row_c = mix(ca, cb, 0.5 + 0.5 * math.sin(j * 1.7 + si))
                         look = {v[0]: v for v in uniq}
                         for l in face.loops:
-                            _, rv, d = look[l.vert]
+                            _, rv, d, tc = look[l.vert]
                             if corr:
                                 c = mix(tint(row_c, -0.07), tint(row_c, 0.06), 1.0 if rv else 0.0)
                                 c = mix(tint(c, -0.05), c, min(1.0, d / max(0.01, dlim) * 3))
+                                # 每一排瓦：靠下的瓦唇亮，被上一排压住的那头暗（颜色在排与排之间断开，像一片片叠着）
+                                c = tint(c, 0.075 - 0.19 * tc)
                             else:
                                 c = under
                             l[col] = (c[0], c[1], c[2], 0)
 
+        # 瓦面用陶土的贴图（tools/textures/prep.py 的 tile），除非调用的地方另外指定了材质
+        tmat = 'tile' if mat == 'toon' and amp > 0 else mat
         t = new_bm()
         surface(t, True, pitch / 2, 0.0, False)
-        self.merge(t, mat, xform((loc[0], loc[1], 0)))
+        self.merge(t, tmat, xform((loc[0], loc[1], 0)))
+        if amp > 0 and caps is not None:
+            self._cover_tiles(W, D, height, pitch / 2, dlim, amp, course, ca, cb, loc, tmat)
         # 底面（檐下能看到的那一面），粗一些就够
         t = new_bm()
         surface(t, False, max(W, D) / 4, thick, True)
@@ -430,6 +504,19 @@ class Asset:
                 x, y = ((u * W, sy * D) if ax == 0 else (sx * W, u * D))
                 pts.append((x + loc[0], y + loc[1], height(x, y) - thick * 0.45))
             self.tube(pts, thick * 0.62, eave, segs=6, mat=mat)
+        # 瓦当：每一垄瓦在檐口收头的那个圆片
+        if caps is not None and amp > 0:
+            step = pitch
+            for (L, f, rot) in ((W, lambda u: (u, -D), (math.pi / 2, 0, 0)), (W, lambda u: (u, D), (-math.pi / 2, 0, 0)),
+                                (D, lambda u: (W, u), (0, math.pi / 2, 0)), (D, lambda u: (-W, u), (0, -math.pi / 2, 0))):
+                nu = max(2, int(round(2 * L / (pitch / 2))))
+                for i in range(0, nu + 1, 2):
+                    u = -L + 2 * L * i / nu
+                    if abs(u) > L - 0.12:
+                        continue
+                    x, y = f(u)
+                    self.cyl(0.062, 0.05, (x + loc[0], y + loc[1], height(x, y) + amp * 0.35), caps, segs=8, rot=rot, mat=mat,
+                             top=tint(caps, 0.08))
         if inner is not None:
             return
         # 屋脊
@@ -464,8 +551,98 @@ class Asset:
                     pts.append((ex + dx * tip * 0.85, ey + dy * tip * 0.85, ez + tip * 0.6))
                     rad.append(ridge_r * 0.32)
                     self.tube(pts, rad, ridge, segs=8, mat=mat)
+                    if ridge_r >= 0.08:
+                        # 垂脊上蹲着的一排小兽（很小，远看是一串小疙瘩）
+                        for q in (7, 8, 9):
+                            px, py, pz = pts[q]
+                            self.blob(ridge_r * 0.62, (px, py, pz + rad[q] + ridge_r * 0.35), (1.0, 1.0, 1.25), tint(ridge, 0.05), top=tint(ridge, 0.2),
+                                      subdiv=1, bump=0.0, mat=mat)
+                    if bells:
+                        # 檐角挂一只小风铃
+                        bx, by, bz = pts[-2]
+                        self.cyl(0.008, 0.2, (bx, by, bz - 0.3), C('rope_dark'), segs=4, mat=mat)
+                        self.lathe([(0.0, 0.0), (0.06, 0.0, C('gold_dark')), (0.055, 0.05, C('gold')), (0.035, 0.1, C('gold')), (0.0, 0.12)],
+                                   (bx, by, bz - 0.42), segs=8, color=C('gold'), mat=mat)
+        if W - D > 0.05 and ridge_r >= 0.1:
+            # 正脊上一排小方钉
+            L = W - D
+            k = int(L * 2 / 0.5)
+            for i in range(k + 1):
+                x = -L + 2 * L * i / max(1, k)
+                self.box((0.1, 0.1, 0.08), (x + loc[0], loc[1], z + H + 0.05 + ridge_r * 1.1), color=C('gold_dark'), bevel=0.02, mat=mat)
 
     # ---------- 收尾 ----------
+    def _cover_tiles(self, W, D, height, step, dlim, amp, course, ca, cb, loc, mat):
+        """筒瓦：每一垄瓦（瓦面上凸起的那些线）上，一块一块半圆筒形的瓦从檐口一直排到屋脊。
+        每块瓦上头那截细一点、塞在上一块下面，下头那截是瓦唇；颜色每块略不同，近看是一块块分开的瓦"""
+        rng = self.rng
+        t = new_bm()
+        col = t.loops.layers.float_color['col']
+        r = step * 0.42
+        sides = [
+            (W, lambda u, d: (u, -(D - d))), (W, lambda u, d: (-u, D - d)),
+            (D, lambda u, d: (W - d, u)), (D, lambda u, d: (-(W - d), -u)),
+        ]
+        segs = 7
+
+        def normal(x, y):
+            e = 0.02
+            gx = (height(x + e, y) - height(x - e, y)) / (2 * e)
+            gy = (height(x, y + e) - height(x, y - e)) / (2 * e)
+            return Vector((-gx, -gy, 1)).normalized()
+        count = 0
+        for (L, f) in sides:
+            nu = max(2, int(round(2 * L / step)))
+            for i in range(0, nu + 1, 2):
+                u = -L + 2 * L * i / nu
+                dmax = min(dlim, L - abs(u) - r * 1.2)
+                if dmax <= course * 0.5:
+                    continue
+                n_t = max(1, int(round(dmax / course)))
+                dl = dmax / n_t
+                base = vary(mix(ca, cb, rng.random()), rng, 0.04, 0.03)
+                for k in range(n_t):
+                    d0, d1 = k * dl - 0.02, (k + 1) * dl + 0.035
+                    d0 = max(d0, 0.0)
+                    tc = vary(base, rng, 0.035, 0.02)
+                    rings = []
+                    for q, d in enumerate((d0, (d0 + d1) / 2, d1)):
+                        x, y = f(u, d)
+                        x2, y2 = f(u + 0.05, d)
+                        nrm = normal(x, y)
+                        across = Vector((x2 - x, y2 - y, height(x2, y2) - height(x, y))).normalized()
+                        across = (across - nrm * across.dot(nrm)).normalized()
+                        # 下头（靠檐）粗一点是瓦唇，上头细一点塞进上一块底下
+                        rr = r * (1.06, 1.0, 0.9)[q]
+                        c0 = Vector((x, y, height(x, y) + amp)) - nrm * (r * 0.3)
+                        ring = []
+                        for sgi in range(segs + 1):
+                            th = math.pi * sgi / segs
+                            ring.append(t.verts.new(c0 + across * (math.cos(th) * rr) + nrm * (math.sin(th) * rr)))
+                        rings.append((ring, q))
+                    for a_ in range(2):
+                        ra, qa = rings[a_]
+                        rb, qb = rings[a_ + 1]
+                        for sgi in range(segs):
+                            fc = t.faces.new((ra[sgi], ra[sgi + 1], rb[sgi + 1], rb[sgi]))
+                            for l in fc.loops:
+                                top = math.sin(math.pi * (ra.index(l.vert) if l.vert in ra else rb.index(l.vert)) / segs)
+                                along = 0 if l.vert in ra and qa == 0 else (0.5 if (l.vert in ra and qa == 1) or (l.vert in rb and qb == 1) else 1.0)
+                                c = tint(tc, 0.07 * top - 0.05 + 0.06 * (1 - along) - 0.08 * along * along)
+                                l[col] = (c[0], c[1], c[2], 0)
+                    # 瓦唇的端面（看得见瓦的厚度）
+                    ring0 = rings[0][0]
+                    inner = [t.verts.new(v.co.lerp(ring0[segs // 2].co, 0.0) - (ring0[segs // 2].co - (ring0[0].co + ring0[-1].co) / 2) * 0.18) for v in ring0]
+                    for sgi in range(segs):
+                        fc = t.faces.new((ring0[sgi + 1], ring0[sgi], inner[sgi], inner[sgi + 1]))
+                        for l in fc.loops:
+                            c = tint(tc, -0.12)
+                            l[col] = (c[0], c[1], c[2], 0)
+                    count += 1
+        bmesh.ops.recalc_face_normals(t, faces=t.faces)
+        self.merge(t, mat, xform((loc[0], loc[1], 0)))
+        print(f'[yjm] {self.name}: 筒瓦 {count} 块')
+
     def ao(self, samples=20, dist=1.6, strength=0.6, ground=True, shade=(0.52, 0.5, 0.72), ground_z=0.0, skip=('leaf',)):
         """把「缝里、墙脚更暗」算出来乘进顶点色。shade 是暗处偏的颜色（偏蓝紫，画面更通透）"""
         verts, tris = [], []
@@ -494,7 +671,7 @@ class Asset:
             dirs.append(Vector((r * math.cos(a), r * math.sin(a), math.sqrt(max(0.0, 1 - u)))))
         zaxis = Vector((0, 0, 1))
         for mat, b in self.parts.items():
-            if mat in skip:
+            if mat in skip or mat.startswith('leaf'):
                 continue
             col = b.loops.layers.float_color['col']
             cache = {}
@@ -604,6 +781,8 @@ class Asset:
             col = me.color_attributes['col'].data
             uv = me.uv_layers['uv'].data
             cn = me.corner_normals
+            nl = me.color_attributes.get('nrm')
+            nl = nl.data if nl is not None else None
             up = opt.get('normal_up', 0.0)
             index, pos, nrm, cols, uvs, idx = {}, [], [], [], [], []
             for tri in me.loop_triangles:
@@ -611,7 +790,10 @@ class Asset:
                 for li in tri.loops:
                     v = me.loops[li].vertex_index
                     n = Vector(cn[li].vector)
-                    if up > 0:
+                    if nl is not None and 0.4 < nl[li].color[3] < 0.6:
+                        cc = nl[li].color
+                        n = Vector((cc[0] * 2 - 1, cc[1] * 2 - 1, cc[2] * 2 - 1)).normalized()
+                    elif up > 0:
                         n = (n * (1 - up) + Vector((0, 0, up))).normalized()
                     c = col[li].color
                     u = uv[li].uv
@@ -631,7 +813,8 @@ class Asset:
             ev.to_mesh_clear()
             nv, nt = len(index), len(idx) // 3
             total += nt
-            header['parts'].append({'name': mat, 'mat': mat, 'verts': nv, 'tris': nt})
+            # 部件名可以写成「材质:名字」（小动物的头、腿、尾巴要分开，各自能动）
+            header['parts'].append({'name': mat.split(':')[-1], 'mat': mat.split(':')[0], 'verts': nv, 'tris': nt})
             blobs.append(struct.pack(f'<{nv * 3}f', *pos) + struct.pack(f'<{nv * 3}f', *nrm) + bytes(cols)
                          + struct.pack(f'<{nv * 2}f', *uvs) + struct.pack(f'<{nt * 3}I', *idx))
         hj = json.dumps(header).encode('utf8')
@@ -682,6 +865,64 @@ def preview_material():
         m.use_backface_culling = False
         _mat = m
     return _mat
+
+
+_leaf_mats = {}
+
+
+def leaf_preview_material(name):
+    """叶片卡的预览材质：按贴图（距离场）裁出叶子的形状，描边压暗。只是给 Blender 预览看个大概，游戏里是 YJLeaf.shader"""
+    if name in _leaf_mats:
+        return _leaf_mats[name]
+    m = bpy.data.materials.new('prev_' + name)
+    m.use_nodes = True
+    nt = m.node_tree
+    nt.nodes.clear()
+    N = nt.nodes.new
+    out = N('ShaderNodeOutputMaterial')
+    img = N('ShaderNodeTexImage')
+    path = os.path.join(HERE, '..', '..', 'unity', 'Sanctuary', 'Assets', 'Toon', 'Textures', name + '.png')
+    if os.path.exists(path):
+        img.image = bpy.data.images.load(path)
+        img.image.colorspace_settings.name = 'Non-Color'
+    uvn = N('ShaderNodeUVMap')
+    uvn.uv_map = 'uv'
+    nt.links.new(uvn.outputs[0], img.inputs[0])
+    sep = N('ShaderNodeSeparateColor')
+    nt.links.new(img.outputs['Color'], sep.inputs[0])
+    cut = N('ShaderNodeMath')
+    cut.operation = 'GREATER_THAN'
+    cut.inputs[1].default_value = 0.5
+    nt.links.new(sep.outputs[0], cut.inputs[0])
+    edge = N('ShaderNodeMapRange')          # 轮廓附近压暗当描边
+    edge.inputs[1].default_value, edge.inputs[2].default_value = 0.6, 0.68
+    edge.inputs[3].default_value, edge.inputs[4].default_value = 0.35, 1.0
+    nt.links.new(sep.outputs[0], edge.inputs[0])
+    attr = N('ShaderNodeAttribute')
+    attr.attribute_name = 'col'
+    gam = N('ShaderNodeGamma')
+    gam.inputs[1].default_value = 2.2
+    nt.links.new(attr.outputs['Color'], gam.inputs[0])
+    mul = N('ShaderNodeMixRGB')
+    mul.blend_type = 'MULTIPLY'
+    mul.inputs[0].default_value = 1.0
+    nt.links.new(gam.outputs[0], mul.inputs[1])
+    nt.links.new(edge.outputs[0], mul.inputs[2])
+    bsdf = N('ShaderNodeBsdfDiffuse')
+    nt.links.new(mul.outputs[0], bsdf.inputs['Color'])
+    tr = N('ShaderNodeBsdfTransparent')
+    mix_s = N('ShaderNodeMixShader')
+    nt.links.new(cut.outputs[0], mix_s.inputs[0])
+    nt.links.new(tr.outputs[0], mix_s.inputs[1])
+    nt.links.new(bsdf.outputs[0], mix_s.inputs[2])
+    nt.links.new(mix_s.outputs[0], out.inputs['Surface'])
+    m.use_backface_culling = False
+    try:
+        m.surface_render_method = 'DITHERED'
+    except Exception:
+        pass
+    _leaf_mats[name] = m
+    return m
 
 
 def setup_scene():
@@ -743,7 +984,8 @@ def render_preview(name, objs, view=None, floor=True):
     lo, hi = Vector((1e9, 1e9, 1e9)), Vector((-1e9, -1e9, -1e9))
     for ob in objs:
         if not ob.data.materials:
-            ob.data.materials.append(mat)
+            m = ob.get('mat', '')
+            ob.data.materials.append(leaf_preview_material(m) if m.startswith('leaf_') else mat)
         for v in ob.data.vertices:
             for i in range(3):
                 lo[i] = min(lo[i], v.co[i])
