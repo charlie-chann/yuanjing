@@ -123,8 +123,19 @@ public static partial class SanctuaryBuild
             {
                 var roots = s.roots.Where(all.ContainsKey).Select(n => all[n]).ToArray();
                 if (roots.Length == 0) continue;
-                sb.groups.Add(new SpringBones.Group { roots = roots, stiffness = s.stiff, gravity = s.gravity, drag = Mathf.Clamp01(s.drag) });
+                bool skirt = roots[0].name.Contains("Skirt");
+                // 裙子加一点重力：腿抬起来、分开坐的时候裙摆往下垂，搭在腿上
+                sb.groups.Add(new SpringBones.Group { roots = roots, stiffness = skirt ? Mathf.Min(s.stiff, 0.35f) : s.stiff, gravity = skirt ? Mathf.Max(s.gravity, 0.6f) : s.gravity, drag = Mathf.Clamp01(s.drag) });
             }
+            // 大腿上各三个碰撞球、臀部一个：裙子被推到腿的外面，不穿过去
+            foreach (var (up, low) in new[] { (HumanBodyBones.LeftUpperLeg, HumanBodyBones.LeftLowerLeg), (HumanBodyBones.RightUpperLeg, HumanBodyBones.RightLowerLeg) })
+            {
+                var a = anim.GetBoneTransform(up); var b = anim.GetBoneTransform(low);
+                float thick = Vector3.Distance(a.position, b.position) * 0.2f / Mathf.Max(0.01f, a.lossyScale.y);
+                foreach (float t in new[] { 0.15f, 0.5f, 0.85f })
+                    sb.colliders.Add(new SpringBones.Sphere { from = a, to = b, t = t, radius = thick * (1.1f - 0.3f * t) });
+            }
+
 
             var tagGo = new GameObject("Name");
             tagGo.transform.SetParent(root.transform, false);

@@ -340,7 +340,7 @@ KOWTOW_HANDS.update(hips_pitch=25.0, spine=6.0, chest=6.0, hand_space=0.0, wl=Ve
 # 坐的地方（坐、起身这几段的原点是圆蒲团正下方的地面）：
 #   圆蒲团顶 ZAFU、方草垫面 MAT_TOP，都按人物身高换算过（游戏里人缩到 0.806 倍：0.176 / 0.806、0.05 / 0.806）。
 #   方草垫从圆蒲团往前伸（朝大殿 +y），人坐下前先站在草垫上、圆蒲团前面 STAND_Y 处。
-ZAFU, MAT_TOP, STAND_Y = 0.218, 0.062, 0.3
+ZAFU, MAT_TOP, STAND_Y = 0.218, 0.062, 0.39
 MAT = MAT_TOP
 SIT = P(hips=Vector((0, -0.04, ZAFU + 0.1)), al=Vector((0.1, 0.37, MAT + 0.065)), ar=Vector((-0.1, 0.31, MAT + 0.075)),
         tl=Vector((0.85, 0.35, -0.1)), tr=Vector((-0.85, 0.35, -0.1)), ul=Vector((0.15, 0, 1)), ur=Vector((-0.15, 0, 1)),

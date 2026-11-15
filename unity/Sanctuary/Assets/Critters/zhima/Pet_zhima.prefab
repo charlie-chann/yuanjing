@@ -725,7 +725,7 @@ SkinnedMeshRenderer:
   m_Quality: 4
   m_UpdateWhenOffscreen: 1
   m_SkinnedMotionVectors: 1
-  m_Mesh: {fileID: 8791995333737785144, guid: ac48b9bab74f04ef69469c582dbc0609, type: 2}
+  m_Mesh: {fileID: 3809742069977857572, guid: ac48b9bab74f04ef69469c582dbc0609, type: 2}
   m_Bones:
   - {fileID: 788853340675930144}
   - {fileID: 7244571780280191087}

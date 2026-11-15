@@ -247,6 +247,32 @@ MonoBehaviour:
     stiffness: 0.4
     gravity: 0
     drag: 0.4
+  colliders:
+  - from: {fileID: 6604361272937792825}
+    to: {fileID: 6837531287456069778}
+    t: 0.15
+    radius: 0.111251675
+  - from: {fileID: 6604361272937792825}
+    to: {fileID: 6837531287456069778}
+    t: 0.5
+    radius: 0.10017923
+  - from: {fileID: 6604361272937792825}
+    to: {fileID: 6837531287456069778}
+    t: 0.85
+    radius: 0.08910679
+  - from: {fileID: 4061176539731520846}
+    to: {fileID: 5744418203358032847}
+    t: 0.15
+    radius: 0.11125169
+  - from: {fileID: 4061176539731520846}
+    to: {fileID: 5744418203358032847}
+    t: 0.5
+    radius: 0.10017925
+  - from: {fileID: 4061176539731520846}
+    to: {fileID: 5744418203358032847}
+    t: 0.85
+    radius: 0.089106806
+  collideNames: Skirt
 --- !u!1 &552965163212475605
 GameObject:
   m_ObjectHideFlags: 0

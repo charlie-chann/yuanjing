@@ -320,7 +320,7 @@ namespace Yuanjing
         }
 
         /// 坐下前站在圆蒲团前面多远（米，按 1.25 米高的人；见 tools/blender/pray_motions.py 的 STAND_Y × 0.806）
-        public const float SeatStep = 0.24f;
+        public const float SeatStep = 0.315f;
 
         /// 坐下、起身、跪下这些过渡动作正在播：这时人不挪地方（不然脚在地上滑）
         public bool InTransition => actNow != null && actW > 0.5f && (actNow.EndsWith("_Up") || actNow.EndsWith("_Down"));
@@ -346,6 +346,10 @@ namespace Yuanjing
             {
                 actW = 1;
                 for (int j = 0; j < actWeight.Length; j++) actWeight[j] = j == i - 4 ? 1 : 0;
+                // 这一帧就把姿势换过去（不等下一帧），原点挪了、身子还在旧姿势的那一帧也不要有
+                UpdateActions(0);
+                Mix(0, 0);
+                graph.Evaluate(0);
             }
         }
 
@@ -499,7 +503,8 @@ namespace Yuanjing
                 Vector3 pos = mover.position + new Vector3(move.x, 0, move.z);
                 // 坐着、跪着的时候不跟着地面走（坐下时原点就放在蒲团下面的地上，草垫的碰撞会把人顶高）
                 if (groundFollow && pose == Pose.None && Physics.Raycast(pos + Vector3.up * 0.8f, Vector3.down, out var hit, 2.5f, ~(1 << 2), QueryTriggerInteraction.Ignore))
-                    pos.y = Mathf.MoveTowards(pos.y, hit.point.y, 2.5f * dt);
+                    // 上台阶一下就上去（慢慢抬的话脚尖会插进台阶里），下台阶慢一点落下
+                    pos.y = hit.point.y > pos.y ? Mathf.MoveTowards(pos.y, hit.point.y, 6f * dt + 0.02f) : Mathf.MoveTowards(pos.y, hit.point.y, 2.5f * dt);
                 mover.position = pos;
             }
             // 走路动画的快慢按「真正走了多远」算：撞到东西被挡住时脚不会在原地蹭

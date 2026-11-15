@@ -19,6 +19,13 @@ namespace Yuanjing
 
         public List<Group> groups = new List<Group>();
 
+        /// 碰撞球：裙子、头发会被推到球面外（裙子不会穿过大腿，坐下、跪下时搭在腿上）
+        [Serializable]
+        public class Sphere { public Transform from, to; public float t, radius; }
+        public List<Sphere> colliders = new List<Sphere>();
+        /// 只有名字里带这些字的摆动骨骼才和碰撞球碰（裙子）；头发另算
+        public string collideNames = "Skirt";
+
         class Joint
         {
             public Transform t;
@@ -27,6 +34,7 @@ namespace Yuanjing
             public Quaternion rest;        // 静止时相对父骨头的转角
             public Vector3 tail, prev;
             public Group g;
+            public bool collide;
         }
 
         readonly List<Joint> joints = new List<Joint>();
@@ -44,7 +52,8 @@ namespace Yuanjing
         {
             Vector3 local = t.childCount > 0 ? t.GetChild(0).localPosition : Vector3.up * 0.05f;
             if (local.sqrMagnitude < 1e-8f) local = Vector3.up * 0.05f;
-            var j = new Joint { t = t, axis = local.normalized, length = local.magnitude, rest = t.localRotation, g = g };
+            var j = new Joint { t = t, axis = local.normalized, length = local.magnitude, rest = t.localRotation, g = g,
+                                collide = !string.IsNullOrEmpty(collideNames) && t.name.Contains(collideNames) };
             j.tail = j.prev = t.TransformPoint(local);
             joints.Add(j);
             for (int i = 0; i < t.childCount; i++) Add(t.GetChild(i), g);
@@ -77,6 +86,15 @@ namespace Yuanjing
                                + restWorld * j.axis * (j.g.stiffness * dt * scale)
                                + Vector3.down * (j.g.gravity * dt * scale);
                 next = pos + (next - pos).normalized * len;
+                if (j.collide)
+                    foreach (var c in colliders)
+                    {
+                        if (c.from == null) continue;
+                        Vector3 cp = c.to != null ? Vector3.Lerp(c.from.position, c.to.position, c.t) : c.from.position;
+                        float r = c.radius * scale;
+                        Vector3 d = next - cp;
+                        if (d.sqrMagnitude < r * r && d.sqrMagnitude > 1e-8f) next = pos + ((cp + d.normalized * r) - pos).normalized * len;
+                    }
                 j.prev = j.tail;
                 j.tail = next;
                 j.t.rotation = Quaternion.FromToRotation(restWorld * j.axis, next - pos) * restWorld;

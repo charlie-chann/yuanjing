@@ -1633,8 +1633,8 @@ MonoBehaviour:
     - {fileID: 3100707461751350989}
     - {fileID: 4695425618284877779}
     - {fileID: 1940821190521453072}
-    stiffness: 0.5
-    gravity: 0
+    stiffness: 0.35
+    gravity: 0.6
     drag: 0.05
   - roots:
     - {fileID: 8089276746591554676}
@@ -1679,6 +1679,32 @@ MonoBehaviour:
     stiffness: 1
     gravity: 0
     drag: 0.4
+  colliders:
+  - from: {fileID: 411448766186724336}
+    to: {fileID: 711185098245088068}
+    t: 0.15
+    radius: 0.074446976
+  - from: {fileID: 411448766186724336}
+    to: {fileID: 711185098245088068}
+    t: 0.5
+    radius: 0.06703756
+  - from: {fileID: 411448766186724336}
+    to: {fileID: 711185098245088068}
+    t: 0.85
+    radius: 0.059628144
+  - from: {fileID: 2506814484951850359}
+    to: {fileID: 9167259181082443602}
+    t: 0.15
+    radius: 0.074446894
+  - from: {fileID: 2506814484951850359}
+    to: {fileID: 9167259181082443602}
+    t: 0.5
+    radius: 0.067037486
+  - from: {fileID: 2506814484951850359}
+    to: {fileID: 9167259181082443602}
+    t: 0.85
+    radius: 0.05962808
+  collideNames: Skirt
 --- !u!1 &2545918700828760149
 GameObject:
   m_ObjectHideFlags: 0

@@ -41,6 +41,76 @@ for o in list(bpy.data.objects):
     elif o.type == 'EMPTY':
         bpy.data.objects.remove(o)
 
+# 打底裤：短裙坐下、跪下时会露出底下的白色内衣（VRoid 的裙子跟着大腿走）。在身体贴图上把裆部那一片近白色的像素染成深藏青，
+# 看起来是一条安全裤（动漫游戏的通常做法）。找法：身体网格上髋部以下、两腿之间、主要跟着髋和大腿动的面，取它们的贴图坐标，只改这些三角里的近白色
+def safety_shorts():
+    import numpy as np
+    body = next((o for o in bpy.data.objects if o.type == 'MESH' and o.name.lower().startswith('body')), None)
+    arm = next((o for o in bpy.data.objects if o.type == 'ARMATURE'), None)
+    if body is None or arm is None:
+        return 0
+    hips = arm.matrix_world @ arm.data.bones['J_Bip_C_Hips'].head_local
+    gi = {g.name: g.index for g in body.vertex_groups}
+    leg = {gi[n] for n in gi if n in ('J_Bip_C_Hips', 'J_Bip_L_UpperLeg', 'J_Bip_R_UpperLeg')}
+    me = body.data
+    uv = me.uv_layers.active.data
+    hit = {}
+    for poly in me.polygons:
+        mat = me.materials[poly.material_index]
+        if mat is None or 'Body' not in mat.name:
+            continue
+        ok = True
+        for vi in poly.vertices:
+            v = me.vertices[vi]
+            w = body.matrix_world @ v.co
+            if not (hips.z - 0.2 < w.z < hips.z + 0.06 and abs(w.x) < 0.17):
+                ok = False
+                break
+            if not any(g.group in leg and g.weight > 0.3 for g in v.groups):
+                ok = False
+                break
+        if ok:
+            node = next((n for n in mat.node_tree.nodes if n.type == 'TEX_IMAGE' and n.image is not None), None) if mat.node_tree else None
+            if node is None:
+                continue
+            hit.setdefault(node.image.name, []).append([tuple(uv[li].uv) for li in poly.loop_indices])
+    n = 0
+    for img_name, polys in hit.items():
+        im = bpy.data.images[img_name]
+        W, H = im.size
+        px = np.array(im.pixels[:], dtype=np.float32).reshape(H, W, 4)     # 第 0 行是贴图的最下面（v=0）
+        m = np.zeros((H, W), dtype=bool)
+        for pts in polys:
+            for k in range(1, len(pts) - 1):
+                tri = np.array([pts[0], pts[k], pts[k + 1]]) * [W, H]
+                x0, y0 = np.floor(tri.min(axis=0)).astype(int) - 1
+                x1, y1 = np.ceil(tri.max(axis=0)).astype(int) + 1
+                x0, y0, x1, y1 = max(x0, 0), max(y0, 0), min(x1, W), min(y1, H)
+                if x1 <= x0 or y1 <= y0:
+                    continue
+                gx, gy = np.meshgrid(np.arange(x0, x1) + 0.5, np.arange(y0, y1) + 0.5)
+                (ax, ay), (bx, by), (cx, cy) = tri
+                d = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
+                if abs(d) < 1e-9:
+                    continue
+                l1 = ((by - cy) * (gx - cx) + (cx - bx) * (gy - cy)) / d
+                l2 = ((cy - ay) * (gx - cx) + (ax - cx) * (gy - cy)) / d
+                inside = (l1 >= -0.02) & (l2 >= -0.02) & (1 - l1 - l2 >= -0.02)
+                m[y0:y1, x0:x1] |= inside
+        bright = (px[..., 0] > 0.6) & (px[..., 1] > 0.6) & (px[..., 2] > 0.66) & (px[..., 2] >= px[..., 0] - 0.02)
+        sel = m & bright
+        shade = px[..., :3].mean(axis=2, keepdims=True)
+        px[..., :3] = np.where(sel[..., None], np.array([0.09, 0.1, 0.17]) * (0.75 + 0.3 * shade), px[..., :3])
+        im.pixels[:] = px.ravel()
+        n += int(sel.sum())
+    return n
+
+
+try:
+    print(f'[vrm] 安全裤：染了 {safety_shorts()} 个像素')
+except Exception as e:
+    print('[vrm] 安全裤没做成：', e)
+
 # 贴图存成 PNG（名字用 glb 里图片的名字）
 img_file = {}
 for i, im in enumerate(images):
