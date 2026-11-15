@@ -1,0 +1,8 @@
+<!-- 打包时不要裁掉动画相关的代码（裁掉以后人物动画在手机上取不到片段，会摆成默认姿势） -->
+<linker>
+  <assembly fullname="UnityEngine.AnimationModule" preserve="all" />
+  <assembly fullname="UnityEngine.DirectorModule" preserve="all" />
+  <assembly fullname="UnityEngine.CoreModule">
+    <type fullname="UnityEngine.Playables.*" preserve="all" />
+  </assembly>
+</linker>

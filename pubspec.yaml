@@ -1,0 +1,37 @@
+name: yuanjing
+description: "愿境：显化、疗愈和正向轻社交。"
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.13.3
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_embed_unity: ^2.0.0
+  yuanjing_engine:
+    path: packages/yuanjing_engine
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    # 本地生成的引导语音频，见 tools/tts/generate_guides.py
+    - assets/voice/
+    # 合成的环境音和音效，见 tools/audio/generate_audio.py
+    - assets/audio/
+    # 房间里的形象模型
+    - assets/models/
+  fonts:
+    # 思源宋体，开源（SIL OFL）。iOS 不自带中文衬线字体
+    - family: YuanjingSerif
+      fonts:
+        - asset: assets/fonts/SourceHanSerifCN-Medium.otf
+          weight: 500
+        - asset: assets/fonts/SourceHanSerifCN-Bold.otf
+          weight: 700

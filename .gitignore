@@ -1,0 +1,71 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# Widget Preview related
+.widget_preview/
+
+# 免费素材库（很大，按需从 tools/sanctuary/fetch_library.py 重新下载）
+/asset_library/
+
+
+# Python 虚拟环境（tools/tts 下的本地语音模型环境很大）
+.venv/
+
+# Unity：工程缓存和导出产物（unity/export.sh 会重新生成 ios/unityLibrary）
+/unity/Sanctuary/Library/
+/unity/Sanctuary/Temp/
+/unity/Sanctuary/Logs/
+/unity/Sanctuary/UserSettings/
+/unity/Sanctuary/obj/
+/unity/Sanctuary/*.csproj
+/unity/Sanctuary/*.sln
+/unity/thirdparty/
+/unity/shots/
+/unity/test.xml
+/ios/unityLibrary/
+
+# Blender 出的预览图（tools/blender/build_all.sh 会重新生成）
+/tools/blender/preview/

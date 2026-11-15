@@ -1,0 +1,12 @@
+/assets/fonts/SourceHanSerifCN-Bold.otf filter=lfs diff=lfs merge=lfs -text
+/assets/fonts/SourceHanSerifCN-Medium.otf filter=lfs diff=lfs merge=lfs -text
+/assets/models/girl_a.vrm filter=lfs diff=lfs merge=lfs -text
+/unity/Sanctuary/Assets/Characters/UAL1_Standard.fbx filter=lfs diff=lfs merge=lfs -text
+/unity/Sanctuary/Assets/Fonts/SourceHanSerifCN-Medium.otf filter=lfs diff=lfs merge=lfs -text
+/unity/Sanctuary/Assets/Resources/Audio/amb_music_temple.wav filter=lfs diff=lfs merge=lfs -text
+/unity/Sanctuary/Assets/Sky/sky_dawn.hdr filter=lfs diff=lfs merge=lfs -text
+/unity/Sanctuary/Assets/Sky/sky_day.hdr filter=lfs diff=lfs merge=lfs -text
+/unity/Sanctuary/Assets/Sky/sky_dusk.hdr filter=lfs diff=lfs merge=lfs -text
+/unity/Sanctuary/Assets/Sky/sky_moon.hdr filter=lfs diff=lfs merge=lfs -text
+/unity/Sanctuary/Assets/Sky/sky_night.hdr filter=lfs diff=lfs merge=lfs -text
+/unity/Sanctuary/Assets/Sky/sky_overcast.hdr filter=lfs diff=lfs merge=lfs -text

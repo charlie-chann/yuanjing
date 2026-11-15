@@ -1,0 +1,9 @@
+{
+    "name": "YJTests",
+    "references": [],
+    "optionalUnityReferences": ["TestAssemblies"],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "defineConstraints": ["UNITY_INCLUDE_TESTS"],
+    "autoReferenced": false
+}

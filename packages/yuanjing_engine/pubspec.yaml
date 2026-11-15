@@ -1,0 +1,21 @@
+name: yuanjing_engine
+description: "愿境原生引擎：仪式舞台（Metal）、触感，以及后续的房间场景（RealityKit）。"
+version: 0.1.0
+publish_to: 'none'
+
+environment:
+  sdk: ^3.13.3
+  flutter: '>=3.3.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+
+flutter:
+  plugin:
+    platforms:
+      ios:
+        pluginClass: YuanjingEnginePlugin
