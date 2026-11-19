@@ -7,7 +7,8 @@ Idle_Behind   assets_src/mocap/100style/ArmsBehindBack_ID.bvh   10.25  16.18
 Idle_Folded   assets_src/mocap/100style/ArmsFolded_ID.bvh   18.78  24.72
 Idle_LookUp   assets_src/mocap/100style/LookUp_ID.bvh   19.05  24.98
 Idle_Monk     assets_src/mocap/100style/Monk_ID.bvh   20.12  26.05
-# 走路：一个完整步态（tools/mocap/bvh.py 的 find_loop 自动找的首尾最接近的一段）
-Walk_M     assets_src/mocap/100style/Neutral_FW.bvh   8.8835   10.2169
-Walk_Monk  assets_src/mocap/100style/Monk_FW.bvh   13.7836   15.2670
+# 走路：Walk_M / Walk_F / *_Fast / *_Brisk / Walk_Monk / Walk_Stop* / Walk_TurnStart* 现在由 tools/mocap/locomotion.py 加工导出
+# （同步相位、拉直、首尾对齐、脊柱并节、标准 T 字基准），不要再从这里导，会把加工过的覆盖掉。原来的两行：
+# Walk_M     assets_src/mocap/100style/Neutral_FW.bvh   8.8835   10.2169
+# Walk_Monk  assets_src/mocap/100style/Monk_FW.bvh   13.7836   15.2670
 Walk_Slow  assets_src/mocap/cmu/132_45.bvh   11.8000   12.7499

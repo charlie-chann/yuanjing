@@ -256,8 +256,9 @@ def tree_wish(name):
             a.quad([q - d, q + d, q + d + Vector((0, 0, -ln * k)), q - d + Vector((0, 0, -ln * k))], mat='leaf',
                    colors=[col, col, tint(col, -0.06), tint(col, -0.06)], sway=(0.1, 0.1, 1.8, 1.8))
 
-    # 绳圈：八根木桩，绳子略微下垂（尺寸同旧版，Unity 那边按这个挂布条和木牌）
-    N, R, H = 8, 2.95, 1.55
+    # 绳圈：八根木桩，绳子略微下垂（Unity 那边按这个挂布条和木牌：BuildIslet.cs 的 RopePosts、RopeR、RopeH 要同改）
+    # 绳高 1.55 → 1.2（2026-11-17）：1.25 米高的小人系布条时手在胸口到肩的高度，不用踮脚够
+    N, R, H = 8, 2.95, 1.2
     for i in range(N):
         ang = 2 * math.pi * (i + 0.5) / N
         x, y = R * math.cos(ang), R * math.sin(ang)

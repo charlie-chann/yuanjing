@@ -9,7 +9,7 @@ grep "\[yuanjing\] 坐稳测试\|\[yuanjing\] 镜头距离\|\[yuanjing\] 视角�
 python3 - <<'PY'
 import re
 t = open('test.xml').read() if __import__('os').path.exists('test.xml') else ''
-m = re.search(r'<test-run[^>]*result="(\w+)"[^>]*total="(\d+)"[^>]*passed="(\d+)"[^>]*failed="(\d+)"', t)
+m = re.search(r'<test-run[^>]*result="([^"]+)"[^>]*total="(\d+)"[^>]*passed="(\d+)"[^>]*failed="(\d+)"', t)
 print('结果：', m.groups() if m else '没有生成结果')
 for msg in re.findall(r'<message><!\[CDATA\[(.*?)\]\]>', t, re.S)[:2]: print('  ', msg.strip()[:300])
 PY

@@ -41,6 +41,11 @@ Material:
     - _DstBlend: 0
     - _OutlineWidth: 0.09
     - _ShadeShift: -0.4
+    - _SkirtColorMask: 0
+    - _SkirtComp: 8
+    - _SkirtFix: 1
+    - _SkirtOp: 2
+    - _SkirtPush: 0.05
     - _SrcBlend: 1
     - _SunScale: 0.2
     - _Toony: 0.2

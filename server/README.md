@@ -13,6 +13,16 @@ uv sync                # 第一次
 
 应用默认连 `http://127.0.0.1:8787`（模拟器能直接连）。真机或线上：`flutter build ios --dart-define=YJ_API=https://你的域名`。
 
+本地的 SQLite 启动时只会 `create_all`：缺的表会建，**已有的表不会加新列**。改了表结构（比如 `sanctuary_offerings.public`）以后，老的 `data/yuanjing.db` 要升一下：
+
+```bash
+.venv/bin/alembic upgrade head          # data/yuanjing.db 已经记了版本（alembic_version）
+# 一个从没记过版本、由 create_all 建出来的老库：先对一下缺哪些列，再从对应的版本记起，例如
+# .venv/bin/alembic stamp 5c8e3f0d2b41 && .venv/bin/alembic upgrade head
+```
+
+不升的话 `/sanctuary` 的心跳和 `/offer` 会报 `no such column`，岛上就没有别人、也记不下挂上去的心意。
+
 ## 有什么
 
 - 登录：先用设备号免注册（`POST /auth/device`），以后接手机号或 Sign in with Apple 往 users 表加字段。

@@ -12,7 +12,7 @@ using Yuanjing;
 /// 贴图导入规则：法线图、合一图、天空各有各的设置。放进对应文件夹就自动生效。
 public class TextureRules : AssetPostprocessor
 {
-    // 改了规则就加一，所有贴图会重新导入
+    // 改了规则就加一，所有贴图会重新导入（2026-11-17 加 paint_* 那一条时没有加：那些贴图是新放进来的，第一次导入就按新规则）
     public override uint GetVersion() => 4;
 
     void OnPreprocessTexture()
@@ -70,6 +70,30 @@ public class TextureRules : AssetPostprocessor
             t.maxTextureSize = 1024;
             t.format = TextureImporterFormat.ASTC_4x4;
             imp.SetPlatformTextureSettings(t);
+            return;
+        }
+        if (assetPath.StartsWith("Assets/Toon/Textures/") && name.StartsWith("paint_"))
+        {
+            // 手绘图案（tools/textures/painted*.py：大殿彩画、佛像开脸、桌围、幡……）：按模型的 uv 贴，凑近看要清楚。
+            // 图集里每一块往里缩了 2.5 像素：手机上用 ASTC 4×4（块最小、最清楚），相邻两块的颜色不串；保持原来的尺寸，不缩成 2 的幂。
+            // 大殿三张、佛脸、背光的 uv 都在 0..1 里，边上不能绕到对边去；桌围、幡、须弥座、垂带这些有平铺（uv 超出 1）
+            imp.textureType = TextureImporterType.Default;
+            imp.sRGBTexture = true;
+            imp.npotScale = TextureImporterNPOTScale.None;
+            // 壁画的图集 2048×4096（十二幅、每间一幅不重复）：长边要 4096
+            int max = name == "paint_wall" ? 4096 : 2048;
+            imp.maxTextureSize = max;
+            imp.mipmapEnabled = true;
+            imp.filterMode = FilterMode.Trilinear;
+            imp.anisoLevel = 8;
+            bool clamp = name == "paint_beam" || name == "paint_ceiling" || name == "paint_wall" || name == "paint_buddha_face" || name == "paint_mandorla";
+            imp.wrapMode = clamp ? TextureWrapMode.Clamp : TextureWrapMode.Repeat;
+            var tp = imp.GetPlatformTextureSettings("iPhone");
+            tp.overridden = true;
+            tp.maxTextureSize = max;
+            tp.format = TextureImporterFormat.ASTC_4x4;
+            tp.compressionQuality = (int)TextureCompressionQuality.Best;
+            imp.SetPlatformTextureSettings(tp);
             return;
         }
         if (assetPath.StartsWith("Assets/Toon/Textures/"))
@@ -274,7 +298,8 @@ public static partial class SanctuaryBuild
             SetProp(fso, "m_Settings.Radius", p => p.floatValue = 0.55f);
             SetProp(fso, "m_Settings.Falloff", p => p.floatValue = 60f);
             SetProp(fso, "m_Settings.DirectLightingStrength", p => p.floatValue = 0.3f);
-            SetProp(fso, "m_Settings.Downsample", p => p.boolValue = false);
+            // 半分辨率算（手机屏幕原尺寸 1170×2532 下和全分辨率比，平均每像素差不到 1/255，脚下、垫子边的接触暗影一样；这一遍的像素只剩四分之一）
+            SetProp(fso, "m_Settings.Downsample", p => p.boolValue = true);
             // 噪声用固定图案（1）。默认的蓝噪声（0）每帧换一张，暗角里会一直有细碎的闪
             SetProp(fso, "m_Settings.AOMethod", p => p.intValue = 1);
             fso.ApplyModifiedPropertiesWithoutUndo();
@@ -517,6 +542,38 @@ public static partial class SanctuaryBuild
                 folk.EditorPose("Move", 0, 0.3f, pose, 0);
             }
         }
+        // -near 0.05：近裁剪面（默认是俯视用的 0.5，凑近拍殿里的供桌、佛脸时会切掉近处的东西）
+        if (Arg("-near") != null) cam.nearClipPlane = float.Parse(Arg("-near"));
+        // -matset "toon_gold:_Gilt=0,toon_paint_buddha_face:_Gilt=0"：出图时临时改几个材质参数做对比，出完改回去。
+        // 颜色写成 r/g/b（如 toon_gold:_BaseColor=1/0.9/0.74）
+        var matWas = new List<(Material, string, float)>();
+        var colWas = new List<(Material, string, Color)>();
+        foreach (string one in (Arg("-matset") ?? "").Split(','))
+        {
+            var kv = one.Split(':', '=');
+            if (kv.Length < 3) continue;
+            var m = AssetDatabase.LoadAssetAtPath<Material>($"{YjmImporter.MatDir}/{kv[0]}.mat");
+            if (m == null || !m.HasProperty(kv[1])) { Debug.LogWarning($"[yuanjing] 没有材质参数 {one}"); continue; }
+            if (kv[2].Contains("/"))
+            {
+                var c = kv[2].Split('/');
+                colWas.Add((m, kv[1], m.GetColor(kv[1])));
+                m.SetColor(kv[1], new Color(float.Parse(c[0]), float.Parse(c[1]), float.Parse(c[2]), c.Length > 3 ? float.Parse(c[3]) : 1f));
+                continue;
+            }
+            matWas.Add((m, kv[1], m.GetFloat(kv[1])));
+            m.SetFloat(kv[1], float.Parse(kv[2]));
+        }
+        try { RenderShotList(tw, cam, w, h, noShadows); }
+        finally
+        {
+            foreach (var (m, k, v) in matWas) m.SetFloat(k, v);
+            foreach (var (m, k, v) in colWas) m.SetColor(k, v);
+        }
+    }
+
+    static void RenderShotList(TimeWeather tw, Camera cam, int w, int h, bool noShadows)
+    {
         foreach (string shot in (Arg("-shots") ?? "").Split(';'))
         {
             var f = shot.Split('|');
@@ -528,6 +585,9 @@ public static partial class SanctuaryBuild
             var weather = (Weather)Enum.Parse(typeof(Weather), f[4], true);
             tw.ApplyImmediate(time, weather);
             if (noShadows) tw.sun.shadows = LightShadows.None;
+            // -cull 1：按镜头位置把殿里的东西开关一下（同运行时的 InteriorCull），看分档会不会被看出来
+            foreach (var ic in UnityEngine.Object.FindObjectsByType<Yuanjing.InteriorCull>(FindObjectsSortMode.None))
+                if (Arg("-cull") != null) ic.Apply(cam.transform.position); else ic.Set(2);
             foreach (var ps in UnityEngine.Object.FindObjectsByType<ParticleSystem>(FindObjectsSortMode.None))
             {
                 var follow = ps.GetComponentInParent<FollowCamera>();

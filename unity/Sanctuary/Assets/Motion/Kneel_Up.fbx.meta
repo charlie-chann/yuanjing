@@ -38,8 +38,8 @@ ModelImporter:
       name: Kneel_Up
       takeName: Scene
       internalID: -623603649343465320
-      firstFrame: 1
-      lastFrame: 79
+      firstFrame: 4
+      lastFrame: 82
       wrapMode: 0
       orientationOffsetY: 0
       level: 0

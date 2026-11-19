@@ -31,6 +31,26 @@ Material:
         m_Texture: {fileID: 2800000, guid: 4f40d57e8b15d49b185f4d697af48d77, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
+    - _FloorCube:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _FloorCubeNight:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _FloorDetail:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _FloorMap:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _GiltLeaf:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     - _TexMap:
         m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
@@ -45,14 +65,35 @@ Material:
     - _Cull: 2
     - _Detail: 0.13
     - _DetailScale: 0.7
+    - _Floor: 0
+    - _FloorNight: 0.4
+    - _FloorRefl: 0.5
+    - _FloorRough: 0.35
+    - _FloorTile: 1.6
+    - _Gilt: 0
+    - _GiltCeil: 0.35
+    - _GiltDoorK: 1.2
+    - _GiltEnv: 0
+    - _GiltFloor: 0.2
+    - _GiltLamp: 0.5
+    - _GiltLeafAmt: 0
+    - _GiltLeafScale: 2
+    - _GiltLeafTilt: 0
+    - _GiltMask: 0
+    - _GiltSpec: 1
+    - _GlowTint: 0
     - _Legacy: 1
+    - _Paint: 0
+    - _PaintGlow: 0
     - _ShadeSoft: 0.14
     - _ShadeStep: 0.08
     - _SnowAmount: 0
     - _SunScale: 0.2
     - _Sway: 0
+    - _TexContrast: 1
     - _TexFine: 6
     - _TexFineAmount: 0.6
+    - _TexHash: 0
     - _TexNormal: 1
     - _TexSpec: 0.15
     - _TexTile: 1.2
@@ -60,6 +101,13 @@ Material:
     m_Colors:
     - _BaseColor: {r: 0.33600003, g: 0.252, b: 0.19600001, a: 1}
     - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
+    - _FloorBoxMax: {r: 6.5, g: 5.9, b: 22, a: 0}
+    - _FloorBoxMin: {r: -6.5, g: 0.72, b: 14.4, a: 0}
+    - _FloorProbe: {r: 0, g: 1.2, b: 17.5, a: 0}
+    - _FloorRect: {r: 0, g: 0, b: 1, a: 1}
+    - _GiltColor: {r: 1, g: 0.85, b: 0.52, a: 1}
+    - _GiltDir: {r: 0.3, g: 0.75, b: -0.6, a: 0}
+    - _GiltDoor: {r: 0, g: 0.12, b: -1, a: 0}
     - _RimColor: {r: 1, g: 1, b: 1, a: 0.1}
     - _ShadeColor: {r: 1.02, g: 1, b: 1.14, a: 1}
     - _TexMean: {r: 0.5, g: 0.5, b: 0.5, a: 1}

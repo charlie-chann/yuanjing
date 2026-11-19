@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using UnityEditor;
@@ -7,7 +8,7 @@ using UnityEngine;
 public class CharacterImport : AssetPostprocessor
 {
     // 改了导入规则就把版本号加一，Unity 会自动重新导入
-    public override uint GetVersion() => 10;
+    public override uint GetVersion() => 18;
 
     void OnPreprocessModel()
     {
@@ -21,6 +22,17 @@ public class CharacterImport : AssetPostprocessor
             mi.materialImportMode = ModelImporterMaterialImportMode.None;
             mi.resampleCurves = true;
             mi.animationCompression = ModelImporterAnimationCompression.Optimal;
+            // 走路（tools/mocap/locomotion.py）：人形基准每次都重新认，不沿用 .meta 里存的旧基准。
+            // 只有骨架的 FBX 没有绑定姿势，Unity 拿动画第一帧当基准：convert.py --ref0 让第一帧（第 0 帧）就是标准 T 字。
+            // 以前第一帧是走路的一帧（右脚蹬地、脚尖朝下，头偏着），套到人物上右脚一直翘着脚尖、头歪
+            if (Path.GetFileName(assetPath).StartsWith("Walk_"))
+            {
+                var hd = mi.humanDescription;
+                hd.human = new HumanBone[0];
+                hd.skeleton = new SkeletonBone[0];
+                mi.humanDescription = hd;
+                mi.autoGenerateAvatarMappingIfUnspecified = true;
+            }
             return;
         }
         if (!assetPath.StartsWith("Assets/Characters/")) return;
@@ -34,6 +46,24 @@ public class CharacterImport : AssetPostprocessor
         imp.globalScale = 1f;
     }
 
+    /// 走路片段（tools/mocap/locomotion.py）前后各多导的帧数（和那边的 PAD 一样）：片段从第 1 + WalkPad 帧起、到倒数第 WalkPad + 1 帧止。
+    /// 多导的几帧让片段开头、结尾的曲线切线是对的（不然第一帧和第二帧之间往 T 字基准那边鼓，手臂每个循环跳一下）
+    public const int WalkPad = 3;
+
+    /// 各段走路片段的高度、朝向修正（人形单位，在 shino/dshibu/fumiriya 上量的：unity/run.sh MotionDiag.Level）。
+    /// 高度：踩稳的那只脚踝和待机时一样高（停步片段不修正的话整个停步里脚陷进地里 2 厘米多）；
+    /// 朝向：Unity 按身体朝向（髋和肩）定根的朝向，动捕里人走的方向和它差 3–4 度，走起来斜着（像螃蟹），这里转回来
+    static readonly Dictionary<string, (float h, float yaw)> WalkFix = new Dictionary<string, (float, float)>
+    {
+        // h：Unity 的 heightOffset（人形单位，正的是往下沉，所以这里是负的）；yaw：rotationOffset（度，镜像那份取反）
+        { "Walk_F_Slow", (-0.0149f, 3.18f) }, { "Walk_F", (-0.0091f, 3.17f) }, { "Walk_F_Fast", (-0.0078f, 4.40f) }, { "Walk_F_Brisk", (-0.0040f, 4.15f) },
+        { "Walk_M_Slow", (-0.0133f, 3.13f) }, { "Walk_M", (-0.0097f, 2.96f) }, { "Walk_M_Fast", (-0.0093f, 3.55f) }, { "Walk_M_Brisk", (-0.0062f, 3.48f) },
+        { "Walk_Stop_F", (-0.0309f, 0f) }, { "Walk_Stop", (-0.0290f, 0f) },
+    };
+
+    /// tools/mocap/locomotion.py 做的走路片段（老的 Walk_Slow 不是）
+    static bool LocoClip(string f) => f.StartsWith("Walk_F") || f.StartsWith("Walk_M") || f.StartsWith("Walk_Stop") || f.StartsWith("Walk_TurnStart");
+
     void OnPreprocessAnimation()
     {
         if (assetPath.StartsWith("Assets/Motion/"))
@@ -41,12 +71,19 @@ public class CharacterImport : AssetPostprocessor
             var mi = (ModelImporter)assetImporter;
             var list = mi.defaultClipAnimations;
             string file = Path.GetFileNameWithoutExtension(assetPath);
+            // 走路的过渡段（停步、转身起步）：不循环；转身起步的转身留作根运动（游戏按它转人），其余按身体朝向烤进姿势
+            bool walkPart = file.StartsWith("Walk_Stop") || file.StartsWith("Walk_TurnStart");
+            var outList = new List<ModelImporterClipAnimation>();
             foreach (var c in list)
             {
                 c.name = file;
-                // 第 0 帧是给人形基准用的 T 字姿势，不要
-                if (c.firstFrame < 1) c.firstFrame = 1;
-                bool loop = file.StartsWith("Idle") || file.StartsWith("Walk") || file.EndsWith("_Loop");
+                // 第 0 帧是给人形基准用的 T 字姿势，不要；走路片段（locomotion.py）、关键帧动作（pray_motions.py）前后还各有 WalkPad 帧，只是给曲线切线用的
+                bool padded = LocoClip(file) || (!file.StartsWith("Idle") && !file.StartsWith("Walk"));
+                int pad = padded ? WalkPad : 0;
+                if (c.firstFrame < 1 + pad) c.firstFrame = 1 + pad;
+                c.lastFrame -= pad;
+                if (WalkFix.TryGetValue(file, out var fix)) { c.heightOffset = fix.h; c.rotationOffset = fix.yaw; }
+                bool loop = file.StartsWith("Idle") || (file.StartsWith("Walk") && !walkPart) || file.EndsWith("_Loop");
                 c.loopTime = loop;
                 c.loopPose = loop;                 // 首尾对齐，循环时不跳
                 // 原地播：水平位移和转身交给游戏里的移动，动画只管姿势；高度按双脚对齐（脚踩在原点上）
@@ -63,8 +100,20 @@ public class CharacterImport : AssetPostprocessor
                 c.lockRootPositionXZ = !file.StartsWith("Walk");
                 c.keepOriginalPositionXZ = keyed;
                 if (keyed) c.keepOriginalOrientation = false;
+                if (file.StartsWith("Walk_TurnStart")) c.lockRootRotation = false;
+                outList.Add(c);
+                // 停步、转身起步再导一份左右镜像（另一只脚、另一个方向），名字加 _Mirror
+                if (walkPart)
+                    outList.Add(new ModelImporterClipAnimation
+                    {
+                        name = file + "_Mirror", takeName = c.takeName, firstFrame = c.firstFrame, lastFrame = c.lastFrame,
+                        loopTime = c.loopTime, loopPose = c.loopPose, lockRootRotation = c.lockRootRotation, keepOriginalOrientation = c.keepOriginalOrientation,
+                        lockRootHeightY = c.lockRootHeightY, keepOriginalPositionY = c.keepOriginalPositionY, heightFromFeet = c.heightFromFeet,
+                        lockRootPositionXZ = c.lockRootPositionXZ, keepOriginalPositionXZ = c.keepOriginalPositionXZ, mirror = true,
+                        wrapMode = c.wrapMode, cycleOffset = c.cycleOffset, heightOffset = c.heightOffset, rotationOffset = -c.rotationOffset
+                    });
             }
-            mi.clipAnimations = list;
+            mi.clipAnimations = outList.ToArray();
             return;
         }
         if (!assetPath.Contains("UAL1")) return;

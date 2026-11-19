@@ -29,6 +29,34 @@ half _TexFine;
 half _TexFineAmount;
 half _TexNormal;
 half _TexSpec;
+half _Paint;
+half _PaintGlow;
+half _Gilt;
+half4 _GiltDir;
+half4 _GiltColor;
+half _GiltEnv;
+half4 _GiltDoor;
+half _GiltFloor;
+half _GiltDoorK;
+half _GiltCeil;
+half _GiltSpec;
+half _GiltLamp;
+half _GiltLeafAmt;
+half _GiltLeafTilt;
+half _GiltLeafScale;
+half _GiltMask;
+half _GlowTint;
+half _Floor;
+float4 _FloorRect;
+float4 _FloorBoxMin;
+float4 _FloorBoxMax;
+float4 _FloorProbe;
+half _FloorRefl;
+half _FloorRough;
+half _FloorNight;
+half _FloorTile;
+half _TexHash;
+half _TexContrast;
 CBUFFER_END
 
 #ifndef YJ_WEATHER_INCLUDED
@@ -39,7 +67,8 @@ float _YJWind;
 float3 YJToonSway(float3 positionOS, half4 color, half phase)
 {
     half a = lerp(color.a, color.r, _Legacy) * _Sway;
-    phase *= 1.0 - _Legacy;
+    // 手绘贴图的部件（_Paint）uv 是贴图坐标，不是每一团的相位：整块一起摆（幡）
+    phase *= 1.0 - saturate(_Legacy + _Paint);
     float3 w = TransformObjectToWorld(positionOS);
     float t = _Time.y;
     float p = phase * 6.2831;
@@ -71,6 +100,28 @@ void YJSeeThrough(float3 positionWS, float4 positionCS)
     uint2 px = uint2(positionCS.xy) & 3u;
     float thr = (bayer[px.x + px.y * 4u] + 0.5) / 16.0;
     clip(1.0 - cut * 0.94 - thr);
+}
+
+// 平视时挡在镜头和自己之间的叶子（镜头退到树冠里、灌木后面）用网点淡掉，只留三成：
+// _YJFocus 是自己那一团（xyz 中心，w 半径；0 是不管，ViewSwitcher 每帧给，同 YJAnime 的 YJOccluderFade）。
+// 从镜头看过去罩住自己的那个圆锥里、又比自己近的才淡；圆锥外 0.2 米慢慢恢复
+float4 _YJFocus;
+
+void YJFocusFade(float3 positionWS, float4 positionCS)
+{
+    if (_YJFocus.w <= 0.0) return;
+    float3 toP = _YJFocus.xyz - _WorldSpaceCameraPos;
+    float dp = length(toP);
+    float3 dir = toP / max(dp, 1e-3);
+    float3 toX = positionWS - _WorldSpaceCameraPos;
+    float along = dot(toX, dir);
+    if (along > dp - _YJFocus.w - 0.15 || along <= 0.0) return;
+    float perp = length(toX - dir * along);
+    float k = saturate((perp - _YJFocus.w * along / dp) / 0.2);
+    if (k >= 1.0) return;
+    // 交错梯度噪声的网点（比 4×4 方格细），留四成
+    float ign = frac(52.9829189 * frac(dot(floor(positionCS.xy), float2(0.06711056, 0.00583715))));
+    clip(0.4 + 0.6 * k - ign);
 }
 
 #endif

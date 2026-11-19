@@ -191,6 +191,7 @@ namespace Yuanjing
         }
 
         static readonly int EmissionId = Shader.PropertyToID("_EmissionColor");
+        static readonly int NightId = Shader.PropertyToID("_YJNight");
 
         static void SetGlow(Renderer[] renderers, Color c)
         {
@@ -342,6 +343,8 @@ namespace Yuanjing
             // 灯笼和窗格：亮度直接设到材质上（同一种灯共用一个材质）。
             // 不用「每个物体单独的属性块」：那样这些物体走另一条绘制路径，手机上和别的物体的参数会串
             SetGlow(lampRenderers, lampColor * (0.02f + lampNow * 1.35f));
+            // 夜里多少（殿里的金砖地按它在白天、夜里两张反光图之间换，夜里提亮一点）
+            Shader.SetGlobalFloat(NightId, lampNow);
             SetGlow(glassRenderers, glassColor * (0.04f + lampNow * 2.2f));
             if (lampLights != null)
                 for (int i = 0; i < lampLights.Length; i++)

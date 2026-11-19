@@ -24,6 +24,37 @@ public class PlaythroughTest
 
     void Cmd(string json) => bridge.SendMessage("OnMessage", json);
 
+    /// Unity 发给 Flutter 的消息（编辑器里打在日志上：SendToFlutter - {json}）
+    readonly List<string> sent = new List<string>();
+    void OnLog(string c, string st, LogType t)
+    {
+        if (c.StartsWith("SendToFlutter - ")) sent.Add(c.Substring(16));
+    }
+
+    /// 一边量一边等某种消息，最多 maxSecs 秒；等到了返回 true
+    IEnumerator HoldUntil(string phase, string type, float maxSecs, System.Action<bool> done, string shotName = null, float shotAt = -1)
+    {
+        int from = sent.Count;
+        bool shotTaken = false;
+        for (float t = 0; t < maxSecs; t += Time.deltaTime)
+        {
+            yield return null;
+            Measure(phase);
+            if (shotName != null && !shotTaken && shotAt >= 0 && t >= shotAt) { Shot(shotName); shotTaken = true; }
+            for (int i = from; i < sent.Count; i++)
+                if (sent[i].Contains($"\"type\":\"{type}\""))
+                {
+                    if (shotName != null && !shotTaken) Shot(shotName);
+                    done(true);
+                    yield break;
+                }
+        }
+        done(false);
+    }
+
+    /// 写了字的灰度图：Flutter 测试写好的那张（test/sanctuary_wish_mask_test.dart），没有就不带字
+    static string Mask(string file) => File.Exists($"../shots/wish/{file}.png") ? System.Convert.ToBase64String(File.ReadAllBytes($"../shots/wish/{file}.png")) : "";
+
     void Shot(string name)
     {
         cam.targetTexture = rt; cam.Render(); cam.targetTexture = null;
@@ -171,6 +202,7 @@ public class PlaythroughTest
     [UnityTest, Timeout(1200000)]
     public IEnumerator PlayEverything()
     {
+        Application.logMessageReceived += OnLog;
         SceneManager.LoadScene("Islet");
         for (int i = 0; i < 10; i++) yield return null;
         Directory.CreateDirectory("../shots/play");
@@ -184,8 +216,9 @@ public class PlaythroughTest
         rt = new RenderTexture(540, 960, 24) { antiAliasing = 4 };
         tex = new Texture2D(540, 960, TextureFormat.RGB24, false);
         Cushions.Clear();
+        // 只数一个个座位点（Seat0、Seat1……），不把装它们的 Seats 也算进去
         foreach (var t in Object.FindObjectsByType<Transform>(FindObjectsSortMode.None))
-            if (t.name.StartsWith("Seat")) Cushions.Add(t.position);
+            if (System.Text.RegularExpressions.Regex.IsMatch(t.name, @"^Seat\d+$")) Cushions.Add(t.position);
         Log($"进殿：玩家在 {player.transform.position.ToString("F2")}，蒲团 {Cushions.Count} 个");
 
         // 1 进来站着
@@ -219,25 +252,55 @@ public class PlaythroughTest
         {
             Cmd($"{{\"cmd\":\"act\",\"action\":\"{act}\"}}");
             yield return Hold("动作 " + act, secs * 0.4f, "act_" + act + "_a");
-            yield return Hold("动作 " + act, secs * 0.6f, "act_" + act + "_b");
-            yield return Settle("动作结束 " + act, 6f);
+            // 等这个动作做完（Flutter 也是等 actionDone 才让点下一个）
+            bool done = false;
+            yield return HoldUntil("动作 " + act, "actionDone", 25f, r => done = r, "act_" + act + "_b", secs * 0.6f - 0.1f);
+            if (!done) Log($"动作 {act}：25 秒没做完");
         }
 
-        // 5 心意
+        // 5 心意：红布条、木牌是走到绳外亲手系上的（一整套七八秒），系好以后 Flutter 会让人合掌
         Cmd("{\"cmd\":\"goto\",\"spot\":\"tree\"}");
         yield return Settle("走去 tree");
-        foreach (var k in new[] { "ribbon", "plaque" })
+        foreach (var (k, mask, text) in new[] { ("ribbon", "mask_ribbon", "愿家人平安喜乐"), ("plaque", "mask_plaque", "愿外婆身体健康") })
         {
-            Cmd($"{{\"cmd\":\"offer\",\"kind\":\"{k}\"}}");
-            yield return Hold("挂" + k, 4f, "offer_" + k);
+            string tex = Mask(mask);
+            Cmd($"{{\"cmd\":\"offer\",\"kind\":\"{k}\",\"text\":\"{text}\"{(tex != "" ? $",\"tex\":\"{tex}\"" : "")}}}");
+            bool ok = false;
+            yield return HoldUntil("挂" + k, "offered", 45f, r => ok = r, "offer_" + k + "_tie", 5f);
+            Log($"挂{k}：{(ok ? "系好了" : "45 秒还没系好")}");
+            Shot("offer_" + k);
+            Cmd("{\"cmd\":\"act\",\"action\":\"pray\"}");
+            yield return Hold("挂好合掌" + k, 8f, "offer_" + k + "_pray");
         }
         Cmd("{\"cmd\":\"goto\",\"spot\":\"burner\"}");
         yield return Settle("走去 burner");
         Cmd("{\"cmd\":\"offer\",\"kind\":\"incense\"}");
         yield return Hold("上香", 5f, "offer_incense");
 
-        // 6 坐下、坐着拜、静坐、起身
-        Cmd("{\"cmd\":\"sit\"}");
+        // 6 坐下、坐着拜、静坐、起身：「坐下」只在蒲团跟前才有，这里像人一样在俯视里点一个空蒲团（离得远也会走过去坐）
+        Cmd("{\"cmd\":\"goto\",\"spot\":\"hall\"}");
+        yield return Settle("走去 hall");
+        Cmd("{\"cmd\":\"view\",\"kind\":\"top\"}");
+        yield return Hold("走去 hall", 1.5f);
+        {
+            Transform pick = null; float bestSeat = 999;
+            // 只挑空着的（白天岛上人多，点到有人坐着的蒲团就成了点地面、走过去站着）
+            var gdT = System.Type.GetType("Yuanjing.GameDirector, Assembly-CSharp");
+            var gdI = gdT.GetProperty("Instance").GetValue(null);
+            var seatFree = gdT.GetMethod("SeatFree", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            foreach (var t in Object.FindObjectsByType<Transform>(FindObjectsSortMode.None))
+                if (System.Text.RegularExpressions.Regex.IsMatch(t.name, @"^Seat\d+$"))
+                {
+                    if (!(bool)seatFree.Invoke(gdI, new object[] { int.Parse(t.name.Substring(4)) })) continue;
+                    Vector3 vp0 = cam.WorldToViewportPoint(t.position);
+                    if (vp0.z < 1f || vp0.x < 0.1f || vp0.x > 0.9f || vp0.y < 0.1f || vp0.y > 0.9f) continue;
+                    float d = Vector3.Distance(t.position, player.transform.position);
+                    if (d > 2.5f && d < bestSeat) { bestSeat = d; pick = t; }
+                }
+            Vector3 vp = pick != null ? cam.WorldToViewportPoint(pick.position) : new Vector3(0.5f, 0.6f, 0);
+            Log($"点蒲团 {(pick != null ? pick.name : "（画面里没有）")}，离人 {bestSeat:F1} 米");
+            Cmd($"{{\"cmd\":\"tap\",\"x\":{vp.x.ToString(System.Globalization.CultureInfo.InvariantCulture)},\"y\":{(1 - vp.y).ToString(System.Globalization.CultureInfo.InvariantCulture)}}}");
+        }
         // 坐下那几秒：每 0.25 秒记髋和两脚相对蒲团中心的位置（看「先站在草垫上再坐下」对不对）
         {
             var folkC = player.GetComponentInChildren(System.Type.GetType("Yuanjing.Folk, Assembly-CSharp"));
@@ -253,6 +316,7 @@ public class PlaythroughTest
             }
         }
         yield return Settle("走去坐下");
+        Cmd("{\"cmd\":\"view\",\"kind\":\"level\"}");
         yield return Hold("坐着", 3f, "sit");
         Cmd("{\"cmd\":\"view\",\"kind\":\"low\"}");
         yield return Hold("坐着", 2f, "sit_low");
@@ -261,9 +325,14 @@ public class PlaythroughTest
         yield return Hold("坐着合掌", 3f, "sit_pray");
         yield return new WaitForSeconds(5f);
         Cmd("{\"cmd\":\"act\",\"action\":\"bow\"}");
-        yield return Hold("坐着鞠躬", 3f, "sit_bow");
+        bool bowed = false;
+        yield return HoldUntil("坐着鞠躬", "actionDone", 10f, r => bowed = r, "sit_bow", 1.8f);
+        // 推摇杆起身：先退到这一排前面的走道上（arrived），再自己走
         Cmd("{\"cmd\":\"move\",\"x\":0,\"y\":1}");
-        yield return Hold("起身", 3f, "standup");
+        bool up = false;
+        yield return HoldUntil("起身", "arrived", 8f, r => up = r, "standup", 2.4f);
+        Log($"推摇杆起身：{(up ? "退到走道上了" : "8 秒没站起来")}，人在 {player.transform.position.ToString("F2")}");
+        yield return Hold("起身", 1.5f, "standup_walk");
         Cmd("{\"cmd\":\"move\",\"x\":0,\"y\":0}");
 
         // 7 小动物：走到最近的一只跟前，摸、喂
@@ -324,6 +393,7 @@ public class PlaythroughTest
             }
         Log($"最后：场上 {people.Count} 人，叠在一起的 {overlap} 对");
 
+        Application.logMessageReceived -= OnLog;
         Log("── 各项最差 ──");
         foreach (var kv in worst) if (!kv.Key.StartsWith("_")) Log($"{kv.Key}：{kv.Value.v:F3}（{kv.Value.where}）");
         File.WriteAllText("../shots/play/report.txt", report.ToString());

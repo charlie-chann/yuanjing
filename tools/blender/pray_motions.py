@@ -27,6 +27,7 @@ ROOT = os.path.join(HERE, '..', '..')
 SRC = os.path.join(ROOT, 'unity', 'Sanctuary', 'Assets', 'Characters', 'Anime', 'shino', 'shino.fbx')
 OUT = os.path.join(ROOT, 'unity', 'Sanctuary', 'Assets', 'Motion')
 FPS = 30
+PAD = 3          # 片段前后多导的帧数（见 build；CharacterImport.WalkPad）
 
 X, Y, Z = Vector((1, 0, 0)), Vector((0, 1, 0)), Vector((0, 0, 1))
 
@@ -103,7 +104,8 @@ BASE = {
     'fl': Vector((0, 0.1, -1)), 'fr': Vector((0, 0.1, -1)),               # 手指朝哪
     'el': Vector((-0.6, -1, -0.2)), 'er': Vector((0.6, -1, -0.2)),       # 肘往哪边弯
     'curl': 18.0, 'thumb': 15.0, 'spread': 4.0,
-    'al': Vector((-0.045, -0.027, 0.105)), 'ar': Vector((0.046, -0.027, 0.105)),     # 脚踝
+    # 脚踝：两脚分开的宽度和站着的待机（动捕）一样（游戏里约 0.15 米），从待机换到合掌、上香时脚不在地上横着滑
+    'al': Vector((-0.093, -0.027, 0.105)), 'ar': Vector((0.093, -0.027, 0.105)),     # 脚踝
     'tl': Vector((0, 1, -0.55)), 'tr': Vector((0, 1, -0.55)),                         # 脚尖朝哪
     'ul': Vector((0, 0.5, 1)), 'ur': Vector((0, 0.5, 1)),                             # 脚背朝哪
     'kl': Vector((0, 1, 0)), 'kr': Vector((0, 1, 0)),                                 # 膝盖朝哪
@@ -135,11 +137,14 @@ GROUP = {'neck': 'head', 'headp': 'head', 'head_yaw': 'head', 'head_roll': 'head
          'curl': 'hand', 'thumb': 'hand', 'spread': 'hand', 'hand_space': 'hand'}
 
 
-def sample(keys, t, lag):
-    """keys: [(时刻, 姿势)]。按组错开时间后在相邻两个关键姿势之间缓入缓出地插值"""
+def sample(keys, t, lag, wrap=None):
+    """keys: [(时刻, 姿势)]。按组错开时间后在相邻两个关键姿势之间缓入缓出地插值。
+    wrap：循环片段的长度（错开的时间绕回来，首尾接得上）"""
     out = Pose()
     for k in keys[0][1]:
         tt = t - lag.get(GROUP.get(k, 'body'), 0.0)
+        if wrap:
+            tt %= wrap
         if tt <= keys[0][0]:
             out[k] = keys[0][1][k]
             continue
@@ -370,6 +375,87 @@ SIT_LEGS_FWD['wl'] = Vector((-0.24, -0.1, ZAFU + 0.02))
 SIT_LEGS_FWD['wr'] = Vector((0.24, -0.1, ZAFU + 0.02))
 
 
+# ── 挂布条（许愿树的绳子）──
+# 游戏里人站在绳外 0.45 米，绳上的挂点高约 1.05 米；这里按 Shino 的身材（÷0.806）：前方 0.56、高 1.30。
+# 右脚往前垫半步、身子微微前倾，两手在绳前合拢系结（系的时候两手交替绕一小圈）。布条由游戏挂在右手上，松手时挂到绳上。
+ROPE_Y, ROPE_Z = 0.56, 1.30
+HANG_LIFT = P(wl=(-0.08, 0.2, 1.04), wr=(0.06, 0.22, 1.08), pl=(1, 0.2, 0.3), pr=(-1, 0.2, 0.3), fl=(0.1, 1, 0.5), fr=(-0.1, 1, 0.5),
+              el=(-1, -0.4, -0.8), er=(1, -0.4, -0.8), curl=32.0, thumb=22.0, spread=1.0, neck=4.0, headp=8.0)
+# 两手抓着布条在绳上：掌心朝里、朝下，手指往前下方弯着捏住（不是合十那样指尖朝上）
+HANG_REACH = P(hand_space=0.0, wl=(-0.04, ROPE_Y - 0.06, ROPE_Z), wr=(0.04, ROPE_Y - 0.05, ROPE_Z + 0.01),
+               pl=(0.8, 0, -0.6), pr=(-0.8, 0, -0.6), fl=(0.2, 1, -0.5), fr=(-0.2, 1, -0.5), el=(-1, -0.3, -0.8), er=(1, -0.3, -0.8),
+               curl=48.0, thumb=32.0, spread=1.0, sh_fwd=6.0, hips=(0, 0.09, 0.925), hips_pitch=6.0, spine=4.0, chest=4.0, upper=3.0,
+               neck=7.0, headp=14.0, ar=(0.085, 0.14, 0.105))
+# 迈步的中间：右脚抬起来往前送
+HANG_STEP = HANG_LIFT.copy()
+HANG_STEP.update(hips=Vector((0, 0.05, 0.93)), ar=Vector((0.09, 0.06, 0.165)), tr=Vector((0, 1, -0.3)), hips_pitch=3.0)
+# 系结：左手捏住往下翻、右手绕过去，再换过来（手腕翻、手指一松一紧地捏）
+HANG_TIE_A = HANG_REACH.copy()
+HANG_TIE_A.update(wl=Vector((-0.05, ROPE_Y - 0.045, ROPE_Z + 0.03)), wr=Vector((0.015, ROPE_Y - 0.08, ROPE_Z - 0.025)),
+                  pl=Vector((0.4, 0.2, -0.9)), pr=Vector((-0.95, -0.2, -0.2)), fl=Vector((0.3, 1, -0.7)), fr=Vector((-0.1, 1, -0.2)),
+                  curl=58.0, thumb=38.0, headp=15.0)
+HANG_TIE_B = HANG_REACH.copy()
+HANG_TIE_B.update(wl=Vector((-0.015, ROPE_Y - 0.08, ROPE_Z - 0.025)), wr=Vector((0.05, ROPE_Y - 0.045, ROPE_Z + 0.03)),
+                  pl=Vector((0.95, -0.2, -0.2)), pr=Vector((-0.4, 0.2, -0.9)), fl=Vector((0.1, 1, -0.2)), fr=Vector((-0.3, 1, -0.7)),
+                  curl=40.0, thumb=26.0, headp=13.0)
+# 松手：两手稍分开、手指张开
+HANG_RELEASE = HANG_REACH.copy()
+HANG_RELEASE.update(wl=Vector((-0.09, ROPE_Y - 0.12, ROPE_Z - 0.04)), wr=Vector((0.09, ROPE_Y - 0.11, ROPE_Z - 0.03)), curl=8.0, thumb=12.0, spread=6.0,
+                    fl=Vector((0.2, 1, -0.2)), fr=Vector((-0.2, 1, -0.2)))
+# 收回来：两手落到小腹前、掌心朝里，肘往后下方垂着贴着身子（原来手腕在腰两侧、肘往外翻，看上去像叉腰）
+HANG_BACK = HANG_STEP.copy()
+HANG_BACK.update(curl=18.0, thumb=15.0, wl=Vector((-0.085, 0.17, 0.95)), wr=Vector((0.085, 0.18, 0.96)),
+                 pl=Vector((1, 0.1, 0.15)), pr=Vector((-1, 0.1, 0.15)), fl=Vector((0.15, 0.8, -0.6)), fr=Vector((-0.15, 0.8, -0.6)),
+                 el=Vector((-0.45, -1, -0.5)), er=Vector((0.45, -1, -0.5)))
+
+# ── 上香 ──
+# 拿着三炷香：两手在胸前把香拢住（右手握，左手包在外面），香竖着；举到脸前；拜（拖着播）；俯身把香插进香炉（脚不动），直起来合掌。
+# 举香：两手在脸前约 0.22 米、离地约 1.04 米（游戏里），前臂斜着往上约 45 度，肘自然垂着，香头在眉毛那么高，脸露在外面。
+INC_CHEST = P(wl=(-0.022, 0.2, 1.1), wr=(0.022, 0.21, 1.11), pl=(1, 0, 0), pr=(-1, 0, 0), fl=(0, 0.35, 1), fr=(0, 0.35, 1),
+              el=(-1, -0.35, -0.9), er=(1, -0.35, -0.9), curl=42.0, thumb=30.0, spread=0.0, sh_fwd=3.0, neck=4.0, headp=8.0)
+INC_HOLD = INC_CHEST.copy()
+INC_HOLD.update(wl=Vector((-0.022, 0.27, 1.29)), wr=Vector((0.022, 0.275, 1.30)), fl=Vector((0, 0.2, 1)), fr=Vector((0, 0.2, 1)),
+                el=Vector((-0.8, -0.3, -1.1)), er=Vector((0.8, -0.3, -1.1)), neck=3.0, headp=5.0, sh_fwd=4.0)
+
+
+def incense_bow(deg):
+    """举着香鞠躬：和合掌鞠躬一样从髋部折，香跟着胸口走"""
+    p = gassho_bow(deg)
+    for k in ('wl', 'wr', 'pl', 'pr', 'fl', 'fr', 'el', 'er', 'curl', 'thumb', 'spread', 'sh_fwd'):
+        p[k] = INC_HOLD[k].copy() if hasattr(INC_HOLD[k], 'copy') else INC_HOLD[k]
+    return p
+
+
+# 插香：脚不动（供桌就在面前，没地方再迈步），从髋部往前俯身约 24 度，两手伸到人前方约 0.48 米、离地约 1.045 米（游戏里；
+# 这里 ÷0.806 = 0.60、1.30），正在香炉灰面（离地 0.962 米）上方，香的下端插进灰里。
+# 按大殿的中间供桌：人的原点站在 z ≈ 18.52（香炉灰面中心 z 19.0 往回 0.48），鞋尖离桌围（z 18.817）还有十几厘米，
+# 胸口在桌面（离地 0.784）以上、桌边以内，不碰桌子。
+PLANT_X, PLANT_Y, PLANT_Z = 0.0, 0.60, 1.30
+# 插的那一刻手腕再低 4 厘米多（游戏里离灰面约 5 厘米：香的下端已经在灰里），先在灰面上方停一下再往下按
+PLANT_DOWN = 1.252
+INCENSE_PLANT_T = 1.5
+PLANT_PRE = INC_CHEST.copy()
+PLANT_PRE.update(hand_space=0.0, wl=Vector((PLANT_X - 0.022, 0.40, 1.34)), wr=Vector((PLANT_X + 0.022, 0.405, 1.35)),
+                 el=Vector((-1, -0.2, -0.7)), er=Vector((1, -0.2, -0.7)), hips=Vector((0, -0.01, 0.93)), hips_pitch=8.0, spine=2.0, chest=1.0,
+                 neck=6.0, headp=12.0)
+PLANT = P(hand_space=0.0, wl=(PLANT_X - 0.022, PLANT_Y, PLANT_Z), wr=(PLANT_X + 0.022, PLANT_Y + 0.005, PLANT_Z + 0.01),
+          pl=(1, 0, 0), pr=(-1, 0, 0), fl=(0, 0.3, 1), fr=(0, 0.3, 1), el=(-1, -0.2, -0.6), er=(1, -0.2, -0.6),
+          curl=42.0, thumb=30.0, spread=0.0, sh_fwd=14.0, hips=(0, 0.035, 0.925), hips_pitch=19.0, spine=4.0, chest=3.0, upper=2.0,
+          neck=8.0, headp=16.0)
+# 往下按：俯得再深一点（髋 25 度）、膝微屈，手腕落到灰面上方约 5 厘米（游戏里）
+PLANT_PUSH = PLANT.copy()
+PLANT_PUSH.update(wl=Vector((PLANT_X - 0.022, PLANT_Y + 0.005, PLANT_DOWN)), wr=Vector((PLANT_X + 0.022, PLANT_Y + 0.01, PLANT_DOWN + 0.01)),
+                  hips=Vector((0, 0.04, 0.905)), hips_pitch=25.0, spine=5.0, chest=4.0, upper=2.0, neck=9.0, headp=18.0, sh_fwd=15.0)
+PLANT_RELEASE = PLANT_PUSH.copy()
+PLANT_RELEASE.update(wl=Vector((PLANT_X - 0.05, PLANT_Y - 0.04, PLANT_DOWN + 0.07)), wr=Vector((PLANT_X + 0.05, PLANT_Y - 0.035, PLANT_DOWN + 0.08)),
+                     curl=8.0, thumb=12.0, spread=5.0, hips=Vector((0, 0.035, 0.915)), hips_pitch=21.0)
+# 直起身：两手从香炉那边收回胸前、慢慢合拢（直接接合掌；原来先落到腰两侧、肘往外翻，像叉腰，再抬起来合掌）
+PLANT_BACK = GASSHO.copy()
+PLANT_BACK.update(wl=Vector((-0.045, 0.24, 1.07)), wr=Vector((0.045, 0.245, 1.075)), pl=Vector((1, 0.15, 0.2)), pr=Vector((-1, 0.15, 0.2)),
+                  fl=Vector((0.05, 0.5, 0.8)), fr=Vector((-0.05, 0.5, 0.8)), el=Vector((-1, -0.4, -0.9)), er=Vector((1, -0.4, -0.9)),
+                  curl=8.0, thumb=18.0, spread=1.0, sh_fwd=3.0, hips_pitch=4.0, neck=4.0, headp=7.0)
+
+
 def loop_of(p, secs=8.0):
     """保持的姿势：呼吸一直在动（4 秒一次），8 秒正好两次，首尾接得上"""
     return [(0.0, p), (secs, p)], secs
@@ -397,6 +483,16 @@ CLIPS = {
     # 坐着合掌鞠躬：0 坐着合掌 → 1 坐着鞠躬
     'SitBow_Scrub': ([(0.0, SIT_GASSHO), (1.0, SIT_BOW)], 1.0),
     'Sit_Up': ([(0.0, SIT), (0.6, SIT_LEGS_FWD), (1.4, SQUAT), (2.4, STAND_MAT)], 2.4),
+    # 挂布条：拿着布条抬手 → 右脚垫半步、伸手到绳上 → 系（循环，游戏松手时接 Hang_Out）→ 松手、退回、手放下
+    'Hang_In': ([(0.0, STAND), (0.45, HANG_LIFT), (0.85, HANG_STEP), (1.3, HANG_REACH), (1.5, HANG_REACH)], 1.5),
+    'Hang_Loop': ([(0.0, HANG_REACH), (0.4, HANG_TIE_A), (0.8, HANG_REACH), (1.2, HANG_TIE_B), (1.6, HANG_REACH)], 1.6),
+    'Hang_Out': ([(0.0, HANG_REACH), (0.35, HANG_RELEASE), (0.8, HANG_BACK), (1.4, STAND)], 1.4),
+    # 上香：拿香到胸前 → 举到额前；拜（0 举着香直立 → 1 举着香躬身 40 度）；插香；不插直接放下
+    'Incense_In': ([(0.0, STAND), (0.6, INC_CHEST), (1.4, INC_HOLD), (1.7, INC_HOLD)], 1.7),
+    'Incense_Scrub': ([(0.0, incense_bow(0)), (0.3, incense_bow(12)), (1.0, incense_bow(40))], 1.0),
+    'Incense_Plant': ([(0.0, INC_HOLD), (0.45, INC_CHEST), (0.95, PLANT_PRE), (1.25, PLANT), (INCENSE_PLANT_T, PLANT_PUSH), (1.85, PLANT_RELEASE),
+                       (2.4, PLANT_BACK), (2.9, GASSHO), (3.2, GASSHO)], 3.2),
+    'Incense_Out': ([(0.0, INC_HOLD), (0.5, INC_CHEST), (1.2, STAND)], 1.2),
 }
 LAG = {'head': 0.1, 'hand': -0.05}
 
@@ -437,6 +533,34 @@ def check(name):
     print(f'[check] {name}: ' + '  '.join(f'{b} 最低 {v[0]}（{v[1]} 秒，离中心 {v[2]}）' for b, v in worst.items()))
 
 
+def measure(name, times):
+    """量某几个时刻手腕、头、胸、膝、脚尖在游戏里（×0.806）的位置：前方（米）、离地（米）。上香、挂布条对着供桌、绳子摆位置用"""
+    keys, secs = CLIPS[name]
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.import_scene.fbx(filepath=SRC)
+    arm = next(o for o in bpy.data.objects if o.type == 'ARMATURE')
+    rig = Rig(arm)
+    k = 0.806
+    for t in times:
+        p = sample(keys, t, LAG)
+        D, hp = solve(rig, p, t)
+        pos = {rig.J('C_Hips'): hp}
+        for n in rig.order:
+            par = rig.parent[n]
+            if par is None or n in pos:
+                continue
+            if par in pos:
+                pos[n] = pos[par] + D[par] @ (rig.head[n] - rig.head[par])
+        def g(b):
+            q = pos[rig.J(b)]
+            return f'{b} 前 {q.y * k:+.3f} 高 {q.z * k:.3f} 横 {q.x * k:+.3f}'
+        wm = (pos[rig.J('L_Hand')] + pos[rig.J('R_Hand')]) / 2
+        toe = max(pos[rig.J('L_ToeBase')].y, pos[rig.J('R_ToeBase')].y)
+        print(f'[measure] {name} {t:.2f}s 两手腕中点 前 {wm.y * k:.3f} 高 {wm.z * k:.3f} 相隔 {(pos[rig.J("L_Hand")] - pos[rig.J("R_Hand")]).length * k:.3f}；'
+              + '；'.join(g(b) for b in ('C_Head', 'C_UpperChest', 'C_Hips', 'L_LowerLeg', 'R_LowerLeg', 'L_Foot', 'R_Foot'))
+              + f'；脚趾根最前 {toe * k:+.3f}')
+
+
 def build(name):
     keys, secs = CLIPS[name]
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -452,16 +576,23 @@ def build(name):
     rest_key(rig, 0)
     n = int(round(secs * FPS))
     scrub = name.endswith('_Scrub')
-    for f in range(n + 1):
+    loop = name.endswith('_Loop')
+    # 前后各多导 PAD 帧（CharacterImport.WalkPad 一样，不算在片段里）：Unity 按逐帧采样连曲线，片段第一帧的切线是按前一帧算的，
+    # 前面紧挨着第 0 帧的静止姿势（基准）的话，第一、二帧之间往那边鼓出去，循环每绕一圈手就跳一下（合掌 2.7 厘米、系布条 2.2 厘米）。
+    # 循环片段前后补的是绕回来的那几帧，其余的前后停在首、末姿势
+    for f in range(-PAD, n + PAD + 1):
         t = f / FPS
-        p = sample(keys, t, {} if scrub else LAG)
+        tt = t % secs if loop else min(max(t, 0.0), secs)
+        p = sample(keys, tt, {} if scrub else LAG, secs if loop else None)
         if scrub:
             p['breath'] = 0.0         # 拖着播的不加呼吸（呼吸由叠在下面的循环给）
-        D, hp = solve(rig, p, t)
-        key(rig, D, hp, f + 1)
+        if loop and abs(secs / 4.0 - round(secs / 4.0)) > 1e-3:
+            p['breath'] = 0.0         # 呼吸 4 秒一次，循环长度不是 4 的倍数（系布条 1.6 秒）就不加，不然首尾对不上
+        D, hp = solve(rig, p, tt)
+        key(rig, D, hp, f + 1 + PAD)
     sc = bpy.context.scene
     sc.render.fps = FPS
-    sc.frame_start, sc.frame_end = 0, n + 1
+    sc.frame_start, sc.frame_end = 0, n + 2 * PAD + 1
     os.makedirs(OUT, exist_ok=True)
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.export_scene.fbx(filepath=os.path.join(OUT, name + '.fbx'), use_selection=True, apply_scale_options='FBX_SCALE_UNITS',
@@ -475,6 +606,9 @@ names = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
 if names and names[0] == 'check':
     for nm in names[1:]:
         check(nm)
+elif names and names[0] == 'measure':
+    # measure 片段名 时刻,时刻,...
+    measure(names[1], [float(x) for x in names[2].split(',')])
 else:
     for nm in names or list(CLIPS):
         build(nm)

@@ -198,17 +198,53 @@ def test_islet_presence_and_offerings(client, login):
     real = [p for p in s["people"] if not p["npc"]]
     assert len(real) == 1 and real[0]["seat"] == free and real[0]["action"] == "bow"
     assert client.post("/sanctuary/islet/beat", json={"action": "dance"}, headers=a).status_code == 400
-    r1 = client.post("/sanctuary/islet/offer", json={"kind": "ribbon", "slot": 4, "text": "家人平安"}, headers=a).json()
+    r1 = client.post("/sanctuary/islet/offer", json={"kind": "ribbon", "slot": 4, "text": "家人平安", "public": True}, headers=a).json()
     r2 = client.post("/sanctuary/islet/offer", json={"kind": "incense"}, headers=a).json()
     assert r1["got"] == 3 and r2["got"] == 0
     assert client.post("/sanctuary/islet/offer", json={"kind": "coin"}, headers=a).status_code == 400
     mine = client.post("/sanctuary/islet/beat", json={}, headers=a).json()
-    assert {"slot": 4, "kind": "ribbon", "text": "家人平安"} in mine["mine"]
+    assert {"id": r1["id"], "slot": 4, "kind": "ribbon", "text": "家人平安"} in mine["mine"]
+    # 布条上写的字挂在树上，别人也看得到（带编号，客户端按编号缓存、去重）
     other = client.post("/sanctuary/islet/beat", json={}, headers=b).json()
-    assert {"slot": 4, "kind": "ribbon"} in other["offerings"] and not other["mine"]
+    assert {"id": r1["id"], "slot": 4, "kind": "ribbon", "text": "家人平安"} in other["offerings"] and not other["mine"]
+    # 老版本写的（没带 public，当时界面上说的是只有自己看得到）：别人那里只有布条，没有字；自己还看得到
+    r3 = client.post("/sanctuary/islet/offer", json={"kind": "plaque", "slot": 6, "text": "悄悄话"}, headers=a).json()
+    other = client.post("/sanctuary/islet/beat", json={}, headers=b).json()
+    assert {"id": r3["id"], "slot": 6, "kind": "plaque", "text": None} in other["offerings"]
+    mine = client.post("/sanctuary/islet/beat", json={}, headers=a).json()
+    assert {"id": r3["id"], "slot": 6, "kind": "plaque", "text": "悄悄话"} in mine["mine"]
+    # 挂出来给大家看的最多 40 个字：多的截掉
+    r4 = client.post("/sanctuary/islet/offer", json={"kind": "ribbon", "slot": 7, "text": "愿" * 60, "public": True}, headers=a).json()
+    other = client.post("/sanctuary/islet/beat", json={}, headers=b).json()
+    assert {"id": r4["id"], "slot": 7, "kind": "ribbon", "text": "愿" * 40} in other["offerings"]
+    assert client.post("/sanctuary/islet/offer", json={"kind": "ribbon", "slot": 5, "text": "愿" * 201}, headers=a).status_code == 422
     client.post("/sanctuary/islet/leave", headers=b)
     s = client.post("/sanctuary/islet/beat", json={}, headers=a).json()
     assert not [p for p in s["people"] if not p["npc"]]
+
+
+def test_islet_mine_keeps_cloths_after_incense(client, login):
+    """天天上香的人：香不占「自己的」那一份，挂过的布条重新进来还在"""
+    a = login()
+    r = client.post("/sanctuary/islet/offer", json={"kind": "ribbon", "slot": 9, "text": "愿考试顺利", "public": True}, headers=a).json()
+    for _ in range(25):
+        client.post("/sanctuary/islet/offer", json={"kind": "incense"}, headers=a)
+    mine = client.post("/sanctuary/islet/beat", json={}, headers=a).json()["mine"]
+    assert {"id": r["id"], "slot": 9, "kind": "ribbon", "text": "愿考试顺利"} in mine
+    assert all(m["kind"] in ("ribbon", "plaque") and m["slot"] >= 0 for m in mine)
+    # 挂满一整棵树（32 件）也都拿得回来
+    for i in range(31):
+        client.post("/sanctuary/islet/offer", json={"kind": "plaque", "slot": i}, headers=a)
+    assert len(client.post("/sanctuary/islet/beat", json={}, headers=a).json()["mine"]) == 32
+
+
+def test_islet_same_seat_two_people(client, login):
+    """两个人同时挑了同一个蒲团：各自看到自己坐着，对方不在这个蒲团上（不会叠在一起）"""
+    a, b = login(), login()
+    client.post("/sanctuary/islet/beat", json={"seat": 7, "seats": 60}, headers=a)
+    for me in (a, b):
+        s = client.post("/sanctuary/islet/beat", json={"seat": 7, "seats": 60}, headers=me).json()
+        assert all(p["seat"] != 7 for p in s["people"])
 
 
 def test_pets_bond_greet_and_gift(client, login):

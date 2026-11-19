@@ -159,6 +159,7 @@ Shader "Yuanjing/Leaf"
                 clip(t.a - 0.5);
                 YJSeeThrough(i.positionWS, i.positionCS);
                 YJLeafNearFade(i.positionWS, i.positionCS);
+                YJFocusFade(i.positionWS, i.positionCS);
 
                 // 一个像素跨了多少「距离」：线比一个像素还细的时候（离远了）就淡掉，不然整棵树会发黑
                 half px = max(fwidth(t.r), 0.0005);
@@ -313,6 +314,7 @@ Shader "Yuanjing/Leaf"
                 YJLeafClip(i.uv);
                 YJSeeThrough(i.positionWS, i.positionCS);
                 YJLeafNearFade(i.positionWS, i.positionCS);
+                YJFocusFade(i.positionWS, i.positionCS);
                 return i.positionCS.z;
             }
             ENDHLSL
@@ -354,6 +356,7 @@ Shader "Yuanjing/Leaf"
                 YJLeafClip(i.uv);
                 YJSeeThrough(i.positionWS, i.positionCS);
                 YJLeafNearFade(i.positionWS, i.positionCS);
+                YJFocusFade(i.positionWS, i.positionCS);
                 return half4(normalize(i.normalWS), 0);
             }
             ENDHLSL

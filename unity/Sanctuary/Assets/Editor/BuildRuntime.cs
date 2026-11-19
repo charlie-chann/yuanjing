@@ -22,6 +22,8 @@ public static partial class SanctuaryBuild
         m.SetColor("_Color", color);
         m.SetFloat("_Lit", lit ? 1f : 0f);
         m.SetFloat("_Dst", additive ? (float)BlendMode.One : (float)BlendMode.OneMinusSrcAlpha);
+        // 离镜头 0.5 米以内看不见、1.5 米以外照常（个别的另设）
+        m.SetVector("_Near", new Vector4(0.5f, 1.5f, 0f, 0f));
         EditorUtility.SetDirty(m);
         return m;
     }
@@ -109,15 +111,69 @@ public static partial class SanctuaryBuild
         return ps;
     }
 
+    /// 殿里香炉上的细烟（评审：殿里的香炉一点烟都没有，上香的特写死气沉沉）：几缕细细的、慢慢往上打着卷的烟，很淡、略带一点灯的暖色。
+    /// k 是浓淡（中间那只 1，两边小香炉 0.55）
+    static ParticleSystem BuildHallSmoke(Transform parent, Vector3 at, float k, string name)
+    {
+        // 第五轮（评审：殿里的烟有了，可是几乎看不见，0.13 太淡）：香头那一截浓一点（0.3），往上越飘越淡（colorOverLifetime）；
+        // 上香以后 40 秒再浓一些（Offerings 按 hallBoost 调 startColor 的不透明度）
+        var mat = ParticleMaterial("smoke_hall", DotTexture(), new Color(0.9f, 0.86f, 0.8f, 0.3f), false, true);
+        var ps = Particles(name, parent, mat);
+        ps.transform.position = at;
+        ps.transform.rotation = Quaternion.Euler(-90, 0, 0);
+        var m = ps.main;
+        m.startLifetime = new ParticleSystem.MinMaxCurve(5.5f, 8.5f);
+        m.startSpeed = new ParticleSystem.MinMaxCurve(0.12f, 0.2f);
+        m.startSize = new ParticleSystem.MinMaxCurve(0.05f * k + 0.03f, 0.1f * k + 0.04f);
+        m.startRotation = new ParticleSystem.MinMaxCurve(0, Mathf.PI * 2);
+        m.maxParticles = 120;
+        m.simulationSpace = ParticleSystemSimulationSpace.World;
+        var e = ps.emission;
+        e.rateOverTime = 2.2f * k + 0.8f;
+        var sh = ps.shape;
+        sh.shapeType = ParticleSystemShapeType.Cone;
+        sh.angle = 2f;
+        sh.radius = 0.035f * k + 0.01f;
+        var sz = ps.sizeOverLifetime;
+        sz.enabled = true;
+        sz.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.EaseInOut(0, 0.6f, 1, 4.2f));
+        var col = ps.colorOverLifetime;
+        col.enabled = true;
+        // 一冒出来就浓（香头上那一截看得见），往上散开、变淡
+        var g = new Gradient();
+        g.SetKeys(new[] { new GradientColorKey(Color.white, 0), new GradientColorKey(Color.white, 1) },
+            new[] { new GradientAlphaKey(0f, 0), new GradientAlphaKey(1f, 0.05f), new GradientAlphaKey(0.55f, 0.3f), new GradientAlphaKey(0.2f, 0.65f), new GradientAlphaKey(0f, 1) });
+        col.color = g;
+        // 两边供桌上的小香炉淡一点（同一个材质）
+        m.startColor = new Color(1f, 1f, 1f, k >= 1f ? 0.75f : 0.6f);
+        // 打卷：噪声频率高一点、强度小，烟一缕缕地扭着往上，不是一团
+        var n = ps.noise;
+        n.enabled = true;
+        n.strength = 0.1f;
+        n.frequency = 0.9f;
+        n.scrollSpeed = 0.25f;
+        n.octaveCount = 2;
+        var v = ps.velocityOverLifetime;
+        v.enabled = true;
+        v.space = ParticleSystemSimulationSpace.World;
+        v.x = new ParticleSystem.MinMaxCurve(-0.015f, 0.025f);
+        v.y = new ParticleSystem.MinMaxCurve(0.02f, 0.06f);
+        v.z = new ParticleSystem.MinMaxCurve(-0.02f, 0.01f);
+        return ps;
+    }
+
     /// 系上布条时散开的一小团金色光点
     static ParticleSystem BuildSparkle(Transform parent)
     {
-        var mat = ParticleMaterial("sparkle", DotTexture(), new Color(2.6f, 1.9f, 0.9f, 1f), true, false);
+        // 原来亮到 2.6、一粒到 4 厘米：系布条的特写里镜头离布条只有 1.3–1.5 米，光点亮过泛光的门槛（1.0），一粒泛成一团团白色的大圆斑。
+        // 现在不过门槛、小一些（金色的细点，不泛光）；往镜头飘过来的淡掉（离镜头 1 米以内看不见，1.6 米以外照常——特写镜头离那一格 1.35–1.5 米）
+        var mat = ParticleMaterial("sparkle", DotTexture(), new Color(1.0f, 0.78f, 0.38f, 1f), true, false);
+        mat.SetVector("_Near", new Vector4(1.0f, 1.6f, 0f, 0f));
         var ps = Particles("Sparkle", parent, mat);
         var m = ps.main;
         m.startLifetime = new ParticleSystem.MinMaxCurve(1.2f, 2.4f);
-        m.startSpeed = new ParticleSystem.MinMaxCurve(0.15f, 0.7f);
-        m.startSize = new ParticleSystem.MinMaxCurve(0.012f, 0.04f);
+        m.startSpeed = new ParticleSystem.MinMaxCurve(0.12f, 0.5f);
+        m.startSize = new ParticleSystem.MinMaxCurve(0.008f, 0.022f);
         m.gravityModifier = -0.03f;
         m.maxParticles = 120;
         m.simulationSpace = ParticleSystemSimulationSpace.World;
@@ -295,12 +351,26 @@ public static partial class SanctuaryBuild
                 m.SetColor("_BaseColor", c);
                 m.SetColor("_EmissionColor", glow ?? Color.black);
             });
-            off.plaqueMaterial = Flat("o_plaque", new Color(0.93f, 0.74f, 0.46f), 1f);
+            // 木牌：颜色在贴图里（木纹 + 写的字，运行时每块一张），正反面分开、各画朝外的一面
+            off.plaqueMaterial = ToonMat("o_plaque", m =>
+            {
+                m.SetFloat("_Legacy", 1f);
+                m.SetFloat("_Sway", 1f);
+                m.SetFloat("_Cull", 2f);
+                m.SetFloat("_WetAmount", 0.5f);
+                m.SetFloat("_SnowAmount", 0f);
+                m.SetFloat("_Detail", 0f);
+                m.SetColor("_BaseColor", Color.white);
+                m.SetColor("_EmissionColor", Color.black);
+                m.SetColor("_RimColor", new Color(1, 1, 1, 0.08f));
+            });
             off.stickMaterial = Flat("o_stick", new Color(0.62f, 0.20f, 0.14f), 0f);
-            off.emberMaterial = Flat("o_ember", new Color(1f, 0.45f, 0.2f), 0f, new Color(4f, 1.2f, 0.3f));
+            // 香头的火：深一点的橙红打底、橙色发光（评审：以前 (4, 1.2, 0.3) 加上浅橙的底色，泛光里成了一点白，像一截白灰）
+            off.emberMaterial = Flat("o_ember", new Color(0.55f, 0.13f, 0.035f), 0f, new Color(3.0f, 0.95f, 0.22f));
             off.coinMaterial = Flat("o_coin", new Color(0.95f, 0.78f, 0.36f), 0f);
-            off.ribbonScale = new Vector3(3.2f, 1.15f, 3.2f);
-            off.plaqueScale = new Vector3(3f, 2.4f, 3f);
+            // 布条、木牌按真实大小做（布条 0.14 × 0.62 米、木牌 0.20 × 0.26 米），不再放大
+            off.ribbonScale = Vector3.one;
+            off.plaqueScale = Vector3.one;
             off.incenseScale = new Vector3(4.5f, 2.2f, 4.5f);
         }
         else

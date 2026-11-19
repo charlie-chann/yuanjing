@@ -5,6 +5,8 @@
 - 颜色写在面的顶点色里（sRGB），第四个数是「随风摆动的幅度」（0 = 不动）。
 - uv.x 是每一块的随机相位（让每团叶子摆得不一样），uv.y 是自发光强度（0 或 1）。
 - 一个模型分成几个部件（part），按材质名分：toon 普通、leaf 双面的叶片、glow 夜里会亮的。
+- 例外：材质名以 paint_ 开头的部件（paint_beam 这种，手绘贴图，见 tools/textures/painted.py）uv 是真正的贴图坐标，
+  用 Asset.uvfaces 建；顶点色是白色乘暗部。Unity 里对应 toon_paint_<名字>.mat。
 """
 import bpy
 import bmesh
@@ -20,12 +22,413 @@ from mathutils.bvhtree import BVHTree
 from palette import C, tint, mix, vary
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(HERE, '..', '..', 'unity', 'Sanctuary', 'Assets', 'Toon', 'Models')
-PREVIEW = os.path.join(HERE, 'preview')
+# YJ_OUT / YJ_PREVIEW_DIR：把模型和预览图先导到别的目录（几个人同时改模型、又不想影响正在跑的 Unity 时用）
+OUT = os.environ.get('YJ_OUT') or os.path.join(HERE, '..', '..', 'unity', 'Sanctuary', 'Assets', 'Toon', 'Models')
+PREVIEW = os.environ.get('YJ_PREVIEW_DIR') or os.path.join(HERE, 'preview')
+
+
+FONT_SERIF = os.path.join(HERE, '..', '..', 'assets', 'fonts', 'SourceHanSerifCN-Bold.otf')
+# 手绘贴图（paint_*.png）在哪找：预览图要用。先找 YJ_PAINT_DIR，再找导出目录旁的 textures/，最后是 Unity 的贴图目录
+PAINT_DIRS = [d for d in (os.environ.get('YJ_PAINT_DIR'), os.path.join(OUT, 'textures'),
+                          os.path.join(HERE, '..', '..', 'unity', 'Sanctuary', 'Assets', 'Toon', 'Textures')) if d]
 
 
 def stable_seed(s):
     return zlib.crc32(s.encode('utf8'))
+
+
+_fonts = {}
+
+
+def _glyph_loops(ch, fobj, steps=12):
+    """一个字的轮廓（字体单位，字号 1）：[[(x, y), ...], ...]，每圈是字体里原样的贝塞尔曲线按 steps 段采样"""
+    from mathutils.geometry import interpolate_bezier
+    cu = bpy.data.curves.new('_yj_txt', 'FONT')
+    cu.body = ch
+    cu.font = fobj
+    cu.size = 1.0
+    ob = bpy.data.objects.new('_yj_txt', cu)
+    bpy.context.scene.collection.objects.link(ob)
+    dg = bpy.context.evaluated_depsgraph_get()
+    loops = []
+    try:
+        c2 = ob.to_curve(dg)
+        for sp in c2.splines:
+            poly = []
+            if sp.type == 'BEZIER':
+                bp = sp.bezier_points
+                n = len(bp)
+                for i in range(n):
+                    a, b = bp[i], bp[(i + 1) % n]
+                    straight = (a.handle_right - a.co).length < 1e-7 and (b.handle_left - b.co).length < 1e-7
+                    seg = [a.co, b.co] if straight else interpolate_bezier(a.co, a.handle_right, b.handle_left, b.co, steps + 1)
+                    poly += [(q.x, q.y) for q in seg[:-1]]
+            else:
+                poly = [(q.co.x, q.co.y) for q in sp.points]
+            if len(poly) >= 3:
+                loops.append(poly)
+        ob.to_curve_clear()
+    finally:
+        bpy.data.objects.remove(ob)
+        bpy.data.curves.remove(cu)
+    return loops
+
+
+def _raster_nonzero(loops, x0, y0, px, W, H, ss=4):
+    """按「非零环绕」规则把轮廓涂成覆盖率图（H×W，0..1，第 i 行是 y = y0 + (i+0.5)·px）。
+    思源宋体（CFF）的轮廓会互相叠着画，Blender 曲线填充按奇偶规则，叠着的地方变成洞；这里按字体本来的规则涂"""
+    import numpy as np
+    A = np.concatenate([np.asarray(l, float) for l in loops])
+    B = np.concatenate([np.roll(np.asarray(l, float), -1, axis=0) for l in loops])
+    q = px / ss
+    ys = y0 + (np.arange(H * ss) + 0.5) * q
+    ya, yb = A[:, 1], B[:, 1]
+    img = np.zeros((H * ss, W * ss + 1), np.int32)
+    for r0 in range(0, H * ss, 256):
+        yy = ys[r0:r0 + 256, None]
+        M = (ya[None, :] <= yy) != (yb[None, :] <= yy)
+        rr, ee = np.nonzero(M)
+        if len(rr) == 0:
+            continue
+        t = (ys[r0 + rr] - ya[ee]) / (yb[ee] - ya[ee])
+        xc = A[ee, 0] + t * (B[ee, 0] - A[ee, 0])
+        dr = np.where(yb[ee] > ya[ee], 1, -1)
+        o = np.lexsort((xc, rr))
+        rr, xc, dr = rr[o], xc[o], dr[o]
+        # 每行从左往右累计环绕数；从「外」变「里」+1，从「里」变「外」-1，记在差分图上
+        first = np.ones(len(rr), bool)
+        first[1:] = rr[1:] != rr[:-1]
+        cs = np.cumsum(dr)
+        base = np.maximum.accumulate(np.where(first, np.arange(len(rr)), 0))
+        w_after = cs - np.where(base > 0, cs[np.maximum(base - 1, 0)], 0)
+        inside_after = (w_after != 0).astype(np.int32)
+        inside_before = np.where(first, 0, np.roll(inside_after, 1))
+        delta = inside_after - inside_before
+        col = np.clip(np.ceil((xc - x0) / q - 0.5).astype(np.int64), 0, W * ss)
+        np.add.at(img, (r0 + rr, col), delta)
+    img = np.cumsum(img[:, :W * ss], axis=1) > 0
+    return img.reshape(H, ss, W, ss).mean(axis=(1, 3))
+
+
+def _trace(cov, iso=0.4987):
+    """覆盖率图的等值线（marching squares，线性插值）：闭合的圈，字在每条边的左手边（外圈逆时针、洞顺时针）。单位是像素。
+    iso 故意不取 0.5：覆盖率是 1/16 的整数倍，正好等于 0.5 的角会让交点落在格点上、线段长度为 0、方向判断不出来"""
+    import numpy as np
+    H, W = cov.shape
+    v = cov
+    b = (v > iso)
+    case = b[:-1, :-1] * 1 + b[:-1, 1:] * 2 + b[1:, 1:] * 4 + b[1:, :-1] * 8
+    ii, jj = np.nonzero((case != 0) & (case != 15))
+
+    def hp(i, j):          # 横边 (i, j)-(i, j+1) 上的交点
+        a, c = v[i, j], v[i, j + 1]
+        return (j + (iso - a) / (c - a), float(i))
+
+    def vp(i, j):          # 竖边 (i, j)-(i+1, j) 上的交点
+        a, c = v[i, j], v[i + 1, j]
+        return (float(j), i + (iso - a) / (c - a))
+    nxt, pos = {}, {}
+    for i, j in zip(ii.tolist(), jj.tolist()):
+        c0, c1, c2, c3 = b[i, j], b[i, j + 1], b[i + 1, j + 1], b[i + 1, j]
+        # 四条边：(键, 交点, 这条边两头里在字里面的那个角)
+        E = {}
+        if c0 != c1:
+            E['b'] = (('h', i, j), hp(i, j), (j, i) if c0 else (j + 1, i))
+        if c1 != c2:
+            E['r'] = (('v', i, j + 1), vp(i, j + 1), (j + 1, i) if c1 else (j + 1, i + 1))
+        if c2 != c3:
+            E['t'] = (('h', i + 1, j), hp(i + 1, j), (j + 1, i + 1) if c2 else (j, i + 1))
+        if c3 != c0:
+            E['l'] = (('v', i, j), vp(i, j), (j, i + 1) if c3 else (j, i))
+        if len(E) == 2:
+            pairs = [tuple(E.keys())]
+        else:
+            centre = (v[i, j] + v[i, j + 1] + v[i + 1, j + 1] + v[i + 1, j]) / 4 > iso
+            if c0 == centre:      # 左下、右上两个角是连着的：切掉右下和左上两个角
+                pairs = [('b', 'r'), ('t', 'l')]
+            else:
+                pairs = [('l', 'b'), ('r', 't')]
+        for (ka, kb) in pairs:
+            (pk, P, C), (qk, Q, _) = E[ka], E[kb]
+            # 字要在线段 P→Q 的左手边
+            if (Q[0] - P[0]) * (C[1] - P[1]) - (Q[1] - P[1]) * (C[0] - P[0]) < 0:
+                pk, P, qk, Q = qk, Q, pk, P
+            nxt[pk] = qk
+            pos[pk], pos[qk] = P, Q
+    loops = []
+    seen = set()
+    for k0 in nxt:
+        if k0 in seen:
+            continue
+        lp, k = [], k0
+        while k not in seen and k in nxt:
+            seen.add(k)
+            lp.append(pos[k])
+            k = nxt[k]
+        if len(lp) >= 3:
+            loops.append(lp)
+    return loops
+
+
+def _simplify(lp, tol):
+    """闭合折线的道格拉斯-普克化简（tol 是允许偏离的距离）"""
+    n = len(lp)
+    if n <= 4:
+        return lp
+    p0 = lp[0]
+    far = max(range(n), key=lambda i: (lp[i][0] - p0[0]) ** 2 + (lp[i][1] - p0[1]) ** 2)
+    keep = [False] * n
+    keep[0] = keep[far] = True
+    stack = [(0, far), (far, n)]
+    while stack:
+        a, b_ = stack.pop()
+        if b_ - a < 2:
+            continue
+        A, B = lp[a], lp[b_ % n]
+        dx, dy = B[0] - A[0], B[1] - A[1]
+        L = math.hypot(dx, dy) or 1e-12
+        best, bi = -1.0, -1
+        for i in range(a + 1, b_):
+            P = lp[i]
+            d = abs((P[0] - A[0]) * dy - (P[1] - A[1]) * dx) / L
+            if d > best:
+                best, bi = d, i
+        if best > tol:
+            keep[bi] = True
+            stack += [(a, bi), (bi, b_)]
+    return [p for p, k in zip(lp, keep) if k]
+
+
+def _font_scale(path):
+    """字号校准：量一个满格的「国」（字体单位），让一个字约等于 size 宽"""
+    if path not in _fonts:
+        f = bpy.data.fonts.load(path)
+        g = _glyph_loops('国', f)
+        xs = [p[0] for l in g for p in l]
+        ys = [p[1] for l in g for p in l]
+        e = max(max(xs) - min(xs), max(ys) - min(ys))
+        _fonts[path] = (f, e)
+    return _fonts[path]
+
+
+def text_bm(ch, size, depth, bevel=0.0, font=None, res=3, back=True, check=True):
+    """一个字变成 bmesh：字在 XZ 平面、正面朝 -y，中心（按字形的包围盒）在原点，厚度从 y=0 往 -y 凸出 depth。
+    倒角往里收，字的笔画不会变粗。back=False 时不要背面（贴在板上的字看不见背面）。
+
+    做法（2026-11-17 改）：字体轮廓按非零环绕规则涂成高分辨率覆盖率图 → 等值线描边 → 化简 → 三角化正面，
+    侧壁和倒角按轮廓的法线方向一个个面摆好朝向（不用 recalc_face_normals 猜）。以前直接拿 Blender 的曲线填充，
+    思源宋体里叠着画的笔画会变成洞、碎三角、朝里的面（「慈」整个碎掉）。
+    check=True 时把正面三角形重新涂成图，和字体的覆盖率图比 IoU（低于 0.97 打 !!）"""
+    import numpy as np
+    from mathutils.geometry import delaunay_2d_cdt
+    path = font or FONT_SERIF
+    fobj, em = _font_scale(path)
+    k = 0.92 * size / max(1e-6, em)                 # 字体单位 → 米
+    loops = _glyph_loops(ch, fobj, steps=max(8, res * 4))
+    if not loops:
+        return None
+    xs = [p[0] for l in loops for p in l]
+    ys = [p[1] for l in loops for p in l]
+    px = em / 440.0                                  # 一个「国」约 440 像素宽：0.3 米的字一像素 0.7 毫米
+    x0, y0 = min(xs) - 3 * px, min(ys) - 3 * px
+    W = int(math.ceil((max(xs) - x0) / px)) + 4
+    H = int(math.ceil((max(ys) - y0) / px)) + 4
+    cov = _raster_nonzero(loops, x0, y0, px, W, H)
+    tr = [_simplify(l, 0.42) for l in _trace(cov)]
+    tr = [l for l in tr if len(l) >= 3 and abs(sum(l[i][0] * l[i - 1][1] - l[i - 1][0] * l[i][1] for i in range(len(l)))) > 4.0]
+    if not tr:
+        return None
+    # 像素 → 米（先不居中）
+    pl = [[((x0 + (p[0] + 0.5) * px) * k, (y0 + (p[1] + 0.5) * px) * k) for p in l] for l in tr]
+    allp = [p for l in pl for p in l]
+    cx = (min(p[0] for p in allp) + max(p[0] for p in allp)) / 2
+    cz = (min(p[1] for p in allp) + max(p[1] for p in allp)) / 2
+    pl = [[(p[0] - cx, p[1] - cz) for p in l] for l in pl]
+    # 正面三角化：约束德劳内（轮廓边当约束），再按非零环绕扔掉洞里、字外面的三角形。
+    # （tessellate_polygon / triangle_fill 用的扫描填充遇到外圈和洞在一个点上相碰就乱连）
+    V, E = [], []
+    for l in pl:
+        b0, n = len(V), len(l)
+        V += [Vector(p) for p in l]
+        E += [(b0 + i, b0 + (i + 1) % n) for i in range(n)]
+    cdt = delaunay_2d_cdt(V, E, [], 0, 1e-7)
+    flat = [(v.x, v.y) for v in cdt[0]]
+    LA = np.array([p for l in pl for p in l])
+    LB = np.array([q for l in pl for q in (l[1:] + l[:1])])
+    tris = []
+    cand = [tuple(f) for f in cdt[2] if len(f) == 3]
+    if cand:
+        Cc = np.array([[(flat[a_][0] + flat[b_][0] + flat[c_][0]) / 3, (flat[a_][1] + flat[b_][1] + flat[c_][1]) / 3] for (a_, b_, c_) in cand])
+        ya, yb = LA[None, :, 1], LB[None, :, 1]
+        up = (ya <= Cc[:, 1:2]) & (yb > Cc[:, 1:2])
+        dn = (ya > Cc[:, 1:2]) & (yb <= Cc[:, 1:2])
+        xc = LA[None, :, 0] + (Cc[:, 1:2] - ya) / np.where(np.abs(yb - ya) < 1e-15, 1e-15, yb - ya) * (LB[None, :, 0] - LA[None, :, 0])
+        right = xc > Cc[:, 0:1]
+        wind = ((up & right).sum(1) - (dn & right).sum(1))
+        for f, w in zip(cand, wind):
+            if w != 0:
+                a_, b_, c_ = f
+                ar = (flat[b_][0] - flat[a_][0]) * (flat[c_][1] - flat[a_][1]) - (flat[b_][1] - flat[a_][1]) * (flat[c_][0] - flat[a_][0])
+                if abs(ar) < 1e-14:
+                    continue
+                tris.append(f if ar > 0 else (a_, c_, b_))
+    if not tris:
+        return None
+    # 轮廓 = 只属于一个三角形的边（三角形都是逆时针，边的左手边是字）
+    dirs = set()
+    for (a_, b_, c_) in tris:
+        dirs |= {(a_, b_), (b_, c_), (c_, a_)}
+    bnd = [e for e in dirs if (e[1], e[0]) not in dirs]
+    nxt, prv = {}, {}
+    for (a_, b_) in bnd:
+        nxt.setdefault(a_, []).append(b_)
+        prv.setdefault(b_, []).append(a_)
+
+    def cross2(a_, b_, c_):
+        return (b_[0] - a_[0]) * (c_[1] - a_[1]) - (b_[1] - a_[1]) * (c_[0] - a_[0])
+    # 倒角：轮廓上每个点沿两条边的内法线往字里收 d（斜接，最多 2.5 d，也不超过两条边较短那条的 0.45）。
+    # 收了以后正面哪个三角形翻过来，就把它三个角的收进量减半，再试
+    off = {}
+    for v in nxt:
+        if len(nxt[v]) != 1 or len(prv.get(v, [])) != 1:
+            continue                                   # 两圈在这一点相碰：这一点不收
+        p, q, r = flat[prv[v][0]], flat[v], flat[nxt[v][0]]
+        e1 = Vector((q[0] - p[0], q[1] - p[1]))
+        e2 = Vector((r[0] - q[0], r[1] - q[1]))
+        if e1.length < 1e-9 or e2.length < 1e-9:
+            continue
+        n1 = Vector((-e1.y, e1.x)).normalized()
+        n2 = Vector((-e2.y, e2.x)).normalized()
+        den = 1.0 + n1.dot(n2)
+        o = (n1 + n2) / den if den > 1e-3 else n1
+        lim = min(2.5, 0.45 * min(e1.length, e2.length) / max(bevel, 1e-9))
+        if o.length > lim:
+            o = o.normalized() * lim
+        off[v] = o
+    scale = {v: 1.0 for v in off}
+    d = bevel
+    for _ in range(8):
+        def ipos(v):
+            o = off.get(v)
+            return flat[v] if (o is None or d <= 0) else (flat[v][0] + o.x * d * scale[v], flat[v][1] + o.y * d * scale[v])
+        flips = [tri for tri in tris if cross2(ipos(tri[0]), ipos(tri[1]), ipos(tri[2])) <= 1e-13]
+        if not flips:
+            break
+        for tri in flips:
+            for v in tri:
+                if v in scale:
+                    scale[v] *= 0.5 if scale[v] > 0.05 else 0.0
+    else:
+        d = 0.0
+    t = new_bm()
+    d1 = depth - d
+    used = sorted({v for tri in tris for v in tri})
+    r0 = {v: t.verts.new((flat[v][0], 0.0, flat[v][1])) for v in used if v in nxt}
+    r2 = {}
+    for v in used:
+        q = ipos(v) if d > 0 else flat[v]
+        r2[v] = t.verts.new((q[0], -depth, q[1]))
+
+    def face(vs, want):
+        try:
+            f = t.faces.new(vs)
+        except ValueError:
+            return None
+        f.normal_update()
+        if f.normal.dot(want) < 0:
+            f.normal_flip()
+        return f
+    if d > 0:
+        r1 = {v: t.verts.new((flat[v][0], -d1, flat[v][1])) for v in r0}
+    for (a_, b_) in bnd:
+        ex, ez = flat[b_][0] - flat[a_][0], flat[b_][1] - flat[a_][1]
+        out = Vector((ez, 0.0, -ex)).normalized()          # 字在左手边，右手边是外面
+        if d > 0:
+            face((r0[a_], r0[b_], r1[b_], r1[a_]), out)
+            face((r1[a_], r1[b_], r2[b_], r2[a_]), (out + Vector((0, -1.0, 0))).normalized())
+        else:
+            face((r0[a_], r0[b_], r2[b_], r2[a_]), out)
+    for tri in tris:
+        face([r2[i] for i in tri], Vector((0, -1.0, 0)))
+        if back:
+            vs = [r0.get(i) or t.verts.new((flat[i][0], 0.0, flat[i][1])) for i in tri]
+            face(vs, Vector((0, 1.0, 0)))
+    loose = [v for v in t.verts if not v.link_faces]
+    if loose:
+        bmesh.ops.delete(t, geom=loose, context='VERTS')
+    for nm in ('col', 'nrm'):
+        if t.loops.layers.float_color.get(nm) is None:
+            t.loops.layers.float_color.new(nm)
+    if t.loops.layers.uv.get('uv') is None:
+        t.loops.layers.uv.new('uv')
+    if check:
+        # 自检：正面三角形重新涂成图，和字体的覆盖率图比
+        ref = cov > 0.5
+        got = np.zeros_like(ref)
+        gx = (np.arange(W) + 0.5) * px + x0
+        gy = (np.arange(H) + 0.5) * px + y0
+        for tri in tris:
+            P = [((flat[i][0] + cx) / k, (flat[i][1] + cz) / k) for i in tri]
+            lo_x, hi_x = min(p[0] for p in P), max(p[0] for p in P)
+            lo_y, hi_y = min(p[1] for p in P), max(p[1] for p in P)
+            j0, j1 = max(0, int((lo_x - x0) / px) - 1), min(W, int((hi_x - x0) / px) + 2)
+            i0, i1 = max(0, int((lo_y - y0) / px) - 1), min(H, int((hi_y - y0) / px) + 2)
+            X, Y = np.meshgrid(gx[j0:j1], gy[i0:i1])
+            s1 = (P[1][0] - P[0][0]) * (Y - P[0][1]) - (P[1][1] - P[0][1]) * (X - P[0][0])
+            s2 = (P[2][0] - P[1][0]) * (Y - P[1][1]) - (P[2][1] - P[1][1]) * (X - P[1][0])
+            s3 = (P[0][0] - P[2][0]) * (Y - P[2][1]) - (P[0][1] - P[2][1]) * (X - P[2][0])
+            got[i0:i1, j0:j1] |= (s1 >= 0) & (s2 >= 0) & (s3 >= 0)
+        iou = (ref & got).sum() / max(1, (ref | got).sum())
+        bad = sum(1 for f in t.faces if abs(f.normal.y) > 0.99 and (f.normal.y > 0) != (f.calc_center_median().y > -depth / 2))
+        tag = '!!' if iou < 0.97 or bad else 'ok'
+        nz = sum(1 for v in off if scale[v] < 0.99) if d > 0 else len(off)
+        print(f'[yjm] {tag} 字「{ch}」IoU {iou:.4f}，{len(bnd)} 条轮廓边，{len(t.faces)} 面，倒角 {d * 1000:.1f} 毫米（{nz} 个点收得少），朝向不对的面 {bad}')
+    return t
+
+
+def _convex_ccw(poly):
+    """凸多边形就返回逆时针的点列，不是凸的返回 None"""
+    n = len(poly)
+    if n < 3:
+        return None
+    area = sum(poly[i - 1][0] * poly[i][1] - poly[i][0] * poly[i - 1][1] for i in range(n))
+    if abs(area) < 1e-12:
+        return None
+    pts = poly if area > 0 else list(reversed(poly))
+    for i in range(n):
+        a, b, c = pts[i - 2], pts[i - 1], pts[i]
+        if (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]) < -1e-12:
+            return None
+    return pts
+
+
+def _clip_area(p, q):
+    """两个平面多边形（同一平面里的二维坐标）重叠的面积；有一个不是凸的就返回 None"""
+    p, q = _convex_ccw(p), _convex_ccw(q)
+    if p is None or q is None:
+        return None
+    out = p
+    for i in range(len(q)):
+        a, b = q[i - 1], q[i]
+        inp, out = out, []
+        if not inp:
+            break
+        def side(v):
+            return (b[0] - a[0]) * (v[1] - a[1]) - (b[1] - a[1]) * (v[0] - a[0])
+        for j in range(len(inp)):
+            cur, prv = inp[j], inp[j - 1]
+            sc, sp = side(cur), side(prv)
+            if sc >= 0:
+                if sp < 0:
+                    t = sp / (sp - sc)
+                    out.append((prv[0] + (cur[0] - prv[0]) * t, prv[1] + (cur[1] - prv[1]) * t))
+                out.append(cur)
+            elif sp >= 0:
+                t = sp / (sp - sc)
+                out.append((prv[0] + (cur[0] - prv[0]) * t, prv[1] + (cur[1] - prv[1]) * t))
+    if len(out) < 3:
+        return 0.0
+    return abs(sum(out[i - 1][0] * out[i][1] - out[i][0] * out[i - 1][1] for i in range(len(out)))) / 2
 
 
 def new_bm():
@@ -90,7 +493,7 @@ def xform(loc=(0, 0, 0), rot=(0, 0, 0), scale=(1, 1, 1)):
 # 哪些模型的普通表面换成带真实贴图的材质（石头、木头……贴图见 tools/textures/prep.py）。
 # 名字写前缀也行：'rock' 管 rock_a、rock_b……。模型里特意指定了材质的部件（发光的灯室、叶子）不受影响。
 REMAP = {
-    'lantern': 'stone', 'rock': 'stone', 'stele': 'stone', 'basin': 'stone', 'islet_paving': 'stone',
+    'lantern': 'stone', 'rock': 'stone', 'stele': 'stone', 'basin': 'stone', 'islet_paving': 'paving',
     'bench': 'wood', 'signpost': 'wood', 'plaque_rack': 'wood', 'fence': 'wood', 'dock': 'wood',
     'cushion': 'straw', 'boat': 'wood_dark',
 }
@@ -175,8 +578,10 @@ class Asset:
         self.merge(t, mat, xform(loc, rot))
 
     def lathe(self, profile, loc=(0, 0, 0), segs=16, color=(1, 1, 1), rot=(0, 0, 0), scale=1, mat='toon', glow=0.0,
-              squash=None):
-        """旋转体。profile: [(半径, 高度) 或 (半径, 高度, 颜色)]，从下往上。颜色管它到下一圈之间那一段"""
+              squash=None, outward=False):
+        """旋转体。profile: [(半径, 高度) 或 (半径, 高度, 颜色)]，从下往上。颜色管它到下一圈之间那一段。
+        outward=True：两头不封口的一圈（柱础的覆盆、金箍）按「朝外」定朝向。recalc_face_normals 对不封口的带子
+        是猜的，半径忽大忽小的剖面会被整圈翻成朝里（2026-11-17 加，默认不变）"""
         t = new_bm()
         rings = []
         for p in profile:
@@ -206,6 +611,14 @@ class Asset:
                 v.co.x *= squash[0]
                 v.co.y *= squash[1]
         bmesh.ops.recalc_face_normals(t, faces=t.faces)
+        if outward:
+            # 按面积加权，看法线整体是朝外（离开转轴）还是朝里
+            w = 0.0
+            for f in t.faces:
+                c = f.calc_center_median()
+                w += f.calc_area() * (f.normal.x * c.x + f.normal.y * c.y) / max(1e-9, math.hypot(c.x, c.y))
+            if w < 0:
+                bmesh.ops.reverse_faces(t, faces=t.faces)
         self.merge(t, mat, xform(loc, rot, scale))
 
     def blob(self, r, loc=(0, 0, 0), scale=(1, 1, 1), color=(1, 1, 1), top=None, subdiv=2, bump=0.16, freq=1.3,
@@ -390,6 +803,62 @@ class Asset:
         if notch <= 0:
             bmesh.ops.remove_doubles(t, verts=t.verts, dist=1e-5)
         self.merge(t, mat, xform(loc, (tilt[0], tilt[1], rot)))
+
+    # ---------- 带手绘贴图的面（2026-11-17）----------
+    def uvfaces(self, faces, mat, M=None, color=(1, 1, 1), weld=False):
+        """一批带真实贴图坐标的面，给 paint_<名字> 这类部件用（彩画、天花、壁画……）。
+        faces: [(点列, 贴图坐标列[, 颜色])]，点 3 或 4 个（逆时针朝外）。顶点色默认白色（只用来乘暗部），
+        uv 就是贴图坐标（0..1，v 朝上；PNG 的最上一行是 v=1）。普通部件的 uv 是（相位, 发光），这里不是：
+        Unity 那边 toon_paint_<名字>.mat 按贴图坐标取色，见 tools/textures/painted.py 的说明。"""
+        t = new_bm()
+        col = t.loops.layers.float_color['col']
+        uvl = t.loops.layers.uv['uv']
+        shared = {}
+
+        def vert(p):
+            # weld=True：位置相同的点共用（贴图坐标还是每个角各自的），相邻的几块连成一片，光照连续
+            if not weld:
+                return t.verts.new(p)
+            k = (round(p[0], 4), round(p[1], 4), round(p[2], 4))
+            if k not in shared:
+                shared[k] = t.verts.new(p)
+            return shared[k]
+        for fc in faces:
+            pts, uvs = fc[0], fc[1]
+            c = fc[2] if len(fc) > 2 else color
+            vs = [vert(p) for p in pts]
+            if len(set(vs)) < len(vs):
+                continue
+            try:
+                f = t.faces.new(vs)
+            except ValueError:
+                continue
+            for l, uv in zip(f.loops, uvs):
+                l[col] = (c[0], c[1], c[2], 0.0)
+                l[uvl].uv = uv
+        self.merge(t, mat, M)
+
+    def text(self, s, loc=(0, 0, 0), rot=(0, 0, 0), size=0.3, depth=0.03, bevel=0.004, color=(1, 1, 1), mat='toon',
+             font=None, res=3, vertical=False, gap=1.0, back=True):
+        """立体字（字体轮廓描出来的网格，见 text_bm）。字在 XZ 平面里、正面朝 -y（和模型正面一样），loc 是整行字的中心。
+        size 是字号（一个字大约这么宽），depth 是厚度（从 loc 往 -y 凸出），bevel 是倒角（字的边沿一道亮棱）。
+        vertical=True 时从上往下竖排（对联）；gap 是字距（按字号算）；back=False 不要背面（贴在板上的字）。
+        返回每个字的中心，方便在字下面垫东西"""
+        chars = [ch for ch in s if not ch.isspace()]
+        n = len(chars)
+        centers = []
+        R = xform(loc, rot)
+        for i, ch in enumerate(chars):
+            k = i - (n - 1) / 2
+            off = (0.0, 0.0, -k * size * gap) if vertical else (k * size * gap, 0.0, 0.0)
+            t = text_bm(ch, size, depth, bevel, font, res, back=back)
+            if t is None:
+                continue
+            paint(t, None, color)
+            M = R @ Matrix.Translation(off)
+            centers.append(M @ Vector((0, 0, 0)))
+            self.merge(t, mat, M)
+        return centers
 
     # ---------- 屋顶 ----------
     def roof(self, W, D, H, z=0.0, loc=(0, 0), lift=0.5, curve=2.2, pitch=0.36, amp=0.035, inner=None, rows=8,
@@ -648,6 +1117,9 @@ class Asset:
         verts, tris = [], []
         for mat, b in self.parts.items():
             base = len(verts)
+            # 每个部件是好几次 merge 拼起来的，点的序号是旧的（每次 from_mesh 都从 0 编），不重编就会连出横跨整个模型的假三角形
+            b.verts.index_update()
+            b.faces.index_update()
             b.verts.ensure_lookup_table()
             verts += [v.co.copy() for v in b.verts]
             for f in b.faces:
@@ -702,40 +1174,67 @@ class Asset:
 
     def check_coplanar(self, min_area=0.03):
         """找「两个面叠在同一个平面上」的地方：这种地方渲染时两个面抢着显示，镜头稍微一动就闪。
-        只查朝向相同、面积不太小的面；用平面内的包围盒粗查，报出来的要人看一眼。"""
+        只查朝向相同、面积不太小的面；同一平面里的面按 0.5 米的格子分桶，同一格里的两两比包围盒，报出来的要人看一眼。
+        （2026-11-17：以前一个平面超过 400 个面就整组跳过，点的序号也是旧的，漏了很多）"""
         groups = {}
         for mat, b in self.parts.items():
+            b.verts.index_update()
             for f in b.faces:
                 if f.calc_area() < min_area:
                     continue
                 n = f.normal
                 d = n.dot(f.verts[0].co)
-                key = (round(n.x, 2), round(n.y, 2), round(n.z, 2), round(d, 3))
+                key = (round(n.x, 2), round(n.y, 2), round(n.z, 2), int(math.floor(d / 0.0005)))
                 # 平面内的两个方向
                 u = n.cross(Vector((0, 0, 1)))
                 u = u.normalized() if u.length > 1e-3 else Vector((1, 0, 0))
                 v = n.cross(u)
                 us = [u.dot(x.co) for x in f.verts]
                 vs = [v.dot(x.co) for x in f.verts]
-                groups.setdefault(key, []).append((min(us), max(us), min(vs), max(vs), f.calc_center_median(), {x.index for x in f.verts}, mat))
+                groups.setdefault(key, []).append((min(us), max(us), min(vs), max(vs), f.calc_center_median(), {x.index for x in f.verts}, mat, d, list(zip(us, vs))))
         hits = []
-        for key, fs in groups.items():
-            if len(fs) < 2 or len(fs) > 400:
+        G = 0.5
+        for key, fs0 in groups.items():
+            # 高度差不到 0.5 毫米的相邻一组也算同一平面（有意离开 1 毫米以上的贴面不算）
+            fs1 = groups.get(key[:3] + (key[3] + 1,), [])
+            fs = fs0 + fs1
+            if len(fs) < 2:
                 continue
-            for i in range(len(fs)):
-                a = fs[i]
-                for j in range(i + 1, len(fs)):
-                    c = fs[j]
-                    ou = min(a[1], c[1]) - max(a[0], c[0]) - 0.01
-                    ov = min(a[3], c[3]) - max(a[2], c[2]) - 0.01
-                    # 同一个部件里共用顶点的是挨着的两个面，不是叠着
-                    if a[6] == c[6] and a[5] & c[5]:
-                        continue
-                    if ou > 0 and ov > 0 and ou * ov > min_area:
-                        hits.append((ou * ov, key, tuple(round(x, 2) for x in a[4]), tuple(round(x, 2) for x in c[4])))
+            cells = {}
+            for idx, f in enumerate(fs):
+                for gu in range(int(math.floor(f[0] / G)), int(math.floor(f[1] / G)) + 1):
+                    for gv in range(int(math.floor(f[2] / G)), int(math.floor(f[3] / G)) + 1):
+                        cells.setdefault((gu, gv), []).append(idx)
+            pairs = set()
+            n0 = len(fs0)
+            for lst in cells.values():
+                for i in range(len(lst)):
+                    for j in range(i + 1, len(lst)):
+                        p_, q_ = lst[i], lst[j]
+                        if p_ >= n0 and q_ >= n0:
+                            continue            # 两个都是相邻那组的：轮到那组自己时再比
+                        pairs.add((p_, q_))
+            for (i, j) in pairs:
+                a, c = fs[i], fs[j]
+                if abs(a[7] - c[7]) > 0.0005:
+                    continue
+                ou = min(a[1], c[1]) - max(a[0], c[0]) - 0.01
+                ov = min(a[3], c[3]) - max(a[2], c[2]) - 0.01
+                # 同一个部件里共用顶点的是挨着的两个面，不是叠着
+                if a[6] == c[6] and a[5] & c[5]:
+                    continue
+                if ou > 0 and ov > 0 and ou * ov > min_area:
+                    # 两个都是凸多边形就算真正的重叠面积（斜着的梯形包围盒会叠，面本身不叠）
+                    ar = _clip_area(a[8], c[8])
+                    if ar is None:
+                        ar = ou * ov
+                    if ar > min_area:
+                        hits.append((ar, key, tuple(round(x, 2) for x in a[4]), tuple(round(x, 2) for x in c[4])))
         hits.sort(reverse=True)
         for area, key, p, q in hits[:6]:
-            print(f'[yjm] !! {self.name} 有两个面叠在一起：朝向 {key[:3]} 高度 {key[3]}，重叠约 {area:.2f} 平米，在 {p} 和 {q}')
+            print(f'[yjm] !! {self.name} 有两个面叠在一起：朝向 {key[:3]} 高度 {key[3] * 0.0005:.3f}，重叠约 {area:.2f} 平米，在 {p} 和 {q}')
+        if len(hits) > 6:
+            print(f'[yjm] !! {self.name} 一共 {len(hits)} 处')
         return len(hits)
 
     def stats(self):
@@ -925,6 +1424,57 @@ def leaf_preview_material(name):
     return m
 
 
+_paint_mats = {}
+
+
+def paint_find(name):
+    """paint_<名字>.png 在哪（找不到返回 None）"""
+    for d in PAINT_DIRS:
+        p = os.path.join(d, name + '.png')
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def paint_preview_material(name):
+    """手绘贴图部件的预览材质：贴图（按 uv）乘顶点色（暗部）。找不到贴图就只用顶点色"""
+    if name in _paint_mats:
+        return _paint_mats[name]
+    m = bpy.data.materials.new('prev_' + name)
+    m.use_nodes = True
+    nt = m.node_tree
+    nt.nodes.clear()
+    N = nt.nodes.new
+    out = N('ShaderNodeOutputMaterial')
+    attr = N('ShaderNodeAttribute')
+    attr.attribute_name = 'col'
+    gam = N('ShaderNodeGamma')
+    gam.inputs[1].default_value = 2.2
+    nt.links.new(attr.outputs['Color'], gam.inputs[0])
+    bsdf = N('ShaderNodeBsdfDiffuse')
+    path = paint_find(name)
+    if path:
+        img = N('ShaderNodeTexImage')
+        img.image = bpy.data.images.load(path, check_existing=True)
+        img.interpolation = 'Cubic'
+        uvn = N('ShaderNodeUVMap')
+        uvn.uv_map = 'uv'
+        nt.links.new(uvn.outputs[0], img.inputs[0])
+        mul = N('ShaderNodeMixRGB')
+        mul.blend_type = 'MULTIPLY'
+        mul.inputs[0].default_value = 1.0
+        nt.links.new(img.outputs['Color'], mul.inputs[1])
+        nt.links.new(gam.outputs[0], mul.inputs[2])
+        nt.links.new(mul.outputs[0], bsdf.inputs['Color'])
+    else:
+        print(f'[yjm] 预览找不到贴图 {name}.png（{PAINT_DIRS}）')
+        nt.links.new(gam.outputs[0], bsdf.inputs['Color'])
+    nt.links.new(bsdf.outputs[0], out.inputs['Surface'])
+    m.use_backface_culling = False
+    _paint_mats[name] = m
+    return m
+
+
 def setup_scene():
     sc = bpy.context.scene
     for ob in list(bpy.data.objects):
@@ -985,7 +1535,9 @@ def render_preview(name, objs, view=None, floor=True):
     for ob in objs:
         if not ob.data.materials:
             m = ob.get('mat', '')
-            ob.data.materials.append(leaf_preview_material(m) if m.startswith('leaf_') else mat)
+            mb = m.split(':')[0]
+            ob.data.materials.append(leaf_preview_material(m) if m.startswith('leaf_') else
+                                     paint_preview_material(mb) if mb.startswith('paint_') else mat)
         for v in ob.data.vertices:
             for i in range(3):
                 lo[i] = min(lo[i], v.co[i])

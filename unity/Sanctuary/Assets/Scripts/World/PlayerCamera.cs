@@ -18,5 +18,8 @@ namespace Yuanjing
         public abstract void Settle(float facingYaw, float pitchWanted = 14f);
         /// 凑近看：坐下、做动作时拉近一些。0 是平常的远近，1 是最近
         public virtual void Focus(float amount) { }
+        /// 特写：镜头从 eye 看着 focus（挂布条、系结时凑到跟前看），不管现在是哪个视角；EndCloseUp 回到原来的跟法
+        public virtual void CloseUp(Vector3 focus, Vector3 eye) { }
+        public virtual void EndCloseUp() { }
     }
 }

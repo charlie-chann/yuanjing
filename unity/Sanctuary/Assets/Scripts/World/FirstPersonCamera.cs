@@ -10,6 +10,9 @@ namespace Yuanjing
         public float eyeHeight = 1.1f, crouchHeight = 0.34f, minPitch = -80f, maxPitch = 80f;
         /// 头的骨头：坐下、跪下时眼睛跟着低下去
         public Transform head;
+        /// 在屋里（大殿里）：换到第一人称时先微微抬头（佛像高，平着看只看到供桌和佛像的下半身）
+        public bool interior;
+        public float interiorPitch = -10f;
 
         float yaw, pitch, yawTarget, pitchTarget, eye;
         bool snapped;
@@ -25,7 +28,7 @@ namespace Yuanjing
         public override void Snap(float facingYaw)
         {
             yaw = yawTarget = facingYaw;
-            pitch = pitchTarget = 4f;
+            pitch = pitchTarget = interior && eyeHeight > 0.6f ? interiorPitch : 4f;
             eye = eyeHeight;
             snapped = true;
             Apply(0);

@@ -47,3 +47,8 @@
 /unity/Sanctuary/Assets/Toon/Textures/m_cloth_n.png filter=lfs diff=lfs merge=lfs -text
 /unity/Sanctuary/Assets/Toon/Textures/m_soil_n.png filter=lfs diff=lfs merge=lfs -text
 /unity/Sanctuary/Assets/Toon/Textures/m_stone_n.png filter=lfs diff=lfs merge=lfs -text
+/unity/Sanctuary/Assets/Toon/Textures/paint_wall.png filter=lfs diff=lfs merge=lfs -text
+/unity/Sanctuary/Assets/Toon/Models/buddha_center.yjm filter=lfs diff=lfs merge=lfs -text
+/unity/Sanctuary/Assets/Toon/Models/buddha_west.yjm filter=lfs diff=lfs merge=lfs -text
+/unity/Sanctuary/Assets/Toon/Models/buddha_east.yjm filter=lfs diff=lfs merge=lfs -text
+/unity/Sanctuary/Assets/Toon/Models/altar_dais.yjm filter=lfs diff=lfs merge=lfs -text

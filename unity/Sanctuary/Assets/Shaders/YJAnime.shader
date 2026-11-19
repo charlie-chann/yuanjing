@@ -1,6 +1,7 @@
 // 动漫人物（VRM 转来的，见 tools/blender/vrm_import.py）：颜色来自贴图，明暗分两段（脸上柔一点），外面一圈描边。
 // 参数照着原模型 MToon 材质里的来：暗面颜色、描边粗细、镂空还是半透明。
 // 五遍，每一遍都有 Name 和 LightMode（少写会闪，见 docs/08）；描边那一遍用 SRPDefaultUnlit。
+// 另有一遍 SkirtFix（UniversalForwardOnly，只有 BuildAnime 打开的皮肤、裙子材质才画）：裙子防穿帮，见那一遍的说明。
 Shader "Yuanjing/Anime"
 {
     Properties
@@ -22,6 +23,11 @@ Shader "Yuanjing/Anime"
         [Enum(UnityEngine.Rendering.BlendMode)] _SrcBlend("混合：源", Float) = 1
         [Enum(UnityEngine.Rendering.BlendMode)] _DstBlend("混合：底", Float) = 0
         _ZWrite("写深度", Float) = 1
+        _SkirtFix("裙子防穿帮：0 不管，1 标出腿和臀部的皮肤，2 在标出的皮肤上补画裙子", Float) = 0
+        _SkirtPush("补画裙子时深度往镜头挪多少（米）", Float) = 0.05
+        [Enum(UnityEngine.Rendering.CompareFunction)] _SkirtComp("防穿帮：模板比较", Float) = 8
+        [Enum(UnityEngine.Rendering.StencilOp)] _SkirtOp("防穿帮：模板写法", Float) = 0
+        _SkirtColorMask("防穿帮：画不画颜色（0 / 15）", Float) = 0
     }
     SubShader
     {
@@ -31,6 +37,7 @@ Shader "Yuanjing/Anime"
         #pragma target 3.0
         #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
         #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
+        #include "Assets/Shaders/YJIndoor.hlsl"
 
         CBUFFER_START(UnityPerMaterial)
         float4 _MainTex_ST;
@@ -49,6 +56,8 @@ Shader "Yuanjing/Anime"
         half _SrcBlend;
         half _DstBlend;
         half _ZWrite;
+        half _SkirtFix;
+        half _SkirtPush;
         CBUFFER_END
 
         TEXTURE2D(_MainTex);
@@ -66,11 +75,94 @@ Shader "Yuanjing/Anime"
             clip((d - 0.25) / 0.5 - (bayer[px.x + px.y * 4u] + 0.5) / 16.0);
         }
 
+        // 平视时挡在镜头和自己之间的别人（后面一排坐着的人的头、从镜头前走过的香客）用网点淡掉：
+        // _YJFocus 是自己那一团（xyz 中心，w 半径；0 是不管，ViewSwitcher 每帧给），从镜头看过去罩住自己的那个圆锥里、又比自己近的地方，只留两成网点。
+        // 自己身上的点都在「比中心近不到半径」的范围里，不受影响
+        float4 _YJFocus;
+        void YJOccluderFade(float3 positionWS, float4 positionCS)
+        {
+            if (_YJFocus.w <= 0.0) return;
+            float3 toP = _YJFocus.xyz - _WorldSpaceCameraPos;
+            float dp = length(toP);
+            float3 dir = toP / max(dp, 1e-3);
+            float3 toX = positionWS - _WorldSpaceCameraPos;
+            float along = dot(toX, dir);
+            if (along > dp - _YJFocus.w - 0.15 || along <= 0.0) return;
+            float perp = length(toX - dir * along);
+            float k = saturate((perp - _YJFocus.w * along / dp) / 0.2);
+            if (k >= 1.0) return;
+            // 网点用交错梯度噪声（不是 4×4 的固定方格：评审说满屏一格格的点子很粗），留三成五（以前两成）
+            float ign = frac(52.9829189 * frac(dot(floor(positionCS.xy), float2(0.06711056, 0.00583715))));
+            clip(0.35 + 0.65 * k - ign);
+        }
+
         half4 YJAnimeBase(float2 uv)
         {
             half4 c = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, uv) * _Color;
             if (_AlphaClip > 0.5) clip(c.a - _Cutoff);
             return c;
+        }
+
+        // ── 着色（ForwardLit 和 SkirtFix 两遍共用） ──
+        struct LitAttributes { float4 positionOS : POSITION; float3 normalOS : NORMAL; float2 uv : TEXCOORD0; float2 mark : TEXCOORD3; };
+        struct LitVaryings
+        {
+            float4 positionCS : SV_POSITION;
+            float3 positionWS : TEXCOORD0;
+            half3 normalWS : TEXCOORD1;
+            float2 uv : TEXCOORD2;
+            half4 fogAndVertexLight : TEXCOORD3;
+            float mark : TEXCOORD4;
+        };
+
+        LitVaryings LitVert(LitAttributes v)
+        {
+            LitVaryings o = (LitVaryings)0;
+            o.positionWS = TransformObjectToWorld(v.positionOS.xyz);
+            o.positionCS = TransformWorldToHClip(o.positionWS);
+            o.normalWS = TransformObjectToWorldNormal(v.normalOS);
+            o.uv = TRANSFORM_TEX(v.uv, _MainTex);
+            o.mark = v.mark.x;
+            o.fogAndVertexLight.x = ComputeFogFactor(o.positionCS.z);
+            #ifdef _ADDITIONAL_LIGHTS_VERTEX
+            o.fogAndVertexLight.yzw = VertexLighting(o.positionWS, o.normalWS);
+            #endif
+            return o;
+        }
+
+        half4 LitFrag(LitVaryings i, half faceSign)
+        {
+            YJNearFade(i.positionWS, i.positionCS);
+            YJOccluderFade(i.positionWS, i.positionCS);
+            half4 base = YJAnimeBase(i.uv);
+            half3 shadeTex = SAMPLE_TEXTURE2D(_ShadeTex, sampler_ShadeTex, i.uv).rgb * _ShadeColor.rgb;
+            half3 n = normalize(i.normalWS) * faceSign;
+            float4 shadowCoord = TransformWorldToShadowCoord(i.positionWS);
+            Light light = GetMainLight(shadowCoord);
+            half ndl = dot(n, light.direction);
+            // 交界：从 _ShadeShift 开始变亮；_Toony 越大过渡越窄（脸上用小的，不会在鼻子旁边切出一块硬影子）
+            half hi = lerp(1.0, _ShadeShift + 0.12, _Toony);
+            half ramp = smoothstep(_ShadeShift, hi, ndl) * lerp(1.0, light.shadowAttenuation, 0.85);
+            half3 albedo = lerp(shadeTex, base.rgb, ramp);
+            // 殿里：环境光换成暖的（同场景里的卡通材质，见 YJIndoor.hlsl）
+            half3 ambient = YJIndoorAmbient(SampleSH(n) * _Ambient, i.positionWS);
+            half3 color = albedo * (ambient + light.color * (ramp * _SunScale));
+            #if defined(_ADDITIONAL_LIGHTS)
+            uint count = GetAdditionalLightsCount();
+            for (uint k = 0u; k < count; ++k)
+            {
+                Light l = GetAdditionalLight(k, i.positionWS);
+                color += base.rgb * l.color * (l.distanceAttenuation * smoothstep(-0.2, 0.5, dot(n, l.direction)));
+            }
+            #endif
+            #ifdef _ADDITIONAL_LIGHTS_VERTEX
+            color += base.rgb * i.fogAndVertexLight.yzw;
+            #endif
+            half3 v = GetWorldSpaceNormalizeViewDir(i.positionWS);
+            half rim = pow(1.0 - saturate(dot(n, v)), 4.0) * ramp;
+            color += rim * _RimColor.rgb * _RimColor.a * light.color * _SunScale;
+            color = MixFog(color, i.fogAndVertexLight.x);
+            return half4(color, base.a);
         }
         ENDHLSL
 
@@ -89,62 +181,8 @@ Shader "Yuanjing/Anime"
             #pragma multi_compile_fragment _ _SHADOWS_SOFT _SHADOWS_SOFT_LOW _SHADOWS_SOFT_MEDIUM _SHADOWS_SOFT_HIGH
             #pragma multi_compile_fog
 
-            struct Attributes { float4 positionOS : POSITION; float3 normalOS : NORMAL; float2 uv : TEXCOORD0; };
-            struct Varyings
-            {
-                float4 positionCS : SV_POSITION;
-                float3 positionWS : TEXCOORD0;
-                half3 normalWS : TEXCOORD1;
-                float2 uv : TEXCOORD2;
-                half4 fogAndVertexLight : TEXCOORD3;
-            };
-
-            Varyings vert(Attributes v)
-            {
-                Varyings o = (Varyings)0;
-                o.positionWS = TransformObjectToWorld(v.positionOS.xyz);
-                o.positionCS = TransformWorldToHClip(o.positionWS);
-                o.normalWS = TransformObjectToWorldNormal(v.normalOS);
-                o.uv = TRANSFORM_TEX(v.uv, _MainTex);
-                o.fogAndVertexLight.x = ComputeFogFactor(o.positionCS.z);
-                #ifdef _ADDITIONAL_LIGHTS_VERTEX
-                o.fogAndVertexLight.yzw = VertexLighting(o.positionWS, o.normalWS);
-                #endif
-                return o;
-            }
-
-            half4 frag(Varyings i, FRONT_FACE_TYPE facing : FRONT_FACE_SEMANTIC) : SV_Target
-            {
-                YJNearFade(i.positionWS, i.positionCS);
-                half4 base = YJAnimeBase(i.uv);
-                half3 shadeTex = SAMPLE_TEXTURE2D(_ShadeTex, sampler_ShadeTex, i.uv).rgb * _ShadeColor.rgb;
-                half3 n = normalize(i.normalWS) * IS_FRONT_VFACE(facing, 1.0, -1.0);
-                float4 shadowCoord = TransformWorldToShadowCoord(i.positionWS);
-                Light light = GetMainLight(shadowCoord);
-                half ndl = dot(n, light.direction);
-                // 交界：从 _ShadeShift 开始变亮；_Toony 越大过渡越窄（脸上用小的，不会在鼻子旁边切出一块硬影子）
-                half hi = lerp(1.0, _ShadeShift + 0.12, _Toony);
-                half ramp = smoothstep(_ShadeShift, hi, ndl) * lerp(1.0, light.shadowAttenuation, 0.85);
-                half3 albedo = lerp(shadeTex, base.rgb, ramp);
-                half3 ambient = SampleSH(n) * _Ambient;
-                half3 color = albedo * (ambient + light.color * (ramp * _SunScale));
-                #if defined(_ADDITIONAL_LIGHTS)
-                uint count = GetAdditionalLightsCount();
-                for (uint k = 0u; k < count; ++k)
-                {
-                    Light l = GetAdditionalLight(k, i.positionWS);
-                    color += base.rgb * l.color * (l.distanceAttenuation * smoothstep(-0.2, 0.5, dot(n, l.direction)));
-                }
-                #endif
-                #ifdef _ADDITIONAL_LIGHTS_VERTEX
-                color += base.rgb * i.fogAndVertexLight.yzw;
-                #endif
-                half3 v = GetWorldSpaceNormalizeViewDir(i.positionWS);
-                half rim = pow(1.0 - saturate(dot(n, v)), 4.0) * ramp;
-                color += rim * _RimColor.rgb * _RimColor.a * light.color * _SunScale;
-                color = MixFog(color, i.fogAndVertexLight.x);
-                return half4(color, base.a);
-            }
+            LitVaryings vert(LitAttributes v) { return LitVert(v); }
+            half4 frag(LitVaryings i, FRONT_FACE_TYPE facing : FRONT_FACE_SEMANTIC) : SV_Target { return LitFrag(i, IS_FRONT_VFACE(facing, 1.0, -1.0)); }
             ENDHLSL
         }
 
@@ -180,9 +218,64 @@ Shader "Yuanjing/Anime"
             half4 frag(Varyings i) : SV_Target
             {
                 YJNearFade(i.positionWS, i.positionCS);
+                YJOccluderFade(i.positionWS, i.positionCS);
                 half4 base = YJAnimeBase(i.uv);
-                half3 c = base.rgb * _OutlineColor.rgb * (SampleSH(half3(0, 1, 0)) * _Ambient + _MainLightColor.rgb * (_SunScale * 0.5));
+                half3 c = base.rgb * _OutlineColor.rgb * (YJIndoorAmbient(SampleSH(half3(0, 1, 0)) * _Ambient, i.positionWS)
+                                                          + _MainLightColor.rgb * (_SunScale * 0.5 * (1.0 - YJIndoor(i.positionWS))));
                 return half4(MixFog(c, i.fog), 1);
+            }
+            ENDHLSL
+        }
+
+        Pass
+        {
+            // 裙子防穿帮。人坐下、跪拜叩首时，大腿、臀部会从裙子里顶出来几厘米（裙子只有下摆那一小截有骨头，裙身跟着髋和大腿走），
+            // 从身后看裙子上一个个洞露着皮肤。这一遍在 ForwardLit 之后画（URP 前向渲染里 UniversalForwardOnly 排在 UniversalForward 后面）：
+            //   皮肤的材质（_SkirtFix 1）：在模板里标出看得见的腿和臀部（网格第四套 UV 的 x 是 1 的点，BuildAnime 按骨骼权重标的；手、胳膊不标）；
+            //   裙子的材质（_SkirtFix 2，渲染队列比皮肤晚一格）：在标过的地方再画一遍裙子，深度往镜头挪 _SkirtPush 米——
+            //   裙子只比腿、臀部深这么一点（就是被顶穿了）也还是裙子盖在外面；离得更远的（裙子真在腿后面）照样被腿挡住。不写深度
+            Name "SkirtFix"
+            Tags { "LightMode" = "UniversalForwardOnly" }
+            Cull [_Cull]
+            Blend [_SrcBlend] [_DstBlend]
+            ZWrite Off
+            ZTest LEqual
+            ColorMask [_SkirtColorMask]
+            Stencil { Ref 8 ReadMask 8 WriteMask 8 Comp [_SkirtComp] Pass [_SkirtOp] }
+            HLSLPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS_VERTEX _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT _SHADOWS_SOFT_LOW _SHADOWS_SOFT_MEDIUM _SHADOWS_SOFT_HIGH
+            #pragma multi_compile_fog
+
+            LitVaryings vert(LitAttributes v)
+            {
+                LitVaryings o = LitVert(v);
+                if (_SkirtFix > 1.5)
+                {
+                    // 只挪深度、不挪画面上的位置：按往镜头挪 _SkirtPush 米算出的深度换掉原来的
+                    float3 vs = TransformWorldToView(o.positionWS);
+                    vs.z = min(vs.z + _SkirtPush, -_ProjectionParams.y * 1.05);
+                    float4 near = TransformWViewToHClip(vs);
+                    o.positionCS.z = near.z / near.w * o.positionCS.w;
+                }
+                return o;
+            }
+
+            half4 frag(LitVaryings i, FRONT_FACE_TYPE facing : FRONT_FACE_SEMANTIC) : SV_Target
+            {
+                if (_SkirtFix < 1.5)
+                {
+                    // 皮肤：只标腿和臀部，颜色不画（ColorMask 0）
+                    YJNearFade(i.positionWS, i.positionCS);
+                    YJOccluderFade(i.positionWS, i.positionCS);
+                    clip(i.mark - 0.5);
+                    YJAnimeBase(i.uv);
+                    return 0;
+                }
+                return LitFrag(i, IS_FRONT_VFACE(facing, 1.0, -1.0));
             }
             ENDHLSL
         }

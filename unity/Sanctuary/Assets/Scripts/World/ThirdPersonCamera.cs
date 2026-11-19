@@ -15,6 +15,29 @@ namespace Yuanjing
         Vector3 lastTarget, vel;
         /// 走路时镜头慢慢绕到人身后（每秒最多转几度）
         public float autoTurn = 40f;
+        /// 在屋里（大殿里）：镜头不高过天花板（梁底下 0.3 米），被墙挡住时可以收得很近（柱子在不挡镜头的那一层，照样穿过去）
+        public bool interior;
+        public float ceiling = 5.35f;
+        /// 屋里镜头的高低：比外面低（比人的腰高一点，稍低于转轴），从人身后平平地、略往上看过去，不是从上往下压着看
+        public float interiorPitch = -2f;
+        /// 屋里要尽量整个放进画面的几点（三尊佛像的头顶）：镜头水平朝向 25 度以内的那一尊，画面往上抬，
+        /// 让它的头顶在 statueLine 那条线以下——人在画面下半，佛像整尊在上面，不会只拍到胸口、头被切掉（见 FrameTilt）。
+        /// 手指拖过画面就不再自动抬（照手指的来），下一次走到某处、坐下、跪下（Settle）或者 Snap 再接着管
+        public Vector3[] lookAts = new Vector3[0];
+        /// 画面上下被界面挡着的那两截（占屏幕高的比例，Flutter 那边）：上面是状态栏、地名、「离开」和天色的牌子，下面是一排木牌和摇杆。
+        /// 人要整个落在中间露出来的那一截里：脚不低于 uiBottom 那条线、头顶不高于 uiTop 那条线；
+        /// 殿里正前方那尊佛像的头顶尽量不高于 statueLine（地名三秒就淡掉，佛像的头可以伸到上面那截里一点）
+        public float uiTop = 0.10f, uiBottom = 0.20f, statueLine = 0.07f;
+        /// 量头顶用的身高（站着的；坐着、跪着更矮，按站着的留不碍事）
+        public float bodyHeight = 1.3f;
+        /// 屋里镜头不往这几块里钻（供桌、佛坛前那一片：桌上有香炉、烛台，没有碰撞）：镜头落进去就抬到它上面，从高处越过桌上的东西看人
+        public Bounds[] keepOut = new Bounds[0];
+        public float maxTilt = 22f;
+        float tilt, tiltTarget;
+        bool userAim;
+        Camera cam;
+        /// 调试用：此刻往上抬了几度
+        public float Tilt => tilt;
 
         public override float Yaw => yaw;
 
@@ -38,15 +61,26 @@ namespace Yuanjing
             yawTarget += dx * 220f;
             pitchTarget = Mathf.Clamp(pitchTarget - dy * 120f, minPitch, maxPitch);
             lastTouch = Time.time;
+            // 手指拖过：屋里的自动抬头停在现在这样，照手指的来
+            userAim = true;
+            tiltTarget = tilt;
+        }
+
+        /// 直接定高低（换视角、进屋时程序自己定的，不算手指拖过）
+        public void Pitch(float p)
+        {
+            pitchTarget = Mathf.Clamp(p, minPitch, maxPitch);
         }
 
         /// 直接摆到人背后（进场时）
         public override void Snap(float facingYaw)
         {
             yaw = yawTarget = facingYaw;
-            pitch = pitchTarget = 16f;
+            pitch = pitchTarget = interior ? interiorPitch : 16f;
             dist = distance;
             snapped = true;
+            userAim = false;
+            tilt = tiltTarget = FrameTilt(Orbit(target.position + Vector3.up * height, yaw, pitch, distance));
             Apply(0);
         }
 
@@ -56,6 +90,64 @@ namespace Yuanjing
             if (Time.time - lastTouch < 3f) return;
             yawTarget = yaw + Mathf.DeltaAngle(yaw, facingYaw);
             pitchTarget = pitchWanted;
+            userAim = false;
+        }
+
+        /// 从 pivot 往后退 d 米（水平朝向 y、高低 p）的镜头位置和朝向（不管墙）
+        static (Vector3 pos, Quaternion rot) Orbit(Vector3 pivot, float y, float p, float d)
+        {
+            Vector3 pos = pivot + Quaternion.Euler(p, y, 0) * Vector3.back * d;
+            return (pos, Quaternion.LookRotation(pivot + Vector3.up * 0.1f - pos));
+        }
+
+        /// 竖屏上从上往下 s 处（0 顶 1 底）那条线，比画面中线高几度（视角 fov）
+        public static float LineAngle(float s, float fov) => Mathf.Atan((1f - 2f * s) * Mathf.Tan(fov * 0.5f * Mathf.Deg2Rad)) * Mathf.Rad2Deg;
+
+        /// 从 eye 看 p 的仰角（度，往上为正）
+        public static float Elevation(Vector3 eye, Vector3 p)
+        {
+            Vector3 v = p - eye;
+            return Mathf.Atan2(v.y, new Vector2(v.x, v.z).magnitude) * Mathf.Rad2Deg;
+        }
+
+        /// 画面中线该朝上多少度（仰角）：low 落在 bottom 那条线以上、high 落在 top 那条线以下；两样都放得下就取 want（夹在中间），
+        /// 放不下先保住 high（头、香、布条比脚要紧）
+        public static float FrameCenter(Vector3 eye, Vector3 low, Vector3 high, float fov, float top, float bottom, float want)
+        {
+            float hi = Elevation(eye, low) - LineAngle(bottom, fov);
+            float lo = Elevation(eye, high) - LineAngle(top, fov);
+            if (lo > hi) return lo;
+            return Mathf.Clamp(want, lo, hi);
+        }
+
+        /// 画面在「看着转轴」的基础上再往上抬几度（负的是往下压）：
+        /// 人整个（脚到头顶）落在上下两截界面中间露出来的那一截里——以前殿里平视时人的脚在屏幕最下面 2%，正好压在一排木牌后面，跪拜时整个人都在木牌后面；
+        /// 殿里正前方（25 度以内）有佛像的话，再把它的头顶放到 statueLine 以下：人往下、佛像往上，两头留的空一样多；两样放不下先保住人
+        float FrameTilt((Vector3 pos, Quaternion rot) view)
+        {
+            if (cam == null) cam = GetComponent<Camera>();
+            float fov = cam != null ? cam.fieldOfView : 52f;
+            Vector3 fwd = view.rot * Vector3.forward;
+            float center = Mathf.Asin(Mathf.Clamp(fwd.y, -1f, 1f)) * Mathf.Rad2Deg;
+            Vector3 flat = new Vector3(fwd.x, 0, fwd.z);
+            Vector3 feet = target.position, head = feet + Vector3.up * bodyHeight;
+            float want = center;
+            if (interior && lookAts != null)
+            {
+                float statue = float.NegativeInfinity;
+                foreach (var p in lookAts)
+                {
+                    Vector3 v = p - view.pos;
+                    Vector3 vf = new Vector3(v.x, 0, v.z);
+                    if (vf.sqrMagnitude < 0.25f || Vector3.Angle(flat, vf) > 25f) continue;
+                    statue = Mathf.Max(statue, Elevation(view.pos, p) - LineAngle(statueLine, fov));
+                }
+                // 佛像要的最低仰角和脚要的最高仰角之间取一半（两头留的空一样多）
+                if (!float.IsNegativeInfinity(statue))
+                    want = 0.5f * (statue + Elevation(view.pos, feet) - LineAngle(1f - uiBottom, fov));
+            }
+            float c = FrameCenter(view.pos, feet, head, fov, uiTop, 1f - uiBottom, want);
+            return Mathf.Clamp(c - center, -maxTilt, maxTilt);
         }
 
         void LateUpdate()
@@ -81,12 +173,49 @@ namespace Yuanjing
             Apply(dt);
         }
 
+        /// 屋里站着不动、镜头被身后的门扇、金柱、墙挡得离人不到 clearMin 米（画面里只剩自己的背，例如站在门里偏东、身后正是叠着的门扇，0.9 米）：
+        /// 往左右（15 度一档，最多 75 度）找一个退得开的方向，慢慢转过去。手指拖过 3 秒内、人在走、坐着跪着做动作时不管（殿里的蒲团有自己挑的方向）。
+        /// 门槛定得低（1.1 米）：在供桌前回头看门时镜头被佛坛挡在 1.4 米上下、抬到供桌上面从人身后看过去，那是要的样子（转开了反而让花觚挡在镜头前）
+        public float clearMin = 1.1f;
+        float clearNext;
+        Folk targetFolk;
+
+        void SeekClearYaw(Vector3 pivot, float blockedAt)
+        {
+            if (!interior || blockedAt >= clearMin || Time.time < clearNext || Time.time - lastTouch < 3f || vel.magnitude > 0.15f) return;
+            clearNext = Time.time + 0.6f;
+            if (targetFolk == null) targetFolk = target.GetComponentInParent<Folk>();
+            if (targetFolk != null && (targetFolk.pose != Folk.Pose.None || targetFolk.Moving)) return;
+            float bestOff = 0f, bestD = blockedAt + 0.3f;
+            foreach (float off in new[] { 15f, -15f, 30f, -30f, 45f, -45f, 60f, -60f, 75f, -75f })
+            {
+                Vector3 b = Quaternion.Euler(pitch, yawTarget + off, 0) * Vector3.back;
+                float d = distance;
+                if (Physics.SphereCast(pivot, 0.18f, b, out var h, distance, blockers, QueryTriggerInteraction.Ignore)) d = h.distance - 0.05f;
+                if (d > bestD)
+                {
+                    bestD = d;
+                    bestOff = off;
+                    if (d >= clearMin + 0.3f) break;
+                }
+            }
+            if (bestOff != 0f) yawTarget += bestOff;
+        }
+
+        /// 跟着人的高度（平滑过的）：摇杆走台阶时胶囊一级一级往上跳、踩上拜垫一下高 12 厘米，镜头不跟着一顿一顿地跳
+        float followY;
+        bool haveY;
+
         void Apply(float dt)
         {
             float k = dt <= 0 ? 1 : 1 - Mathf.Exp(-7f * dt);
             yaw = Mathf.LerpAngle(yaw, yawTarget, k);
             pitch = Mathf.Lerp(pitch, pitchTarget, k);
-            Vector3 pivot = target.position + Vector3.up * height;
+            float ty = target.position.y;
+            followY = !haveY || dt <= 0 || Mathf.Abs(ty - followY) > 0.6f ? ty : Mathf.Lerp(followY, ty, 1 - Mathf.Exp(-9f * dt));
+            haveY = true;
+            Vector3 pivot = new Vector3(target.position.x, followY, target.position.z) + Vector3.up * height;
+            if (interior) pivot.y = Mathf.Min(pivot.y, ceiling - 0.6f);
             Quaternion rot = Quaternion.Euler(pitch, yaw, 0);
             Vector3 back = rot * Vector3.back;
             float want = distance;
@@ -94,15 +223,33 @@ namespace Yuanjing
             LastHit = "";
             if (Physics.SphereCast(pivot, 0.18f, back, out var hit, distance, blockers, QueryTriggerInteraction.Ignore))
             {
-                want = Mathf.Max(1.0f, hit.distance - 0.05f);
+                // 屋里墙近：收到墙跟前为止（宁可离人近一点，也不能钻到墙外面去）
+                want = Mathf.Max(interior ? 0.35f : 1.0f, hit.distance - 0.05f);
                 LastHit = hit.collider.name;
             }
+            if (dt > 0) SeekClearYaw(pivot, want);
             // 收近要快，放远要慢，免得一跳一跳
             dist = dt <= 0 ? want : want < dist ? Mathf.Lerp(dist, want, 1 - Mathf.Exp(-10f * dt)) : Mathf.Lerp(dist, want, 1 - Mathf.Exp(-2.5f * dt));
             Vector3 pos = pivot + back * dist;
-            // 不钻到地下
+            // 不钻到地下；屋里不顶到天花板
             pos.y = Mathf.Max(pos.y, target.position.y + 0.25f);
-            transform.SetPositionAndRotation(pos, Quaternion.LookRotation(pivot + Vector3.up * 0.1f - pos));
+            if (interior)
+            {
+                // 落在供桌那一片上面：抬到它的顶上（离边 0.3 米以内慢慢抬，绕过去时不一跳）
+                foreach (var b in keepOut)
+                {
+                    float inX = Mathf.Min(pos.x - b.min.x, b.max.x - pos.x), inZ = Mathf.Min(pos.z - b.min.z, b.max.z - pos.z);
+                    float inside = Mathf.Min(inX, inZ);
+                    if (inside <= 0f || pos.y >= b.max.y || pos.y < b.min.y) continue;
+                    pos.y = Mathf.Lerp(pos.y, b.max.y, Mathf.SmoothStep(0f, 1f, inside / 0.3f));
+                }
+                pos.y = Mathf.Min(pos.y, ceiling - 0.3f);
+            }
+            Quaternion look = Quaternion.LookRotation(pivot + Vector3.up * 0.1f - pos);
+            // 画面上下抬压：人整个在界面中间露出来的那一截里，屋里再把佛像整尊放进来（手指拖过就停在那里）
+            if (!userAim) tiltTarget = FrameTilt((pos, look));
+            tilt = dt <= 0 ? tiltTarget : Mathf.Lerp(tilt, tiltTarget, 1 - Mathf.Exp(-3f * dt));
+            transform.SetPositionAndRotation(pos, look * Quaternion.Euler(-tilt, 0, 0));
         }
     }
 }

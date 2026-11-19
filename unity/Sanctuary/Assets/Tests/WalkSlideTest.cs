@@ -66,7 +66,8 @@ public class WalkSlideTest
             }
             return $"踩地 {n} 帧，平均滑 {(n > 0 ? sum / n : 0):F3} 米/秒";
         }
-        Debug.Log($"[yuanjing] 脚滑：人走 {speed:F2} 米/秒，走路动画播放速度 {UnityEngine.Playables.PlayableExtensions.GetSpeed(slots[1]):F2}/{UnityEngine.Playables.PlayableExtensions.GetSpeed(slots[2]):F2}；左脚 {Report(L)}；右脚 {Report(R)}");
+        var dbg = folk.GetType().GetMethod("DebugLoco");
+        Debug.Log($"[yuanjing] 脚滑：人走 {speed:F2} 米/秒，走路动画播放速度 {UnityEngine.Playables.PlayableExtensions.GetSpeed(slots[1]):F2}/{UnityEngine.Playables.PlayableExtensions.GetSpeed(slots[2]):F2}；左脚 {Report(L)}；右脚 {Report(R)}；状态 {dbg?.Invoke(folk, null)}");
         Assert.Pass();
     }
 }

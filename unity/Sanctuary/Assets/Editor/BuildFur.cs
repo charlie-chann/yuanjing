@@ -126,8 +126,22 @@ public static partial class SanctuaryBuild
         smrFar.sharedMesh = furFar;
         smrFar.bones = smr.bones;
         smrFar.rootBone = smr.rootBone;
+        // 影子：毛的每一层都投影子的话，太阳那一遍每层级联都要把二十几层壳（三十万个三角形）再画一遍，影子上却只看得出外轮廓。
+        // 另挂一个只投影子的：身体一层加毛尖一层（两层，约两万个三角形），轮廓和毛的长度一样；毛本身不再投影子
+        var shadowMesh = FurMesh(src, 1);
+        shadowMesh.name = src.name + "_fur_shadow";
+        AssetDatabase.AddObjectToAsset(shadowMesh, meshPath);
+        var shadowGo = Object.Instantiate(smr.gameObject, smr.transform.parent);
+        shadowGo.name = smr.name + "_shadow";
+        var smrShadow = shadowGo.GetComponent<SkinnedMeshRenderer>();
+        smrShadow.sharedMesh = shadowMesh;
+        smrShadow.bones = smr.bones;
+        smrShadow.rootBone = smr.rootBone;
+        smrShadow.shadowCastingMode = ShadowCastingMode.ShadowsOnly;
+        smr.shadowCastingMode = ShadowCastingMode.Off;
+        smrFar.shadowCastingMode = ShadowCastingMode.Off;
         var lod = root.AddComponent<LODGroup>();
-        lod.SetLODs(new[] { new LOD(0.09f, new Renderer[] { smr }), new LOD(0.0f, new Renderer[] { smrFar }) });
+        lod.SetLODs(new[] { new LOD(0.09f, new Renderer[] { smr, smrShadow }), new LOD(0.0f, new Renderer[] { smrFar, smrShadow }) });
         lod.RecalculateBounds();
         EditorUtility.SetDirty(mat);     // 不标记的话这两个数不会存进材质文件，下次打开又是默认值
         Debug.Log($"[yuanjing] {who}：模型一个单位约 {metersPerUnit:F4} 米，网格高 {src.bounds.size.y:F2}，轴向 {src.bounds.size}");
