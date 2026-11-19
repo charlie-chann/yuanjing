@@ -24,7 +24,7 @@ P = {k: hexc(v) for k, v in {
     # 屋顶和墙
     'tile': '#41656f', 'tile_lit': '#5b8891', 'tile_dark': '#30505a', 'ridge': '#2a424b', 'ridge_lit': '#3b5d67',
     'wall': '#f3e8cf', 'wall_dark': '#e2d4b2', 'gold': '#e8bb4d', 'gold_dark': '#c39535', 'navy': '#2c4a6b',
-    'lattice': '#8c3a2a', 'paper': '#f7efd9',
+    'lattice': '#8c3a2a', 'paper': '#f7efd9', 'paper_warm': '#f3dca8', 'wall_red': '#b5452f',
     # 树和草
     'leaf': '#62a655', 'leaf_lit': '#8fca62', 'leaf_dark': '#44864c', 'leaf_deep': '#35703f',
     'pine': '#3f8162', 'pine_lit': '#5aa377', 'pine_dark': '#2d6650',

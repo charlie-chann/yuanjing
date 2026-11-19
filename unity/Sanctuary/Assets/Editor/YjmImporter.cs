@@ -9,7 +9,7 @@ using UnityEngine.Rendering;
 /// 导入 Blender 脚本导出的模型（.yjm，格式见 tools/blender/kit.py 的 export）。
 /// 一个文件是一个模型，里面按材质分成几个部件：toon 普通、leaf 双面叶片、glow 夜里会亮的。
 /// 颜色在顶点色里，不用贴图。坐标在导出时已经换成 Unity 的。
-[ScriptedImporter(3, "yjm")]
+[ScriptedImporter(5, "yjm")]
 public class YjmImporter : ScriptedImporter
 {
     [System.Serializable]
@@ -18,6 +18,21 @@ public class YjmImporter : ScriptedImporter
     class Header { public string name; public List<Part> parts; }
 
     public const string MatDir = "Assets/Toon/Materials";
+
+    /// 哪些模型的部件存简化档（Mesh LOD），超过多少个三角形才存
+    public static readonly string[] MeshLodModels =
+    {
+        "buddha_", "mandorla_", "altar_dais", "altar_table", "censer_hall", "palace_lantern", "muyu", "flower_vase", "donation_box",
+        "sutra_desk", "fruit_plate", "qing", "candlestick", "burner", "water_vat", "lantern",
+    };
+
+    static int MeshLodMinTris(string model, string part)
+    {
+        if (model.StartsWith("buddha_") || model.StartsWith("mandorla_")) return 20000;
+        if (model == "hall") return part.StartsWith("in_") ? int.MaxValue : 4000;
+        foreach (var m in MeshLodModels) if (model.StartsWith(m)) return 2000;
+        return int.MaxValue;
+    }
 
     public override void OnImportAsset(AssetImportContext ctx)
     {
@@ -47,6 +62,11 @@ public class YjmImporter : ScriptedImporter
             mesh.uv = uv;
             mesh.triangles = idx;
             mesh.RecalculateBounds();
+            // 三尊佛像和背光一件就是几万到十几万个三角形，从殿门口、院子里看过去用不着那么细：
+            // 在模型里多存几档简化的（Mesh LOD，每档大约减半）。引擎自己按屏幕大小挑档在这里不起作用（实测远近都是第 0 档），
+            // 所以由摆模型的地方（BuildHall.MeshLodGroup）用 LODGroup 按远近切、每档的渲染器指定画第几档（forceMeshLod）。
+            // 殿里、院子里几样重的陈设也一样；大殿外面那几件（屋顶瓦、斗拱梁柱、台基）只拿简化的那档投影子（BuildHall.HallShadowProxy）
+            if (p.tris > MeshLodMinTris(header.name, p.name)) MeshLodUtility.GenerateMeshLods(mesh);
             // 会摆动的东西，包围盒放大一圈，免得摆出去的部分被当成看不见而不画
             if (p.mat == "leaf") { var b = mesh.bounds; b.Expand(0.5f); mesh.bounds = b; }
             ctx.AddObjectToAsset(mesh.name, mesh);

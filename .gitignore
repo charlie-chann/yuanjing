@@ -69,3 +69,6 @@ app.*.map.json
 
 # Blender 出的预览图（tools/blender/build_all.sh 会重新生成）
 /tools/blender/preview/
+
+# Unity 测试运行中断时留下的临时场景
+/unity/Sanctuary/Assets/InitTestScene*

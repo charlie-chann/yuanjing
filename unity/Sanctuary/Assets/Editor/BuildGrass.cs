@@ -12,6 +12,92 @@ public static partial class SanctuaryBuild
     const float GrassChunk = 4f;
     const string GrassDir = "Assets/Toon/Grass";
 
+    /// 样板角的花（fl_*：五百多丛，每丛花茎花心、花瓣叶子两个部件）一丛一个渲染器的话，看得见那一片时光花就要画一千多次
+    /// （SSAO 的深度法线那一遍再画一千多次），手机上很费。以前按格子合成大网格，每丛的顶点都复制一份，资源 170 MB（包里八十多 MB）。
+    /// 现在交给 FlowerField 按实例画：同一种花（同一个网格、同一种材质）只存一份网格（另存一份带两档简化的，不留 CPU 那份），
+    /// 每丛只记摆放矩阵，按 cell 米见方的格子分好（运行时按格子挑看得见的、定简化档）。
+    /// 材质就用原来那份（ToonMat 都开着 GPU instancing：打包时按材质留着色器的 instancing 版本；别的渲染器照旧走 SRP Batcher）。
+    /// 不投太阳的影子：花只有一拃高，影子贴在草上只有几厘米。返回有几种（网格 × 材质）
+    static int MergeFlowers(Transform greens, float cell = 4f)
+    {
+        var inst = new List<(Mesh mesh, Material mat, Matrix4x4 m, Vector2Int cell, Bounds b)>();
+        var kill = new List<GameObject>();
+        int layer = 0;
+        foreach (Transform t in greens)
+        {
+            if (!t.name.StartsWith("fl_")) continue;
+            kill.Add(t.gameObject);
+            foreach (var mr in t.GetComponentsInChildren<MeshRenderer>())
+            {
+                if (!mr.TryGetComponent(out MeshFilter mf) || mf.sharedMesh == null || mr.sharedMaterial == null) continue;
+                layer = mr.gameObject.layer;
+                Vector3 p = t.position;
+                inst.Add((mf.sharedMesh, mr.sharedMaterial, mr.transform.localToWorldMatrix, new Vector2Int(Mathf.FloorToInt(p.x / cell), Mathf.FloorToInt(p.z / cell)), mr.bounds));
+            }
+        }
+        string path = $"{GrassDir}/flower_chunks.asset";
+        AssetDatabase.DeleteAsset(path);
+        string meshPath = $"{GrassDir}/flower_meshes.asset";
+        AssetDatabase.DeleteAsset(meshPath);
+        if (inst.Count == 0) return 0;
+        // 每种（网格、材质）一组：网格另存一份，带两档简化（每档约减半），存好以后不留 CPU 那份
+        var groups = new List<(Mesh src, Material mat)>();
+        var lodMesh = new Dictionary<Mesh, Mesh>();
+        var instMat = new Dictionary<Material, Material>();
+        Mesh first = null;
+        foreach (var x in inst)
+        {
+            if (!groups.Contains((x.mesh, x.mat))) groups.Add((x.mesh, x.mat));
+            if (!lodMesh.ContainsKey(x.mesh))
+            {
+                var m = UnityEngine.Object.Instantiate(x.mesh);
+                m.name = x.mesh.name + "_inst";
+                MeshLodUtility.GenerateMeshLods(m, 2);
+                m.UploadMeshData(true);
+                if (first == null) { AssetDatabase.CreateAsset(m, meshPath); first = m; }
+                else AssetDatabase.AddObjectToAsset(m, meshPath);
+                lodMesh[x.mesh] = m;
+            }
+            if (!instMat.ContainsKey(x.mat))
+            {
+                if (!x.mat.enableInstancing) x.mat.enableInstancing = true;
+                instMat[x.mat] = x.mat;
+            }
+        }
+        // 按格子排好
+        inst.Sort((a, b) => a.cell.x != b.cell.x ? a.cell.x.CompareTo(b.cell.x) : a.cell.y.CompareTo(b.cell.y));
+        var holder = new GameObject("FlowerField");
+        holder.transform.SetParent(greens, false);
+        var field = holder.AddComponent<Yuanjing.FlowerField>();
+        field.layer = layer;
+        field.meshes = groups.ConvertAll(g => lodMesh[g.src]).ToArray();
+        field.materials = groups.ConvertAll(g => instMat[g.mat]).ToArray();
+        field.matrices = inst.ConvertAll(x => x.m).ToArray();
+        field.groupOf = inst.ConvertAll(x => groups.IndexOf((x.mesh, x.mat))).ToArray();
+        var starts = new List<int>();
+        var counts = new List<int>();
+        var bounds = new List<Bounds>();
+        for (int i = 0; i < inst.Count;)
+        {
+            int j = i;
+            var b = inst[i].b;
+            while (j < inst.Count && inst[j].cell == inst[i].cell) { b.Encapsulate(inst[j].b); j++; }
+            // 会摆动的叶子、花瓣：包围盒放大一圈（同 YjmImporter），贴着屏幕边不会整格被裁掉
+            b.Expand(0.4f);
+            starts.Add(i);
+            counts.Add(j - i);
+            bounds.Add(b);
+            i = j;
+        }
+        field.cellStart = starts.ToArray();
+        field.cellCount = counts.ToArray();
+        field.cellBounds = bounds.ToArray();
+        foreach (var g in kill) UnityEngine.Object.DestroyImmediate(g);
+        AssetDatabase.SaveAssets();
+        Debug.Log($"[yuanjing] 花：{inst.Count} 个实例，{groups.Count} 种（网格 × 材质），{bounds.Count} 格");
+        return groups.Count;
+    }
+
     /// 在 area 这块地里种草。open(x, z, 留边) 说这一点是不是空地；perSqm 是每平方米几根
     static int GrassField(Transform parent, IsletMap map, Func<float, float, float, bool> open, Rect area, int perSqm = 260)
     {
@@ -36,7 +122,10 @@ public static partial class SanctuaryBuild
                 center.y = map.H(center.x, center.z);
                 var pos = new List<Vector3>(); var nrm = new List<Vector3>(); var col = new List<Color32>();
                 var uv0 = new List<Vector2>(); var uv1 = new List<Vector3>();
-                var near = new List<int>(); var far = new List<int>();
+                var near = new List<int>();
+                // 远处那档只留五分之一的草：它的网格只存这五分之一的顶点（以前把全部顶点又存了一遍，白占一半的体积和显存）
+                var fpos = new List<Vector3>(); var fnrm = new List<Vector3>(); var fcol = new List<Color32>();
+                var fuv0 = new List<Vector2>(); var fuv1 = new List<Vector3>(); var far = new List<int>();
                 int n = (int)(GrassChunk * GrassChunk * perSqm);
                 int side = Mathf.CeilToInt(Mathf.Sqrt(n));
                 float cell = GrassChunk / side;
@@ -83,18 +172,25 @@ public static partial class SanctuaryBuild
                         }
                         var list = new List<int> { b, b + 2, b + 1, b + 1, b + 2, b + 3, b + 2, b + 4, b + 3, b + 3, b + 4, b + 5, b + 4, b + 6, b + 5 };
                         near.AddRange(list);
-                        if (rank < 0.2f) far.AddRange(list);
+                        if (rank < 0.2f)
+                        {
+                            int fb = fpos.Count;
+                            for (int q = b; q < pos.Count; q++) { fpos.Add(pos[q]); fnrm.Add(nrm[q]); fcol.Add(col[q]); fuv0.Add(uv0[q]); fuv1.Add(uv1[q]); }
+                            foreach (int q in list) far.Add(q - b + fb);
+                        }
                         total++;
                     }
                 if (pos.Count == 0) continue;
 
-                Mesh Make(string name, List<int> tris)
+                // 草会被风吹、会变宽：包围盒留出余量，不然贴着屏幕边会被整块裁掉。两档用同一个包围盒（按全部的草算）
+                Bounds? shared = null;
+                Mesh Make(string name, List<Vector3> p, List<Vector3> nn, List<Color32> cc, List<Vector2> u0, List<Vector3> u1, List<int> tris)
                 {
-                    var m = new Mesh { name = name, indexFormat = pos.Count > 65000 ? IndexFormat.UInt32 : IndexFormat.UInt16 };
-                    m.SetVertices(pos); m.SetNormals(nrm); m.SetColors(col); m.SetUVs(0, uv0); m.SetUVs(1, uv1);
+                    var m = new Mesh { name = name, indexFormat = p.Count > 65000 ? IndexFormat.UInt32 : IndexFormat.UInt16 };
+                    m.SetVertices(p); m.SetNormals(nn); m.SetColors(cc); m.SetUVs(0, u0); m.SetUVs(1, u1);
                     m.SetTriangles(tris, 0);
-                    // 草会被风吹、会变宽：包围盒留出余量，不然贴着屏幕边会被整块裁掉
-                    var bb = m.bounds; bb.Expand(new Vector3(0.6f, 0.4f, 0.6f)); m.bounds = bb;
+                    if (shared == null) { var bb = m.bounds; bb.Expand(new Vector3(0.6f, 0.4f, 0.6f)); shared = bb; }
+                    m.bounds = shared.Value;
                     if (first == null) { AssetDatabase.CreateAsset(m, assetPath); first = m; }
                     else AssetDatabase.AddObjectToAsset(m, assetPath);
                     return m;
@@ -107,7 +203,9 @@ public static partial class SanctuaryBuild
                 {
                     var c = new GameObject(name);
                     c.transform.SetParent(go.transform, false);
-                    c.AddComponent<MeshFilter>().sharedMesh = Make($"{go.name}_{name}", tris);
+                    c.AddComponent<MeshFilter>().sharedMesh = name == "near"
+                        ? Make($"{go.name}_{name}", pos, nrm, col, uv0, uv1, tris)
+                        : Make($"{go.name}_{name}", fpos, fnrm, fcol, fuv0, fuv1, tris);
                     var mr = c.AddComponent<MeshRenderer>();
                     mr.sharedMaterial = mat;
                     mr.shadowCastingMode = ShadowCastingMode.Off;

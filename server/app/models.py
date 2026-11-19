@@ -1,7 +1,7 @@
 """数据表。改了表结构要生成迁移：.venv/bin/alembic revision --autogenerate -m "说明"。"""
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -220,8 +220,11 @@ class SanctuaryOffering(Base):
     kind: Mapped[str] = mapped_column(String(12))
     # 挂在树上第几个位置；香和硬币没有位置，是 -1
     slot: Mapped[int] = mapped_column(Integer, default=-1)
-    # 写在上面的愿望，只有自己看得到
+    # 写在上面的愿望
     text: Mapped[str | None] = mapped_column(String(200))
+    # 字能不能给别人看：新版本挂红布条、木牌时界面上写明「来岛上的人都看得到」，客户端带 public=true；
+    # 老版本当时说的是「只有你自己看得到」，不带这一项，就一直只有自己看得到
+    public: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
     __table_args__ = (Index("ix_sanctuary_offerings_scene_id", "scene", "id"),)

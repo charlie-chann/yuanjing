@@ -31,7 +31,9 @@ Material:
     m_Floats:
     - _Dst: 1
     - _Lit: 0
+    - _Outdoor: 0
     m_Colors:
     - _Color: {r: 1.6, g: 1.5, b: 1.1, a: 0.5}
+    - _Near: {r: 2, g: 4, b: 0, a: 0}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

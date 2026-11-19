@@ -12,7 +12,8 @@ sys.path.insert(0, HERE)
 import kit  # noqa: E402
 
 # trees 排在 plants 后面：同名的树用新做法的那棵
-MODULES = ['props', 'props_hd', 'plants', 'trees', 'flowers', 'buildings', 'terrain', 'animals', 'critters_hd']
+MODULES = ['props', 'props_hd', 'plants', 'trees', 'flowers', 'buildings', 'terrain', 'animals', 'critters_hd',
+           'hall_props', 'statues']  # 大殿里的陈设、佛像（2026-11-17）
 
 
 def main():
@@ -25,6 +26,9 @@ def main():
         except ModuleNotFoundError as e:
             if e.name != m:
                 raise
+            continue
+        except Exception as e:  # 别的模块正改到一半（语法错误等）不影响生成其他模型
+            print(f'[yjm] 跳过模块 {m}：{type(e).__name__}: {e}')
             continue
         table.update(getattr(mod, 'ASSETS', {}))
     todo = names or list(table)

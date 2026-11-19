@@ -2,6 +2,7 @@
 
 客户端进殿后每隔几秒报一次自己的位置（/beat），顺便拿回全场的情况。没有长连接，够用也好部署。
 真人不多的时候由内置的香客撑场面：他们什么时候来、坐哪，由时间算出来（同一时刻所有人看到的一样），不存库。
+红布条、木牌上写的愿望挂在树上，所有人都看得到（产品决定：不审核）——只限写的时候界面上说明了这一点的（客户端带 public）。
 """
 import hashlib
 from datetime import datetime, timedelta
@@ -27,6 +28,12 @@ ACTIONS = ("bow", "kneel", "pray", "meditate")
 STALE = 30
 # 树上最多显示多少件别人挂的
 SHOWN = 40
+# 自己挂在树上的最多拿回多少件（树上一共 32 格；香不算）
+MINE_SHOWN = 32
+# 挂在树上的心意
+CLOTH = ("ribbon", "plaque")
+# 挂在树上给大家看的红布条、木牌最多写多少字（客户端写成竖排的图，也是这么多）
+CLOTH_TEXT_MAX = 40
 
 NPC_NAMES = (
     "晚风", "栀子", "阿宁", "小满", "云起", "知南", "听雨", "青禾", "一苇", "星野", "念安", "见山",
@@ -178,10 +185,12 @@ def _state(db: Session, scene: str, me: User, seats: int) -> dict:
         .where(SanctuaryPresence.scene == scene, SanctuaryPresence.last_seen > t - timedelta(seconds=STALE), User.banned.is_(False))
     ).all()
     people, taken, standing = [], set(), 0
+    # 自己的座位先占上：两个人同时挑了同一个蒲团时，各自看到的都是自己坐着、对方站着（不会两个人叠在一个蒲团上）
+    for p, _ in rows:
+        if p.user_id == me.id and p.seat >= 0:
+            taken.add(p.seat)
     for p, name in rows:
         if p.user_id == me.id:
-            if p.seat >= 0:
-                taken.add(p.seat)
             continue
         if p.seat < 0 or p.seat >= seats or p.seat in taken:
             standing += 1
@@ -192,16 +201,17 @@ def _state(db: Session, scene: str, me: User, seats: int) -> dict:
         people.append({"id": f"u{p.user_id}", "name": name, "seat": p.seat, "npc": False, "action": p.action if fresh else None})
     people += npcs_at(scene, t, seats, taken)
     offerings = db.execute(
-        select(SanctuaryOffering.slot, SanctuaryOffering.kind)
-        .where(SanctuaryOffering.scene == scene, SanctuaryOffering.slot >= 0, SanctuaryOffering.user_id != me.id)
+        select(SanctuaryOffering.id, SanctuaryOffering.slot, SanctuaryOffering.kind, SanctuaryOffering.text, SanctuaryOffering.public)
+        .where(SanctuaryOffering.scene == scene, SanctuaryOffering.slot >= 0, SanctuaryOffering.kind.in_(CLOTH), SanctuaryOffering.user_id != me.id)
         .order_by(SanctuaryOffering.id.desc())
         .limit(SHOWN)
     ).all()
+    # 自己挂在树上的（只算布条、木牌：天天上香的人，香不会把自己的布条挤出这一份）
     mine = db.execute(
-        select(SanctuaryOffering.slot, SanctuaryOffering.kind, SanctuaryOffering.text)
-        .where(SanctuaryOffering.scene == scene, SanctuaryOffering.user_id == me.id)
+        select(SanctuaryOffering.id, SanctuaryOffering.slot, SanctuaryOffering.kind, SanctuaryOffering.text)
+        .where(SanctuaryOffering.scene == scene, SanctuaryOffering.slot >= 0, SanctuaryOffering.kind.in_(CLOTH), SanctuaryOffering.user_id == me.id)
         .order_by(SanctuaryOffering.id.desc())
-        .limit(20)
+        .limit(MINE_SHOWN)
     ).all()
     total = db.scalar(select(func.count()).select_from(SanctuaryOffering).where(SanctuaryOffering.scene == scene)) or 0
     return {
@@ -209,8 +219,9 @@ def _state(db: Session, scene: str, me: User, seats: int) -> dict:
         "weather": weather_at(scene, t),
         "count": len(people) + standing + 1,
         "people": people,
-        "offerings": [{"slot": s, "kind": k} for s, k in offerings],
-        "mine": [{"slot": s, "kind": k, "text": x} for s, k, x in mine],
+        # 别人的字：写的时候说明了「大家都看得到」的才给（老版本写的那些当时说的是只有自己看得到）
+        "offerings": [{"id": i, "slot": s, "kind": k, "text": x if pub else None} for i, s, k, x, pub in offerings],
+        "mine": [{"id": i, "slot": s, "kind": k, "text": x} for i, s, k, x in mine],
         "offered_total": total,
     }
 
@@ -247,15 +258,24 @@ class OfferIn(BaseModel):
     kind: str
     slot: int = Field(default=-1, ge=-1, le=500)
     text: str | None = Field(default=None, max_length=200)
+    # 写的字给不给别人看（新版本挂红布条、木牌时带 true：写的界面上说了「来岛上的人都看得到」）
+    public: bool = False
 
 
 @router.post("/sanctuary/{scene}/offer")
 def offer(scene: str, body: OfferIn, me: User = Depends(current_user), db: Session = Depends(get_db)):
-    """留下一件心意。写在上面的话只有自己看得到，所以不过内容检查。每天第一次有金币。"""
+    """留下一件心意。红布条、木牌上写的话挂在树上，所有人都看得到；按产品的决定不过内容检查。每天第一次有金币。
+    返回这一件的编号：客户端拿它认出下次心跳里自己刚挂的那一件，不重复挂。"""
     _scene(scene)
     if body.kind not in KINDS[scene]:
         raise HTTPException(400, "这座殿里没有这种心意")
-    db.add(SanctuaryOffering(user_id=me.id, scene=scene, kind=body.kind, slot=body.slot, text=(body.text or "").strip() or None))
+    text = (body.text or "").strip() or None
+    public = body.public and body.kind in CLOTH and text is not None
+    if public and len(text) > CLOTH_TEXT_MAX:
+        # 挂出来给大家看的最多 40 个字（客户端已经截过；这里兜底，多的不要）
+        text = text[:CLOTH_TEXT_MAX]
+    row = SanctuaryOffering(user_id=me.id, scene=scene, kind=body.kind, slot=body.slot, text=text, public=public)
+    db.add(row)
     got = earn(db, me, "sanctuary")
     db.commit()
-    return {"ok": True, "got": got, "coins": me.coins}
+    return {"ok": True, "id": row.id, "got": got, "coins": me.coins}

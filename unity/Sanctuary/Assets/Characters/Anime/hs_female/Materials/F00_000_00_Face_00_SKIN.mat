@@ -19,7 +19,8 @@ Material:
   m_CustomRenderQueue: 2000
   stringTagMap:
     RenderType: Opaque
-  disabledShaderPasses: []
+  disabledShaderPasses:
+  - UniversalForwardOnly
   m_LockedProperties: 
   m_SavedProperties:
     serializedVersion: 3
@@ -41,6 +42,11 @@ Material:
     - _DstBlend: 0
     - _OutlineWidth: 0.06779606
     - _ShadeShift: -0.4
+    - _SkirtColorMask: 0
+    - _SkirtComp: 8
+    - _SkirtFix: 0
+    - _SkirtOp: 0
+    - _SkirtPush: 0.05
     - _SrcBlend: 1
     - _SunScale: 0.2
     - _Toony: 0.2

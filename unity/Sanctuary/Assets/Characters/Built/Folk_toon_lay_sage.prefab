@@ -1302,6 +1302,23 @@ MonoBehaviour:
   sitClip: {fileID: 7400000, guid: a70a4217e2c7f4897962a4600696465a, type: 2}
   actionClips: []
   idleClips: []
+  gaitClips: []
+  stopClip: {fileID: 0}
+  stopMirrorClip: {fileID: 0}
+  turnClip: {fileID: 0}
+  turnMirrorClip: {fileID: 0}
+  stopEntry: 0.7
+  stopStill: 1.6
+  stopDist: []
+  stopSteps: []
+  stopMap: []
+  turnAngle: 89
+  turnExitPhase: 0.5
+  turnLeft: 1
+  turnSteps: []
+  gaitFootScale: []
+  stopFootScale: 1
+  turnFootScale: 1
   model: {fileID: 1062510658189541762}
   nameTag: {fileID: 1585792354314306193}
   walkSpeed: 0.85

@@ -12,7 +12,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, '..', '..')
 OUT = os.path.join(ROOT, 'unity', 'Sanctuary', 'Assets', 'Motion')
 os.makedirs(OUT, exist_ok=True)
-lst = sys.argv[sys.argv.index('--') + 1]
+lst = [a for a in sys.argv[sys.argv.index('--') + 1:] if not a.startswith('--')][0]
 for line in open(lst):
     line = line.strip()
     if not line or line.startswith('#'):
@@ -42,6 +42,14 @@ for line in open(lst):
     act.name = name
     sc.frame_start, sc.frame_end = 1, f1 - f0 + 1
     arm.name = 'Armature'
+    # --ref0（locomotion.py 用）：第 0 帧（加工过的标准 T 字）也导进动画里，而且导出时停在这一帧。
+    # 只有骨架、没有蒙皮的 FBX 没有绑定姿势，Unity 拿动画的第一帧当人形基准：从第 0 帧导才是 T 字
+    # （从第 1 帧导，基准就成了走路的第一帧：右脚在蹬地、脚尖朝下，套到人物上右脚就一直翘着脚尖走）。
+    # 片段本身从第 1 帧起（CharacterImport 把 firstFrame 设成 1）。
+    # 不加时和以前一样从第 1 帧导（clips.txt 里的待机等沿用原来的基准）
+    if '--ref0' in sys.argv:
+        sc.frame_start = 0
+        sc.frame_set(0)
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.export_scene.fbx(filepath=os.path.join(OUT, name + '.fbx'), use_selection=True, apply_scale_options='FBX_SCALE_UNITS',
                              object_types={'ARMATURE'}, add_leaf_bones=False, bake_anim=True, bake_anim_use_all_actions=False,

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -135,6 +136,19 @@ class PlaqueBar extends StatefulWidget {
 class _PlaqueBarState extends State<PlaqueBar> with SingleTickerProviderStateMixin {
   late final AnimationController _sway = AnimationController(vsync: this, duration: const Duration(seconds: 7));
   bool _still = false;
+  final _scroll = ScrollController();
+
+  /// 按下去的时候绳子还在滑（甩出去、拖过头正弹回来）的那根手指：这一下只是让它停住，不算点了手指下面那块木牌。
+  /// （绳子在界内滑的时候 Flutter 本来就不把点击给木牌；可从界外弹回来的那一段它照给——殿里五六块牌子比屏幕宽不了多少，一甩多半甩过头）
+  int? _stopper;
+
+  /// 手指刚落下：先于绳子自己的拖动手势（它一碰就让绳子停住），这时还看得出绳子是不是在动
+  void _down(PointerDownEvent e) {
+    final moving = _scroll.hasClients && _scroll.position.isScrollingNotifier.value;
+    _stopper = moving ? e.pointer : null;
+  }
+
+  bool _swallowing() => _stopper != null;
 
   @override
   void didChangeDependencies() {
@@ -158,6 +172,7 @@ class _PlaqueBarState extends State<PlaqueBar> with SingleTickerProviderStateMix
   @override
   void dispose() {
     _sway.dispose();
+    _scroll.dispose();
     super.dispose();
   }
 
@@ -169,14 +184,20 @@ class _PlaqueBarState extends State<PlaqueBar> with SingleTickerProviderStateMix
           height: PlaqueBar.height,
           width: double.infinity,
           child: SingleChildScrollView(
+            controller: _scroll,
             scrollDirection: Axis.horizontal,
             clipBehavior: Clip.none,
-            child: Row(children: [
-              // 绳子两头画出屏幕外，拖到头回弹的时候也不会断
-              const _RopeEnd(toLeft: true),
-              for (var i = 0; i < widget.actions.length; i++) _Plaque(action: widget.actions[i], index: i, sway: _still ? null : _sway),
-              const _RopeEnd(toLeft: false),
-            ]),
+            // 放在滚动里面：手指落下时这一层比绳子的拖动手势先知道
+            child: Listener(
+              onPointerDown: _down,
+              child: Row(children: [
+                // 绳子两头画出屏幕外，拖到头回弹的时候也不会断
+                const _RopeEnd(toLeft: true),
+                for (var i = 0; i < widget.actions.length; i++)
+                  _Plaque(action: widget.actions[i], index: i, sway: _still ? null : _sway, swallowing: _swallowing),
+                const _RopeEnd(toLeft: false),
+              ]),
+            ),
           ),
         ),
       ),
@@ -282,7 +303,10 @@ class _Plaque extends StatefulWidget {
 
   /// 共用的一个慢慢走的钟，每块牌子按自己的相位晃；null 就不晃
   final Animation<double>? sway;
-  const _Plaque({required this.action, required this.index, required this.sway});
+
+  /// 这一下是不是只为了让滑着的绳子停住（是的话不按、也不荡）
+  final bool Function() swallowing;
+  const _Plaque({required this.action, required this.index, required this.sway, required this.swallowing});
 
   @override
   State<_Plaque> createState() => _PlaqueState();
@@ -342,8 +366,12 @@ class _PlaqueState extends State<_Plaque> with SingleTickerProviderStateMixin {
       button: true,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: a.onTap,
-        onTapDown: (_) => _down(),
+        onTap: () {
+          if (!widget.swallowing()) a.onTap();
+        },
+        onTapDown: (_) {
+          if (!widget.swallowing()) _down();
+        },
         onTapUp: (_) => _up(),
         onTapCancel: _up,
         child: Stack(children: [
@@ -600,17 +628,20 @@ class ViewSlips extends StatelessWidget {
   final double zoom;
   final ValueChanged<String> onChanged;
   final VoidCallback onResetZoom;
-  const ViewSlips({super.key, required this.mode, required this.zoom, required this.onChanged, required this.onResetZoom});
+  /// 这会儿能选的视角（在大殿里只能平视、第一人称，俯视、仰视的签子收起来）
+  final List<String> available;
+  const ViewSlips({super.key, required this.mode, required this.zoom, required this.onChanged, required this.onResetZoom, this.available = modes});
 
   @override
   Widget build(BuildContext context) {
     final zoomed = zoom > 1.05;
-    final count = modes.length + (zoomed ? 1 : 0);
+    final shown = [for (final m in modes) if (available.contains(m)) m];
+    final count = shown.length + (zoomed ? 1 : 0);
     return CustomPaint(
       painter: _SlipRopePainter(count),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         const SizedBox(height: gap),
-        for (final m in modes) ...[
+        for (final m in shown) ...[
           Semantics(
             button: true,
             selected: m == mode,
@@ -908,6 +939,85 @@ class _SkyGlyphPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_SkyGlyphPainter old) => old.kind != kind;
+}
+
+// ── 上面的地名：换了地方才出来几秒 ──
+
+/// 上面那块地名（「大殿里」「许愿树下」，下面一行小字「此刻寺里有几个人」）。
+/// 一直挂着的话，殿里正好压在佛像的脸上，上香、系布条的特写上也盖着一块；所以只在换了地方（place 变了：进岛、走到树下、进殿……）
+/// 或者 replay 变了（寺门推开）时出来，挂 hold 那么久再淡掉。在院子里走来走去、在同一处坐下站起（殿里的蒲团也是「大殿里」）不出来。
+/// allowed 是 false 的时候（走着、做着事、镜头凑近成特写、静坐、有字幕）不显示；这时候 allowed 一关，这一回就算过去了，做完也不再冒出来
+class PlaceBanner extends StatefulWidget {
+  final String place;
+  final int count;
+  final bool allowed;
+  final int replay;
+  final Duration hold;
+  const PlaceBanner({super.key, required this.place, required this.count, required this.allowed, this.replay = 0, this.hold = const Duration(milliseconds: 3200)});
+
+  static const _shadow = [Shadow(color: Color(0xB3000000), blurRadius: 10)];
+
+  @override
+  State<PlaceBanner> createState() => _PlaceBannerState();
+}
+
+class _PlaceBannerState extends State<PlaceBanner> {
+  bool _on = false;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.place.isNotEmpty) _show();
+  }
+
+  @override
+  void didUpdateWidget(PlaceBanner old) {
+    super.didUpdateWidget(old);
+    if ((widget.place != old.place && widget.place.isNotEmpty) || widget.replay != old.replay) {
+      _show();
+    } else if (old.allowed && !widget.allowed) {
+      _timer?.cancel();
+      _on = false;
+    }
+  }
+
+  void _show() {
+    _timer?.cancel();
+    _on = true;
+    _timer = Timer(widget.hold, () {
+      if (mounted) setState(() => _on = false);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final shown = _on && widget.allowed && widget.place.isNotEmpty;
+    return IgnorePointer(
+      child: AnimatedOpacity(
+        opacity: shown ? 1 : 0,
+        // 出来快一点，淡掉慢一点
+        duration: Duration(milliseconds: shown ? 600 : 1100),
+        curve: Curves.easeOut,
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text(widget.place,
+              style: const TextStyle(fontFamily: displayFont, fontSize: 22, fontWeight: FontWeight.w700, letterSpacing: 6, color: Colors.white, shadows: PlaceBanner._shadow)),
+          const SizedBox(height: 6),
+          const TitleOrnament(),
+          if (widget.count > 1) ...[
+            const SizedBox(height: 6),
+            Text('此刻寺里有 ${widget.count} 个人', style: const TextStyle(fontSize: 12.5, letterSpacing: 1, color: Colors.white70, shadows: PlaceBanner._shadow)),
+          ],
+        ]),
+      ),
+    );
+  }
 }
 
 // ── 地名下面：一道金色细线，正中一粒小菱形 ──
