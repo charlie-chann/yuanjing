@@ -455,72 +455,100 @@ def harp_notes(x, seq, step=2.0, gain=0.16, start=0.6):
             place(x, pluck(f, 1.6) * np.exp(-tt(n) / 0.7), start + i * step, gain=gain, pan=np.sin(i * 2.1) * 0.5, wrap=True)
 
 
+def furin(f0, dur=1.6, soft=1.0):
+    """日式玻璃风铃的一声：很高的基音带一点拍频，分音不成整数倍，衰减快而干净。"""
+    x = modal(f0, [1, 1.0045, 2.71, 5.15, 8.4], [1, 0.7, 0.42 * soft, 0.18 * soft, 0.06 * soft],
+              [dur * 0.36, dur * 0.33, dur * 0.18, dur * 0.09, dur * 0.05], dur, attack=0.0015)
+    return x
+
+
+def furin_bed(x, seed, pitches, gusts, gain=0.16):
+    """往循环里挂风铃：每阵风来的时候铃舌碰几下，间隔不匀、一下比一下轻；两三只音高不同的铃分在左右。"""
+    r = np.random.default_rng(seed)
+    for at in gusts:
+        f0 = pitches[int(r.integers(0, len(pitches)))]
+        pan = r.uniform(-0.75, 0.75)
+        hits = int(r.integers(2, 6))
+        tcur = at + r.uniform(-0.3, 0.3)
+        amp = r.uniform(0.7, 1.0)
+        for _ in range(hits):
+            place(x, furin(f0 * r.uniform(0.998, 1.002), r.uniform(1.3, 2.0)), tcur % T, gain=gain * amp, pan=pan + r.uniform(-0.08, 0.08), wrap=True)
+            tcur += r.uniform(0.11, 0.55)
+            amp *= r.uniform(0.5, 0.85)
+        # 另一只铃远远地应一声
+        if r.uniform() < 0.6:
+            f1 = pitches[int(r.integers(0, len(pitches)))]
+            place(x, furin(f1, 1.8), (tcur + r.uniform(0.4, 1.4)) % T, gain=gain * 0.35, pan=-pan, wrap=True)
+
+
+def breeze(seed, level=0.10, lo=500, hi=5200):
+    """夏天傍晚的一点风：很轻，一阵一阵。"""
+    x = np.stack([band(N, lo, hi, slope=-1.0, seed=seed + c) for c in (0, 1)], axis=1)
+    return x * np.stack([drift(N, 0.22, seed + 5 + c, 0.25, 1.0) ** 1.6 for c in (0, 1)], axis=1) * level
+
+
+# 释放的五场：都是日式风铃，底下垫一点各自的环境（水、风、海），没有旋律
+FURIN = [note(27), note(29), note(31), note(34), note(36)]   # C7 D7 E7 G7 A7 一带
+
+
 def amb_rel_pool():
-    """清晨的池塘：细细的流水，偶尔一两个拨弦音，很淡的暖和弦。"""
-    x = pad([146.83, 220.0, 293.66, 369.99], seed=21, bright=0.06) * 0.45
+    """檐下的风铃，旁边细细的流水。"""
+    x = breeze(300, 0.06)
     stream = np.stack([band(N, 900, 4800, slope=-0.6, seed=300 + c) for c in (0, 1)], axis=1)
-    x += stream * np.stack([drift(N, 9.0, 304 + c, 0.25, 1.0) ** 2 for c in (0, 1)], axis=1) * 0.12
-    harp_notes(x, [293.66, None, 440.0, None, 369.99, None, 587.33, None, 440.0, None, 293.66, None])
-    return finish(reverb(x, 0.35, 3.0, circular=True), 0.28)
+    x += stream * np.stack([drift(N, 9.0, 304 + c, 0.25, 1.0) ** 2 for c in (0, 1)], axis=1) * 0.07
+    x += pad([146.83, 220.0, 293.66], seed=21, bright=0.03) * 0.10
+    furin_bed(x, 401, [FURIN[1], FURIN[3], FURIN[4]], [1.2, 6.8, 11.5, 16.9, 21.0])
+    return finish(reverb(x, 0.30, 2.6, lp=9000, circular=True), 0.27)
 
 
 def amb_rel_balloon():
-    """高空：开阔的风声，八音盒零零落落。"""
-    x = wind(310, 0.5)
-    x += pad([174.61, 261.63, 349.23, 440.0], seed=23, bright=0.07) * 0.5
-    lullaby(x, [4, None, 6, None, 5, None, None, 7, None, 4, None, 2, None, None, 5, None], gain=0.13)
-    return finish(reverb(x, 0.35, 3.2, circular=True), 0.28)
+    """高处的风里挂着的风铃。"""
+    x = wind(310, 0.30) + breeze(312, 0.05)
+    x += pad([174.61, 261.63, 349.23], seed=23, bright=0.03) * 0.10
+    furin_bed(x, 402, [FURIN[2], FURIN[3], FURIN[4] * 1.122], [2.0, 7.4, 12.2, 15.6, 20.3])
+    return finish(reverb(x, 0.30, 2.8, lp=9000, circular=True), 0.27)
 
 
 def amb_rel_arrow():
-    """圣堂：像人声一样的和声，高处有竖琴。"""
-    t = tt(N)
-    x = np.zeros((N, 2))
-    # 用几个带「啊」音共振峰的和声叠出合唱感
-    for i, f in enumerate([146.83, 220.0, 293.66, 369.99, 440.0]):
-        for c, det in ((0, 1.003), (1, 0.997)):
-            v = np.zeros(N)
-            for h in range(1, 13):
-                fh = f * det * h
-                formant = np.exp(-(((fh - 750) / 260) ** 2)) + 0.6 * np.exp(-(((fh - 1150) / 300) ** 2)) + 0.25 * np.exp(-(((fh - 2800) / 500) ** 2))
-                v += (0.15 + formant) / h * np.sin(2 * np.pi * snap(fh) * t + rng.uniform(0, 6.28))
-            x[:, c] += v * (1 + 0.25 * np.sin(2 * np.pi * (i + 1) * t / T + i)) / (1 + 0.3 * i)
-    x = x / np.max(np.abs(x)) * 0.7
-    harp_notes(x, [587.33, None, None, 880.0, None, 739.99, None, None, 1174.66, None, 880.0, None], gain=0.12)
-    return finish(reverb(x, 0.5, 4.0, circular=True), 0.27)
+    """空旷的殿堂里一只风铃，回声长一点。"""
+    x = breeze(320, 0.035, lo=1500, hi=8000)
+    x += pad([146.83, 220.0, 293.66, 440.0], seed=24, bright=0.04) * 0.14
+    furin_bed(x, 403, [FURIN[0], FURIN[2], FURIN[4]], [1.5, 7.0, 12.8, 18.4], gain=0.15)
+    return finish(reverb(x, 0.45, 4.2, lp=9000, circular=True), 0.27)
 
 
 def amb_rel_potion():
-    """炼药房：低而神秘的长音，坩埚里咕嘟咕嘟，偶尔一声水晶响。"""
-    x = pad([55.0, 82.41, 110.0, 164.81, 233.08], seed=25, bright=0.1, trem=0.3) * 0.7
+    """夜里窗边的风铃，锅里偶尔咕嘟一下。"""
+    x = breeze(330, 0.045)
+    x += pad([55.0, 82.41, 110.0, 164.81], seed=25, bright=0.06, trem=0.3) * 0.16
     r = np.random.default_rng(320)
-    for _ in range(46):
+    for _ in range(18):
         f = r.uniform(180, 420)
-        place(x, bloop(f, f * r.uniform(1.5, 2.2), r.uniform(0.05, 0.1), 1.0), r.uniform(0, T), gain=r.uniform(0.03, 0.09), pan=r.uniform(-0.5, 0.5), wrap=True)
-    for at, f in [(4.0, 1975.5), (11.5, 2637.0), (18.2, 1568.0)]:
-        place(x, bell(f, 2.0, 0.5), at, gain=0.05, pan=rng.uniform(-0.6, 0.6), wrap=True)
-    return finish(reverb(x, 0.4, 3.4, circular=True), 0.28)
+        place(x, bloop(f, f * r.uniform(1.5, 2.2), r.uniform(0.05, 0.1), 1.0), r.uniform(0, T), gain=r.uniform(0.02, 0.05), pan=r.uniform(-0.5, 0.5), wrap=True)
+    furin_bed(x, 404, [FURIN[0], FURIN[1], FURIN[3]], [3.0, 9.2, 14.0, 19.8], gain=0.15)
+    return finish(reverb(x, 0.35, 3.2, lp=8000, circular=True), 0.27)
 
 
 def amb_rel_deep():
-    """深海：闷闷的水压声，远处鲸的长鸣，气泡一串串上浮。"""
+    """海边的风铃：底下是闷闷的海水声和一串串气泡。"""
     x = np.zeros((N, 2))
     for c in (0, 1):
         x[:, c] = band(N, 40, 380, slope=-1.2, seed=330 + c) * drift(N, 0.15, 334 + c, 0.4, 1.0)
-    x *= 0.6
-    x += pad([49.0, 73.42, 110.0, 146.83], seed=27, bright=0.04, trem=0.35) * 0.45
-    for at, f0, f1, d in [(2.5, 190, 130, 3.2), (10.0, 240, 300, 2.6), (17.0, 160, 110, 3.6)]:
-        n = int(SR * d)
-        t = tt(n)
-        f = f0 + (f1 - f0) * (t / d) ** 1.5
-        whale = np.sin(2 * np.pi * np.cumsum(f) / SR) * np.sin(np.pi * t / d) ** 2
-        whale += 0.3 * np.sin(4 * np.pi * np.cumsum(f) / SR) * np.sin(np.pi * t / d) ** 3
-        place(x, whale, at, gain=0.10, pan=rng.uniform(-0.7, 0.7), wrap=True)
+    x *= 0.22
+    x += pad([73.42, 110.0, 146.83], seed=27, bright=0.03, trem=0.35) * 0.10
     r = np.random.default_rng(340)
-    for _ in range(60):
+    for _ in range(30):
         f = r.uniform(500, 1300)
-        place(x, bloop(f, f * 1.6, r.uniform(0.03, 0.06), 1.0), r.uniform(0, T), gain=r.uniform(0.015, 0.05), pan=r.uniform(-0.8, 0.8), wrap=True)
-    return finish(reverb(x, 0.5, 4.2, lp=2600, circular=True), 0.28)
+        place(x, bloop(f, f * 1.6, r.uniform(0.03, 0.06), 1.0), r.uniform(0, T), gain=r.uniform(0.012, 0.035), pan=r.uniform(-0.8, 0.8), wrap=True)
+    furin_bed(x, 405, [FURIN[1], FURIN[2], FURIN[4]], [1.8, 6.2, 11.0, 16.4, 21.4])
+    return finish(reverb(x, 0.40, 3.6, lp=8000, circular=True), 0.27)
+
+
+def sfx_note(i):
+    """小游戏里每点一下响的一声风铃：八个音排成五声音阶，点得越快用到的音越高。"""
+    f = [note(17), note(19), note(22), note(24), note(26), note(29), note(31), note(34)][i]   # D6 E6 G6 A6 B6 D7 E7 G7
+    x = furin(f, 1.1, soft=0.8) * 0.8
+    return finish(reverb(x, 0.22, 1.4, lp=9000), 0.5)
 
 
 def sfx_snap():
@@ -830,6 +858,7 @@ SOUNDS = {
     **{f"sfx_step_{i + 1}": (lambda i=i: sfx_step(i)) for i in range(9)},
     "sfx_heart": sfx_heart, "sfx_light": sfx_light, "sfx_star": sfx_star, "sfx_done": sfx_done,
     "sfx_tap": sfx_tap, "sfx_pick": sfx_pick,
+    **{f"sfx_note_{i + 1}": (lambda i=i: sfx_note(i)) for i in range(8)},
 }
 
 

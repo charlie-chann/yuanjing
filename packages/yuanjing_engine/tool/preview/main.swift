@@ -1,6 +1,7 @@
 // 在 Mac 上离屏渲染仪式舞台的画面，用来调着色器，不用开模拟器。
 // 编译：swiftc -O tool/preview/main.swift ios/yuanjing_engine/Sources/yuanjing_engine/StagePipeline.swift -o /tmp/render_preview
 // 用法：render_preview <stage.metal> <输出目录> <场景:进度:余韵:时间> ...
+//   小游戏的画面在后面再接四个数：场景:-1:0:时间:进度:能量:奖励进度(-1 没到):离上次点几秒
 //   场景 0 财富 1 事业 2 外貌 3 健康 4 情绪 5 生活 6 宠物；7 池 8 热气球 9 箭 10 魔药 11 深海；进度 -1 表示待机
 import AppKit
 import Metal
@@ -50,6 +51,7 @@ do {
     let scene = Int(p[0])
     var u = StageUniforms()
     u.time = p.count > 3 ? p[3] : 12.3; u.prog = p[1]; u.scene = p[0]; u.fade = 1; u.dur = durations[scene]; u.glow = p.count > 2 ? p[2] : 0
+    if p.count > 4 { u.game = SIMD4(1, p[4], p.count > 5 ? p[5] : 0, p.count > 7 ? p[7] : 9); u.game2 = SIMD4(p.count > 6 ? p[6] : -1, 0, 0, 0); u.tap = SIMD2(0.1, -0.3) }
     let pass = MTLRenderPassDescriptor()
     pass.colorAttachments[0].texture = target; pass.colorAttachments[0].loadAction = .dontCare; pass.colorAttachments[0].storeAction = .store
     let cmd = queue.makeCommandBuffer()!

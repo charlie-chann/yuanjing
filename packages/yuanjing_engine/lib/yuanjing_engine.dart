@@ -20,6 +20,16 @@ class WishStageController {
   /// 仪式播完时触发。
   VoidCallback? onDone;
 
+  /// 解压小游戏的状态，原生层每秒发十几次：这一轮的进度、手速攒出来的能量（都是 0 到 1）、
+  /// 奖励动画的进度（没到是 -1）、已经攒满过几轮。
+  final ValueNotifier<StageGame> game = ValueNotifier(const StageGame());
+
+  /// 小游戏攒满了，奖励动画开始。
+  ValueChanged<int>? onGameWin;
+
+  /// 奖励动画放完了，画面停在最后的样子。
+  ValueChanged<int>? onGameDone;
+
   String get scene => _scene;
 
   void _attach(int viewId) {
@@ -28,6 +38,18 @@ class WishStageController {
         if (call.method == 'done') {
           playing.value = false;
           onDone?.call();
+        } else if (call.method == 'game') {
+          final m = (call.arguments as Map).cast<String, Object?>();
+          game.value = StageGame(
+            progress: (m['g'] as num).toDouble(),
+            energy: (m['e'] as num).toDouble(),
+            reward: (m['r'] as num).toDouble(),
+            round: (m['round'] as num).toInt(),
+          );
+        } else if (call.method == 'gameWin') {
+          onGameWin?.call(((call.arguments as Map)['round'] as num).toInt());
+        } else if (call.method == 'gameDone') {
+          onGameDone?.call(((call.arguments as Map)['round'] as num).toInt());
         }
       });
   }
@@ -67,7 +89,44 @@ class WishStageController {
   /// 手指或陀螺仪带来的轻微视差，x、y 取 -1..1。
   Future<void> setTouch(double x, double y) async => _channel?.invokeMethod('setTouch', {'x': x, 'y': y});
 
-  void dispose() => playing.dispose();
+  /// 进入解压小游戏（只有释放的五场有）。画面暗一下再亮起来就是游戏的开头。仪式进行中会被拒绝，返回 false。
+  Future<bool> gameStart() async {
+    game.value = const StageGame();
+    return await _channel?.invokeMethod<bool>('gameStart') ?? false;
+  }
+
+  /// 退出小游戏，回到仪式开始前的样子。
+  Future<void> gameStop() async => _channel?.invokeMethod('gameStop');
+
+  /// 奖励动画放完以后再来一轮。
+  Future<void> gameAgain() async => _channel?.invokeMethod('gameAgain');
+
+  /// 点了一下。x、y 是画面坐标：y 从下到上 -1..1，x 按同样的比例（竖屏时大约 -0.46..0.46）。
+  /// [strength] 1 是一次完整的点击；拖着搅动时每挪一小段发一个零点几。
+  Future<void> gameTap(double x, double y, {double strength = 1}) async =>
+      _channel?.invokeMethod('gameTap', {'x': x, 'y': y, 'k': strength});
+
+  void dispose() {
+    playing.dispose();
+    game.dispose();
+  }
+}
+
+/// 解压小游戏此刻的状态。
+class StageGame {
+  /// 这一轮攒了多少，0 到 1
+  final double progress;
+
+  /// 手速攒出来的能量，0 到 1；不点了会慢慢落回去
+  final double energy;
+
+  /// 奖励动画的进度；还没攒满是 -1，放完停在 1
+  final double reward;
+
+  /// 已经攒满过几轮
+  final int round;
+
+  const StageGame({this.progress = 0, this.energy = 0, this.reward = -1, this.round = 0});
 }
 
 /// 全屏仪式舞台。目前只有 iOS 实现，其他平台显示黑底。

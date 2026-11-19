@@ -45,7 +45,7 @@ enum StageScene: Int {
   /// 光线步进的场景按 1.5 倍渲染，其余按 2 倍。
   var renderScale: CGFloat {
     switch self {
-    case .wealth, .relPool, .relArrow, .relDeep: return 1.5
+    case .wealth, .relPool, .relArrow: return 1.5
     default: return 2.0
     }
   }
@@ -68,7 +68,7 @@ enum StageScene: Int {
     case .relBalloon: return at([(0.14, "rise"), (0.90, "tick")])
     case .relArrow: return at([(0.115, "tick"), (0.20, "drop"), (0.215, "bloom")])
     case .relPotion: return at([(0.06, "tick"), (0.29, "drop"), (0.36, "drop"), (0.43, "drop"), (0.50, "drop"), (0.57, "drop"), (0.75, "bloom")])
-    case .relDeep: return at([(0.04, "tick"), (0.80, "bloom")])
+    case .relDeep: return at([(0.04, "tick"), (0.27, "tick"), (0.86, "bloom")])
     }
   }
 
@@ -120,10 +120,22 @@ enum StageScene: Int {
       list = at([(0.06, "pour", 1), (0.29, "drop", 0.6), (0.30, "bubbles", 0.7), (0.36, "drop", 0.6), (0.43, "drop", 0.6), (0.50, "drop", 0.6), (0.55, "bubbles", 0.8),
                  (0.57, "drop", 0.6), (0.62, "sparkle", 0.6), (0.75, "chime", 0.6), (0.88, "bloom", 0.6)])
     case .relDeep:
-      list = at([(0.04, "whoosh", 0.4), (0.05, "bubbles", 0.6), (0.30, "chime", 0.4), (0.50, "bubbles", 0.5), (0.66, "sparkle", 0.6), (0.78, "star", 0.8), (0.86, "bloom", 0.6)])
+      list = at([(0.04, "whoosh", 0.4), (0.05, "bubbles", 0.6), (0.27, "chime", 0.5), (0.50, "bubbles", 0.5), (0.72, "sparkle", 0.5), (0.86, "splash", 0.8), (0.875, "star", 0.8), (0.93, "chime_hi", 0.6)])
     }
     list.append((duration - 1.5, "done", 0.9))
     return list.sorted { $0.0 < $1.0 }
+  }
+
+  /// 小游戏攒满以后那段奖励动画放多久（秒）
+  var rewardTime: Float {
+    switch self {
+    case .relPool: return 6
+    case .relBalloon: return 7
+    case .relArrow: return 7
+    case .relPotion: return 5.5
+    case .relDeep: return 10
+    default: return 6
+    }
   }
 
   // 和着色器里的 hash11 / rainStart 同一套算法，金币落水的触感才能对上画面。
@@ -173,6 +185,21 @@ final class StageView: NSObject, FlutterPlatformView, MTKViewDelegate {
   private var requestedDuration: Float?
   private var activeCues: [(Float, String)] = []
   private var activeSounds: [(Float, String, Float)] = []
+
+  // ───── 解压小游戏（释放的五场各一个）：点得越快能量越高，能量推着进度走，攒满放一段奖励动画 ─────
+  private var gameOn = false
+  /// 等画面暗下去再切：true 进游戏，false 退出
+  private var pendingGame: Bool?
+  /// 再来一轮：暗一下，进度清零
+  private var pendingRound = false
+  private var gProgress: Float = 0
+  private var gEnergy: Float = 0
+  private var gTapAge: Float = 9
+  private var gReward: Float = -1
+  private var gRound = 0
+  private var gTap = SIMD2<Float>(0, -0.3)
+  private var gTaps = 0
+  private var gSent: CFTimeInterval = 0
 
   init(frame: CGRect, viewId: Int64, args: [String: Any]?, messenger: FlutterBinaryMessenger) {
     scene = StageScene.named(args?["scene"] as? String ?? "wealth")
@@ -254,13 +281,14 @@ final class StageView: NSObject, FlutterPlatformView, MTKViewDelegate {
     switch call.method {
     case "setScene":
       let next = StageScene.named(args?["scene"] as? String ?? "wealth")
-      if next != scene, ceremonyStart == nil {
+      if next != scene, ceremonyStart == nil, !gameOn {
         pendingScene = next
         AudioDirector.shared.setBed(next.name)
       }
       result(nil)
     case "play":
       let target = pendingScene ?? scene
+      if gameOn || pendingGame == true { return result(nil) }
       guard ceremonyStart == nil, !pendingPlay else { return result(Double(ceremonyStart != nil ? duration : requestedDuration ?? target.duration)) }
       // 只有释放的五场可以另外指定时长
       requestedDuration = target.isRelease ? (args?["duration"] as? Double).map { Float(max($0, 8)) } : nil
@@ -275,6 +303,19 @@ final class StageView: NSObject, FlutterPlatformView, MTKViewDelegate {
       // 把放完之后的余韵清掉，回到开始前的样子
       if ceremonyStart == nil { pendingReset = true }
       result(nil)
+    case "gameStart":
+      guard scene.isRelease || (pendingScene?.isRelease ?? false), ceremonyStart == nil, !pendingPlay else { return result(false) }
+      pendingGame = true
+      result(true)
+    case "gameStop":
+      if gameOn || pendingGame == true { pendingGame = false }
+      result(nil)
+    case "gameAgain":
+      if gameOn, gReward >= 1 { pendingRound = true }
+      result(nil)
+    case "gameTap":
+      gameTap(x: Float(args?["x"] as? Double ?? 0), y: Float(args?["y"] as? Double ?? 0), strength: Float(args?["k"] as? Double ?? 1))
+      result(nil)
     case "setPaused":
       let paused = args?["paused"] as? Bool ?? false
       if !paused { last = CACurrentMediaTime() }
@@ -286,6 +327,58 @@ final class StageView: NSObject, FlutterPlatformView, MTKViewDelegate {
     default:
       result(FlutterMethodNotImplemented)
     }
+  }
+
+  /// 点一下（strength 1），或者拖着搅（每一小段 strength 零点几）。
+  private func gameTap(x: Float, y: Float, strength: Float) {
+    guard gameOn, gReward < 0, fade > 0.6 else { return }
+    gTap = SIMD2(x, y)
+    gEnergy = min(1, gEnergy + 0.15 * strength)
+    gProgress = min(1, gProgress + 0.004 * strength)
+    let whole = strength >= 1
+    if whole || gTapAge > 0.22 {
+      gTapAge = 0
+      gTaps += 1
+      // 风铃的音阶跟着能量往上爬：点得越快，音越高越亮
+      let step = min(7, Int(gEnergy * 6.2) + (gTaps % 3 == 0 ? 1 : 0))
+      AudioDirector.shared.play("note_\(step + 1)", volume: 0.45 + 0.35 * gEnergy)
+      Haptics.shared.play(gEnergy > 0.75 ? "drop" : "tick")
+    }
+  }
+
+  private func sendGame(_ now: CFTimeInterval, force: Bool = false) {
+    guard force || now - gSent > 1.0 / 15 else { return }
+    gSent = now
+    channel.invokeMethod("game", arguments: ["g": Double(gProgress), "e": Double(gEnergy), "r": Double(gReward), "round": gRound])
+  }
+
+  private func stepGame(_ dt: Float, _ now: CFTimeInterval) {
+    gTapAge += dt
+    if gReward >= 0 {
+      if gReward < 1 {
+        gReward = min(1, gReward + dt / scene.rewardTime)
+        if gReward >= 1 { sendGame(now, force: true); channel.invokeMethod("gameDone", arguments: ["round": gRound]) }
+      }
+    } else {
+      gEnergy *= exp(-dt * 1.15)
+      gProgress = min(1, gProgress + dt * 0.085 * pow(gEnergy, 1.3))
+      if gProgress >= 1 {
+        gReward = 0
+        gRound += 1
+        Haptics.shared.play("bloom")
+        AudioDirector.shared.play("bloom", volume: 0.8)
+        AudioDirector.shared.play("sparkle", volume: 0.8)
+        AudioDirector.shared.play("chime_hi", volume: 0.7)
+        if scene == .relDeep { AudioDirector.shared.play("splash", volume: 0.6) }
+        if scene == .relArrow { AudioDirector.shared.play("snap", volume: 0.8) }
+        channel.invokeMethod("gameWin", arguments: ["round": gRound])
+      }
+    }
+    sendGame(now)
+  }
+
+  private func resetRound() {
+    gProgress = 0; gEnergy = 0; gReward = -1; gTapAge = 9
   }
 
   private func startCeremony() {
@@ -306,12 +399,14 @@ final class StageView: NSObject, FlutterPlatformView, MTKViewDelegate {
     last = now
 
     // 切场景、或在余韵里再许一次愿：先暗下去，换好再亮起来
-    let leaving = pendingScene != nil || pendingReset || (pendingPlay && fade > 0 && ceremonyStart == nil)
+    let leaving = pendingScene != nil || pendingReset || pendingGame != nil || pendingRound || (pendingPlay && fade > 0 && ceremonyStart == nil)
     if leaving {
       fade = max(0, fade - dt / 0.26)
       if fade <= 0 {
         if let next = pendingScene { scene = next; pendingScene = nil; mtk.contentScaleFactor = scene.renderScale }
         if pendingReset { pendingReset = false; glow[scene] = 0 }
+        if let g = pendingGame { pendingGame = nil; gameOn = g; gRound = 0; resetRound(); if g { glow[scene] = 0 } }
+        if pendingRound { pendingRound = false; resetRound() }
         if pendingPlay { pendingPlay = false; startCeremony() }
       }
     } else {
@@ -332,6 +427,8 @@ final class StageView: NSObject, FlutterPlatformView, MTKViewDelegate {
       }
     }
 
+    if gameOn, pendingGame == nil, !pendingRound { stepGame(dt, now) }
+
     guard let pipeline, let queue, let drawable = view.currentDrawable, let pass = view.currentRenderPassDescriptor,
           let cmd = queue.makeCommandBuffer() else { return }
     var u = StageUniforms()
@@ -342,6 +439,13 @@ final class StageView: NSObject, FlutterPlatformView, MTKViewDelegate {
     u.dur = ceremonyStart != nil ? duration : scene.duration
     u.glow = glow[scene] ?? 0
     u.touch = touch
+    if gameOn {
+      u.prog = -1
+      u.glow = 0
+      u.tap = gTap
+      u.game = SIMD4(1, gProgress, gEnergy, gTapAge)
+      u.game2 = SIMD4(gReward, Float(gRound), 0, 0)
+    }
     pipeline.draw(cmd, uniforms: u, coin: coinTexture, output: pass, width: Int(view.drawableSize.width), height: Int(view.drawableSize.height))
     cmd.present(drawable)
     cmd.commit()

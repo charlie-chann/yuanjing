@@ -182,8 +182,18 @@ class ReleaseStyle {
   /// 后三句各在仪式进度的哪里出现，和画面里的节点对齐
   final List<double> at;
 
-  /// 写着烦恼的纸条要飞到画面的哪里（纸船、吊篮、锁链、坩埚）
+  /// 写着烦恼的纸条要飞到画面的哪里（纸船、吊篮、锁链、坩埚、贝壳）
   final Alignment vessel;
+
+  /// 这一场的解压小游戏：按钮上的名字、怎么玩的一句提示、攒满时的一句话。
+  /// 画面和规则在原生层（`StageView.swift` 的 stepGame、着色器里各场的 game 分支）：
+  /// 点得越快能量越高，能量推着进度走，攒满放一段奖励动画。
+  final String play;
+  final String playHint;
+  final String playWin;
+
+  /// 这个游戏是画圈搅动的（魔药），其余的是点
+  final bool stir;
 
   /// 深度释放时画面的长度系数。天使之箭的高潮来得早，后面是留白，放短一点
   final double pace;
@@ -199,6 +209,10 @@ class ReleaseStyle {
     required this.lines,
     required this.at,
     required this.vessel,
+    required this.play,
+    required this.playHint,
+    required this.playWin,
+    this.stir = false,
     this.pace = 1,
     required this.light,
     required this.deep,
@@ -215,6 +229,9 @@ const releaseStyles = [
     lines: ['把烦恼放进这只纸船。', '让这些不属于你的沉重，随着水流慢慢离开。', '你不需要抓住它们，只需要允许它们流过。', '水面亮起来了，它已经走远。'],
     at: [0.14, 0.45, 0.86],
     vessel: Alignment(0, 0.12),
+    play: '拨水送船',
+    playHint: '轻点水面，送纸船远行\n点得越快，它漂得越远',
+    playWin: '它乘着金色的光，走远了',
     light: Color(0xFFFFE7A8),
     deep: Color(0xFFE2A93A),
   ),
@@ -227,6 +244,9 @@ const releaseStyles = [
     lines: ['把压力装进热气球的篮子里。', '把压力交给天空，把沉重交给风。', '你不需要一直背着它们，允许自己轻一点。', '它越飞越高，已经看不见了。'],
     at: [0.16, 0.48, 0.88],
     vessel: Alignment(0, 0.72),
+    play: '给气球打气',
+    playHint: '轻点屏幕，为热气球打气\n点得越快，火越旺、飞得越高',
+    playWin: '它飞出云层了',
     light: Color(0xFFFFD9E6),
     deep: Color(0xFFB8A2F2),
   ),
@@ -239,6 +259,9 @@ const releaseStyles = [
     lines: ['那些束缚你的，此刻显出了形状。', '不属于你的束缚，在此刻被温柔切断。', '你从旧的限制中解脱。', '回到安全、完整、平静的自己。'],
     at: [0.14, 0.45, 0.78],
     vessel: Alignment(0, 0.16),
+    play: '点亮羽翼',
+    playHint: '轻点屏幕，把光注进锁链\n点得越快，翅膀越亮',
+    playWin: '锁链断开了',
     pace: 0.75,
     light: Color(0xFFFFF6DC),
     deep: Color(0xFFE6C36A),
@@ -252,18 +275,25 @@ const releaseStyles = [
     lines: ['把执念交给魔药，把情绪交给转化。', '黑色的泡泡沉进去，颜色开始变了。', '那些困住你的旧故事，正在被温柔溶解。', '它们蒸发了，只剩下光。'],
     at: [0.30, 0.55, 0.85],
     vessel: Alignment(0, 0.10),
+    play: '搅一搅魔药',
+    playHint: '在屏幕上画圈，搅动魔药\n搅得越快，颜色变得越快',
+    playWin: '全都化成光了',
+    stir: true,
     light: Color(0xFFE2C9FF),
     deep: Color(0xFF8E5BD6),
   ),
   ReleaseStyle(
     scene: 'release_deep',
     bed: 'rel_deep',
-    name: '深海纸船',
+    name: '人鱼珍珠',
     skin: '美人鱼海洋',
-    action: '让纸船漂走',
-    lines: ['把烦恼折进这只小纸船。', '像海水容纳所有情绪一样，允许自己经历它们。', '也允许它们离开。', '你不需要一直停留在难过里。'],
-    at: [0.14, 0.42, 0.72],
-    vessel: Alignment(0.03, 0.18),
+    action: '交给美人鱼',
+    lines: ['把烦恼交给这枚贝壳。', '像海水容纳所有情绪一样，允许自己经历它们。', '她带着它，游向有光的地方。', '月光下，它只是一粒珍珠。'],
+    at: [0.14, 0.42, 0.88],
+    vessel: Alignment(0.06, 0.50),
+    play: '陪她游向月光',
+    playHint: '轻点屏幕，陪她往上游\n点得越快，离月光越近',
+    playWin: '她浮出海面，看见月亮了',
     light: Color(0xFFCFF3FF),
     deep: Color(0xFF4FB4DA),
   ),
@@ -285,7 +315,7 @@ const holdLines = ['不用着急，就这样看着。', '每呼出一口气，�
 /// 放完之后安住的两句：`assets/voice/release_settle_<1..2>.m4a`
 const settleLines = ['感受一下，身体里多出来的那一点空间。', '让这份轻松，在这里多留一会儿。'];
 
-/// 释放的两档。一场仪式分五段：呼吸、放松（只有深度有）、看见、释放、安住，最后是肯定语。
+/// 释放的两档（界面上现在只用轻量这一档，深度的配置留着）。一场仪式分五段：呼吸、放松（只有深度有）、看见、释放、安住，最后是肯定语。
 class ReleaseDepth {
   final String name;
   final String about;

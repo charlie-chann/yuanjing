@@ -7,10 +7,11 @@ import 'package:yuanjing_engine/yuanjing_engine.dart';
 import '../../app/skin.dart';
 import '../../app/store.dart';
 import 'release_data.dart';
+import 'release_game.dart';
 
 const _display = 'YuanjingSerif';
 
-enum _Step { input, reading, ritual, done }
+enum _Step { input, reading, ritual, done, game }
 
 /// 卡点释放：写下卡点 → 看见它 → 一场释放仪式 → 一句肯定语收束。
 ///
@@ -45,7 +46,8 @@ class _ReleasePageState extends State<ReleasePage> with TickerProviderStateMixin
   _Step _step = _Step.input;
   /// 默认用当前皮肤对应的释放方式
   ReleaseStyle _style = releaseStyles.firstWhere((s) => s.scene == store.skin.release, orElse: () => releaseStyles.first);
-  ReleaseDepth _depth = lightRelease;
+  /// 只用轻量这一档
+  final ReleaseDepth _depth = lightRelease;
   ReleaseReading? _reading;
   String? _line;
   String? _notice;
@@ -162,7 +164,6 @@ class _ReleasePageState extends State<ReleasePage> with TickerProviderStateMixin
     setState(() {
       _support = false;
       _reading = result;
-      _depth = result.deep ? deepRelease : lightRelease;
       _step = _Step.reading;
     });
   }
@@ -346,6 +347,26 @@ class _ReleasePageState extends State<ReleasePage> with TickerProviderStateMixin
     }
   }
 
+  /// 进这一场的解压小游戏
+  Future<void> _startGame() async {
+    YuanjingHaptics.play('tick');
+    YuanjingAudio.sfx('tap');
+    final ok = await _stage.gameStart();
+    if (!mounted) return;
+    if (!ok) {
+      _say('画面还没准备好，再试一次');
+      return;
+    }
+    widget.immersive?.value = true;
+    setState(() => _step = _Step.game);
+  }
+
+  void _endGame() {
+    _stage.gameStop();
+    widget.immersive?.value = false;
+    setState(() => _step = _Step.reading);
+  }
+
   /// 中途结束：回到解读那一步，什么都不记
   void _stopRitual() {
     _cancelTimers();
@@ -415,6 +436,7 @@ class _ReleasePageState extends State<ReleasePage> with TickerProviderStateMixin
           _Layer(show: _step == _Step.reading, child: _buildReading()),
           _Layer(show: _step == _Step.ritual, child: _buildRitual()),
           _Layer(show: _step == _Step.done, child: _buildDone()),
+          if (_step == _Step.game) ReleaseGame(key: ValueKey(_style.scene), stage: _stage, style: _style, onExit: _endGame),
           _Layer(show: _support, child: _buildSupport()),
           Positioned(
             left: 0,
@@ -607,43 +629,34 @@ class _ReleasePageState extends State<ReleasePage> with TickerProviderStateMixin
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Row(children: [
-                    for (final d in [lightRelease, deepRelease]) ...[
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () {
-                            if (d == _depth) return;
-                            YuanjingHaptics.play('tick');
-                            setState(() => _depth = d);
-                          },
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 260),
-                            height: 40,
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(99),
-                              color: d == _depth ? Colors.white.withValues(alpha: 0.16) : Colors.transparent,
-                              border: Border.all(color: d == _depth ? Colors.white60 : Colors.white24),
-                            ),
-                            child: Text.rich(
-                              TextSpan(text: '${d.name}  ${d.about}', children: [
-                                if ((d == deepRelease) == r.deep) TextSpan(text: '  推荐', style: TextStyle(fontSize: 11.5, color: _style.light)),
-                              ]),
-                              style: TextStyle(fontSize: 13, color: d == _depth ? Colors.white : Colors.white70),
-                            ),
-                          ),
-                        ),
-                      ),
-                      if (d == lightRelease) const SizedBox(width: 8),
-                    ],
-                  ]),
-                  const SizedBox(height: 12),
                   _PillButton(
                     label: _style.action,
                     style: _style,
                     expand: true,
                     onTap: _begin,
                     onLongPress: kDebugMode ? () => _begin(quick: true) : null,
+                  ),
+                  const SizedBox(height: 10),
+                  // 这一场的解压小游戏
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _startGame,
+                    child: Container(
+                      height: 46,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(99),
+                        color: Colors.white.withValues(alpha: 0.06),
+                        border: Border.all(color: _style.light.withValues(alpha: 0.65), width: 0.8),
+                      ),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Text('✦', style: TextStyle(fontSize: 13, color: _style.light)),
+                        const SizedBox(width: 8),
+                        Text(_style.play, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, letterSpacing: 1, color: _style.light)),
+                        const SizedBox(width: 8),
+                        const Text('解压小游戏', style: TextStyle(fontSize: 11.5, color: Colors.white54)),
+                      ]),
+                    ),
                   ),
                 ],
               ),

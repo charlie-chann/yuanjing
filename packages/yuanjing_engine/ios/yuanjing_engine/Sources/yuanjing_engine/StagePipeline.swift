@@ -11,7 +11,11 @@ struct StageUniforms {
   var dur: Float = 9
   var glow: Float = 0
   var touch: SIMD2<Float> = .zero
-  var pad: SIMD2<Float> = .zero
+  var tap: SIMD2<Float> = .zero
+  /// 小游戏：开着没有、这一轮的进度、能量、离上一次点过了几秒
+  var game: SIMD4<Float> = .zero
+  /// 小游戏：奖励动画的进度（-1 还没到）、第几轮
+  var game2: SIMD4<Float> = SIMD4(-1, 0, 0, 0)
 }
 
 /// 后期着色器的参数，对应 shaders/stage.metal 里的 Post。

@@ -12,7 +12,9 @@ struct Uniforms {
   float dur;     // 当前仪式时长（秒）
   float glow;    // 许过愿之后的余韵 0..1
   float2 touch;
-  float2 pad;
+  float2 tap;    // 小游戏：最近一次点在哪（和 uv 同一套坐标）
+  float4 game;   // 小游戏：x 开着没有（0/1） y 这一轮的进度 0..1 z 手速攒出来的能量 0..1 w 离上一次点过了几秒
+  float4 game2;  // x 奖励动画的进度（-1 表示还没到） y 第几轮 z、w 备用
 };
 
 struct VOut { float4 pos [[position]]; };
@@ -667,6 +669,15 @@ static float3 scenePet(float2 uv, Uniforms u) {
 // ═════════ 卡点释放：五种释放方式 ═════════
 // 这五场只看进度 P（0 = 还没开始，1 = 已经释放完），时长由外面定，轻量和深度两档共用同一套画面。
 static float relP(Uniforms u) { return u.prog < 0.0 ? (u.glow > 0.5 ? 1.0 : 0.0) : u.prog; }
+// 小游戏：进度 G 走仪式时间轴的 p0..p1，攒满以后的奖励动画走 p1..p2
+static bool gameOn(Uniforms u) { return u.game.x > 0.5; }
+static float gameP(Uniforms u, float p0, float p1, float p2) { return u.game2.x >= 0.0 ? mix(p1, p2, u.game2.x) : mix(p0, p1, u.game.y); }
+// 点一下的那一圈光：在 uv 平面上从点的位置散开
+static float tapRing(float2 uv, Uniforms u) {
+  if (u.game.x < 0.5) return 0.0;
+  float a = u.game.w; float r = length(uv - u.tap);
+  return exp(-abs(r - a * 0.9) * 38.0) * exp(-a * 3.2) + exp(-r * 16.0) * exp(-a * 9.0) * 0.8;
+}
 static float caustic(float2 p, float t) {
   p = p - 6.2832 * floor(p / 6.2832) - 250.0; t += 23.0;
   float2 i = p; float c = 1.0; float inten = 0.005;
@@ -699,6 +710,18 @@ static float3 motes(float2 uv, float2 c, float spread, float t, float amount, fl
     float2 p = c + float2((h.x - 0.5) * spread * (0.4 + life), -0.05 + life * (0.5 + 0.5 * h.y)) + float2(0.03 * sin(t * 1.3 + fi), 0.0);
     acc += tint * star(uv - p, 0.009 + 0.008 * h.y) * sin(life * 3.14159) * (0.5 + 0.5 * sin(t * 5.0 + fi * 2.0)) * amount;
   }
+  return acc;
+}
+
+// 小游戏攒满时的奖励：从 c 炸开一圈光和一把星星，慢慢落下去
+static float3 rewardBurst(float2 uv, float2 c, Uniforms u, float3 tint, float seed) {
+  float R = u.game2.x; if (u.game.x < 0.5 || R < 0.0) return float3(0.0);
+  float3 acc = float3(0.0); float k = 1.0 - pow(1.0 - saturate(R * 1.5), 3.0); float live = 1.0 - sstep(0.45, 0.95, R);
+  for (int i = 0; i < 34; i++) { float fi = float(i); float2 h = hash22(float2(fi * 1.7 + seed, 3.3)); float an = fi * 2.399;
+    float2 p = c + float2(cos(an), sin(an) * 0.9 + 0.15) * k * (0.22 + 0.78 * h.x) * 0.85 - float2(0.0, 0.30 * R * R);
+    acc += mix(tint, float3(1.0), 0.3 + 0.4 * h.y) * star(uv - p, 0.009 + 0.010 * h.y) * live * (0.6 + 0.4 * sin(u.time * 7.0 + fi * 2.0)) * 1.5; }
+  acc += mix(tint, float3(1.0), 0.4) * exp(-abs(length(uv - c) - k * 0.85) * 20.0) * (1.0 - saturate(R * 2.4)) * 0.9;
+  acc += tint * exp(-length(uv - c) * 5.0) * exp(-R * 9.0) * 1.2;
   return acc;
 }
 
@@ -767,7 +790,8 @@ static float3 skyPool(float3 rd, float P, float t) {
   return c;
 }
 static float3 sceneRelPool(float2 uv, Uniforms u) {
-  float t = u.time; float P = relP(u); bool run = u.prog >= 0.0;
+  float t = u.time; bool game = gameOn(u); float P = game ? gameP(u, 0.04, 0.66, 1.0) : relP(u); bool run = u.prog >= 0.0 || game;
+  float E = game ? u.game.z : 0.0; float kick = game ? exp(-u.game.w * 5.0) : 0.0;
   float fl = 0.5; float3 ro = float3(0.0, 0.8, 0.0);
   float3 rd = normalize(float3(uv.x * fl, uv.y * fl - 0.14, -1.0));
   float e = pow(sstep(0.04, 0.86, P), 1.25);
@@ -776,7 +800,7 @@ static float3 sceneRelPool(float2 uv, Uniforms u) {
   b.yaw = 1.12 + 0.25 * cos(e * 4.2) * e + 0.05 * sin(t * 0.5); b.roll = 0.05 * sin(t * 1.2); b.pitch = 0.03 * sin(t * 1.6 + 1.0);
   float gone = sstep(0.74, 0.90, P);
   float3 L = normalize(float3(0.15, 0.35, -0.9)); float3 lc = float3(1.0, 0.78, 0.5) * (0.7 + 0.5 * P), amb = float3(0.30, 0.36, 0.48) * (0.5 + 0.4 * P);
-  float3 glowc = float3(1.0, 0.72, 0.3) * (0.5 + 0.5 * sin(t * 2.0) * 0.2) * (run || P > 0.5 ? 0.9 : 0.0);
+  float3 glowc = float3(1.0, 0.72, 0.3) * (0.5 + 0.5 * sin(t * 2.0) * 0.2) * (run || P > 0.5 ? 0.9 : 0.0) * (1.0 + 1.6 * E);
   float tb = gone < 1.0 ? marchBoat(ro, rd, b) : -1.0;
   float3 col;
   if (rd.y >= 0.0) {
@@ -788,7 +812,12 @@ static float3 sceneRelPool(float2 uv, Uniforms u) {
     float2 g = float2(noise(fq) - 0.5, noise(fq + float2(7.3, 2.1)) - 0.5) * 0.10 * att;
     g += float2(noise(fq * float2(4.5, 2.0)) - 0.5, noise(fq * float2(4.5, 2.0) + 5.0) - 0.5) * float2(0.03, 0.09) * att;
     float2 bd = q - b.pos.xz; float bl = length(bd);
-    g += normalize(bd + 1e-4) * sin(bl * 16.0 - t * 5.0) * exp(-bl * 2.2) * 0.07 * (1.0 - gone);   // 船边的水纹
+    g += normalize(bd + 1e-4) * sin(bl * 16.0 - t * (5.0 + 6.0 * E)) * exp(-bl * (2.2 - 1.0 * E)) * (0.07 + 0.10 * E + 0.08 * kick) * (1.0 - gone);   // 船边的水纹
+    if (game) {   // 手指点在水面上荡开的一圈
+      float3 rt = normalize(float3(u.tap.x * fl, min(u.tap.y, 0.2) * fl - 0.14, -1.0));
+      if (rt.y < -0.01) { float2 tq = (ro + rt * (-ro.y / rt.y)).xz; float2 td = q - tq; float tl = length(td); float age = u.game.w;
+        g += normalize(td + 1e-4) * sin(tl * 9.0 - age * 11.0) * exp(-abs(tl - age * 1.3) * 2.2) * exp(-age * 1.6) * 0.16 * att; }
+    }
     float3 n = normalize(float3(g.x, 1.0, g.y));
     float3 R = reflect(rd, n); R.y = abs(R.y) + 0.09; R = normalize(R);
     float3 rc = skyPool(R, P, t);
@@ -807,104 +836,316 @@ static float3 sceneRelPool(float2 uv, Uniforms u) {
   float3 v = b.pos - ro; float2 bs = float2(v.x / -v.z, v.y / -v.z + 0.14) / fl;
   col += motes(uv, bs + float2(0.0, 0.02), 0.5, t, sstep(0.70, 0.84, P) * (1.0 - sstep(0.93, 1.0, P)) * 1.6, float3(1.0, 0.78, 0.35), 3.0);
   col += motes(uv, float2(0.0, 0.1), 1.4, t * 0.6, sstep(0.86, 1.0, P) * 0.7, float3(1.0, 0.85, 0.5), 9.0);
+  if (game) {   // 划得越快，船身后的金光越多，水天越亮
+    col += motes(uv, bs + float2(0.0, -0.02), 0.35 + 0.3 * E, t * 1.4, E * 1.6 * (1.0 - gone), float3(1.0, 0.80, 0.40), 51.0);
+    col += float3(1.0, 0.75, 0.35) * exp(-length((uv - bs) * float2(1.0, 2.2)) * 7.0) * (0.35 * E + 0.25 * kick) * (1.0 - gone);
+    col *= 1.0 + 0.22 * E;
+    col += rewardBurst(uv, bs + float2(0.0, 0.05), u, float3(1.0, 0.78, 0.35), 2.0);
+  }
   return col;
 }
 
-// ───────── 11 深海纸船 ─────────
+// ───────── 11 人鱼珍珠：贝壳里的珍珠交给美人鱼，她带着它游上去，浮出海面看见月亮 ─────────
 static float fishShape(float2 q) {   // q：鱼身长约 1，头朝 +x
   float body = length(q * float2(1.0, 2.6)) - 0.42;
   float2 tq = q - float2(-0.52, 0.0); float tail = max(abs(tq.y) - (0.22 - tq.x * 0.9) * 0.5, abs(tq.x) - 0.16);
   return min(body, tail);
 }
+static float sdSeg(float2 p, float2 a, float2 b) { float2 pa = p - a, ba = b - a; return length(pa - ba * saturate(dot(pa, ba) / dot(ba, ba))); }
+// 扇贝的一片壳：铰合处在原点，扇面朝上。ys 压扁（平放的那一片）。返回 (明暗, 珠光, 0, 遮罩)
+static float4 shellFan(float2 q, float ys) {
+  q.y /= ys; float r = length(q); float th = atan2(q.x, q.y);
+  float edge = 1.0 + 0.05 * cos(th * 13.0);
+  float m = sstep(edge, edge - 0.04, r) * sstep(1.22, 1.12, abs(th)) * step(0.0, r);
+  float rib = 0.5 + 0.5 * cos(th * 13.0);
+  float shade = (0.28 + 0.72 * rib * rib) * (0.84 + 0.16 * sin(r * 34.0)) * (0.50 + 0.50 * r);
+  return float4(shade, 0.5 + 0.5 * sin(th * 3.0 + r * 5.0), 0.0, m);
+}
+// 美人鱼的剪影。p：身体自己的坐标，头朝 +y，全身长约 2.4。wave 摆尾的相位，amp 摆幅。
+// 返回 (离轮廓的距离, 沿身体的位置 0 头 1 尾尖, 是不是尾鳍, 是不是头发)
+static float4 mermaidSD(float2 p, float wave, float amp) {
+  float d = 1e3; float sBest = 0.0;
+  float2 prev = float2(0.0, 0.55); float2 last = prev, last2 = prev;
+  for (int i = 0; i <= 22; i++) {
+    float s = float(i) / 22.0;
+    float x = (0.015 + 0.20 * s * s) * amp * sin(5.2 * s - wave);
+    float2 c = float2(x, 0.55 - s * 1.72);
+    float r = mix(0.048, 0.100, sstep(0.0, 0.09, s));                 // 脖子到肩
+    r = mix(r, 0.066, sstep(0.10, 0.24, s));                          // 腰
+    r = mix(r, 0.098, sstep(0.24, 0.36, s));                          // 胯
+    r = mix(r, 0.016, pow(sstep(0.36, 1.0, s), 0.8));                // 尾巴越来越细
+    float dd = sdSeg(p, prev, c) - r;
+    if (dd < d) { d = dd; sBest = s; }
+    last2 = prev; prev = c; last = c;
+  }
+  float hd = length(p - float2(0.0, 0.70)) - 0.100;                    // 头
+  if (hd < d) { d = hd; sBest = 0.0; }
+  // 两条手臂往前伸，捧着珍珠
+  float ad = min(sdSeg(p, float2(-0.075, 0.50), float2(-0.035, 0.90)), sdSeg(p, float2(0.075, 0.50), float2(0.035, 0.90))) - 0.022;
+  if (ad < d) { d = ad; sBest = 0.05; }
+  // 尾鳍：两片叶子，跟着尾尖的方向
+  float2 dir = normalize(last - last2); float2 nrm = float2(-dir.y, dir.x);
+  float fin = 1e3;
+  for (int k = 0; k < 2; k++) {
+    float sg = k == 0 ? -1.0 : 1.0; float2 fd = normalize(dir + nrm * sg * (0.75 + 0.15 * sin(wave * 1.0 + sg)));
+    float2 q = p - last; float al = dot(q, fd); float pe = dot(q, float2(-fd.y, fd.x));
+    float w = 0.085 * sin(saturate(al / 0.34) * 3.14159) * (0.6 + 0.4 * saturate(al / 0.34));
+    fin = min(fin, max(abs(pe) - w, max(-al, al - 0.34)));
+  }
+  float isFin = 0.0; if (fin < d) { d = fin; sBest = 1.0; isFin = 1.0; }
+  // 头发：从头顶往后飘的一缕，比身体摆得晚半拍
+  float hair = 1e3; float2 hp = float2(0.0, 0.72);
+  for (int i = 1; i <= 9; i++) {
+    float s = float(i) / 9.0;
+    float2 c = float2(-0.05 * s + (0.03 + 0.10 * s) * amp * sin(3.6 * s - wave + 0.9) - 0.03, 0.72 - s * 0.62);
+    hair = min(hair, sdSeg(p, hp, c) - mix(0.085, 0.022, s)); hp = c;
+  }
+  float isHair = 0.0; if (hair < d) { d = hair; isHair = 1.0; sBest = 0.0; }
+  return float4(d, sBest, isFin, isHair);
+}
+// 把美人鱼画到 col 上。pos 身体中心，ang 朝向（0 朝上），sc 大小；light 她周围的光色
+static float3 drawMermaid(float3 col, float2 uv, float2 pos, float ang, float sc, float wave, float amp, float3 light, float t) {
+  float2 p = rot2(uv - pos, -ang) / sc;
+  if (abs(p.x) > 0.75 || p.y > 1.05 || p.y < -1.75) return col;
+  float4 m = mermaidSD(p, wave, amp);
+  float a = sstep(0.012, -0.012, m.x);
+  if (a <= 0.0) return col;
+  float3 body = float3(0.004, 0.022, 0.040) + light * 0.05;
+  // 尾巴上的鳞：一层若隐若现的珠光
+  float tail = sstep(0.34, 0.46, m.y) * (1.0 - m.w);
+  float2 sq = float2(p.x * 46.0, p.y * 30.0 + 0.5 * floor(p.x * 46.0));
+  float scale = sstep(0.25, 0.0, abs(fract(sq.y) - 0.5)) * 0.5 + 0.5;
+  float3 irid = mix(float3(0.05, 0.55, 0.60), float3(0.45, 0.32, 0.85), 0.5 + 0.5 * sin(m.y * 9.0 + p.x * 6.0 + t * 0.6));
+  body = mix(body, irid * (0.10 + 0.28 * scale) * (0.6 + 1.2 * light.g), tail);
+  // 尾鳍是半透明的薄膜，带几道鳍条
+  float3 fin = mix(col, float3(0.20, 0.70, 0.80) * (0.5 + light.g), 0.45) * (0.75 + 0.25 * sin(p.x * 120.0 + p.y * 40.0));
+  body = mix(body, fin, m.z);
+  body = mix(body, float3(0.010, 0.016, 0.040) + light * 0.03, m.w);
+  // 逆光的一圈亮边
+  body += light * sstep(-0.028, 0.0, m.x) * (0.35 + 0.65 * sstep(-0.2, 0.6, p.x)) * 0.6;
+  return mix(col, body, a);
+}
+static float3 moonSky(float2 uv, float t, float bright) {
+  float2 m0 = float2(0.0, 0.50); float d = length(uv - m0);
+  float3 c = mix(float3(0.060, 0.095, 0.220), float3(0.010, 0.020, 0.070), sstep(-0.2, 1.0, uv.y));
+  // 星星
+  for (int l = 0; l < 2; l++) { float sc = 14.0 + float(l) * 11.0; float2 g = uv * sc; float2 id = floor(g), f = fract(g) - 0.5; float2 h = hash22(id + float(l) * 31.0);
+    if (h.x < 0.22) c += float3(0.8, 0.88, 1.0) * exp(-dot(f - (h - 0.5) * 0.7, f - (h - 0.5) * 0.7) * 900.0) * (0.35 + 0.65 * sin(t * (1.0 + 2.0 * h.y) + h.x * 40.0)) * sstep(0.26, 0.5, d) * 0.9; }
+  // 薄云被月光照亮
+  float cl = sstep(0.45, 0.85, fbm(float2(uv.x * 1.6 + t * 0.012, uv.y * 5.0 + 3.0)));
+  c += float3(0.30, 0.36, 0.52) * cl * exp(-d * 1.6) * 0.5;
+  // 月亮和月晕
+  float disc = sstep(0.202, 0.196, d);
+  float maria = sstep(0.30, 0.72, fbm((uv - m0) * 4.2 + 2.0));
+  c = mix(c, float3(1.0, 0.965, 0.86) * (0.52 + 0.28 * bright) * (0.62 + 0.42 * maria) * (0.74 + 0.26 * sstep(0.2, 0.02, d)), disc);
+  c += float3(0.55, 0.68, 1.0) * (exp(-d * 3.0) * 0.16 + exp(-max(d - 0.2, 0.0) * 16.0) * 0.22) * (0.7 + 0.5 * bright);
+  return c;
+}
+static float3 sceneRelDeepAbove(float2 uv, Uniforms u, float a) {
+  float t = u.time; float hy = -0.20; float2 m0 = float2(0.0, 0.50);
+  float give = sstep(0.34, 0.66, a);                                   // 珍珠升上去，融进月亮
+  float3 col;
+  if (uv.y > hy) {
+    col = moonSky(uv, t, give);
+    col += float3(0.22, 0.32, 0.60) * exp(-(uv.y - hy) * 9.0) * 0.12;  // 海平线上的一层雾光
+  } else {
+    float dpt = hy - uv.y; float z = 1.0 / (dpt + 0.035);
+    float2 wq = float2(uv.x * z * 0.9, z * 0.55);
+    float wav = noise(wq * float2(1.4, 3.0) + float2(t * 0.25, t * 0.5)) + 0.5 * noise(wq * float2(4.0, 9.0) - float2(0.0, t * 0.9));
+    col = mix(float3(0.008, 0.022, 0.060), float3(0.030, 0.070, 0.150), sstep(0.5, 0.0, dpt)) * (0.75 + 0.35 * wav);
+    // 月光在水面铺出来的一条路：碎成一片片跳动的亮斑
+    float px = uv.x / (0.045 + dpt * 0.30); float path = exp(-px * px);
+    float gl = pow(saturate(noise(float2(uv.x * 34.0 + sin(z * 3.0 + t) * 1.2, z * 11.0 + t * 1.4)) * 0.75 + noise(float2(uv.x * 80.0, z * 27.0 - t * 2.2)) * 0.6 - 0.50), 2.6) * 3.0 * (0.35 + 0.65 * exp(-dpt * 2.2));
+    col += float3(1.0, 0.95, 0.82) * gl * path * (1.1 + 0.7 * give) * sstep(0.0, 0.03, dpt);
+    col += float3(0.45, 0.60, 0.90) * path * 0.10 * exp(-dpt * 2.0);
+  }
+  // 她浮出来，把珍珠举向月亮；然后一个转身潜回去，尾鳍在水面上翻一下
+  float up = sstep(0.0, 0.26, a) * (1.0 - sstep(0.62, 0.84, a));
+  float2 base = float2(0.0, hy - 0.36 + 0.34 * up);
+  float2 pearl = mix(base + float2(0.0, 0.405), m0, give * give);
+  if (up > 0.0) {
+    float2 p = (uv - base) / 0.36;
+    float d = length(p - float2(0.0, 0.70)) - 0.085;
+    d = min(d, sdSeg(p, float2(0.0, 0.62), float2(0.0, 0.54)) - 0.032);
+    d = min(d, sdSeg(p, float2(-0.080, 0.50), float2(0.080, 0.50)) - 0.042);
+    d = min(d, sdSeg(p, float2(0.0, 0.48), float2(0.0, 0.18)) - mix(0.058, 0.086, saturate((p.y - 0.18) / 0.30)));
+    d = min(d, sdSeg(p, float2(0.0, 0.18), float2(0.0, -0.45)) - mix(0.100, 0.058, saturate((p.y + 0.45) / 0.63)));
+    for (int k = 0; k < 2; k++) { float sg = k == 0 ? -1.0 : 1.0;
+      d = min(d, sdSeg(p, float2(sg * 0.115, 0.50), float2(sg * 0.150, 0.80)) - 0.026);
+      d = min(d, sdSeg(p, float2(sg * 0.150, 0.80), float2(sg * 0.030, 1.08)) - 0.021); }
+    float hair = 1e3; float2 hp = float2(-0.02, 0.74);
+    for (int i = 1; i <= 7; i++) { float s = float(i) / 7.0; float2 c = float2(-0.03 - 0.07 * s + 0.035 * sin(s * 5.0 + t * 0.9) * s, 0.74 - s * 0.66); hair = min(hair, sdSeg(p, hp, c) - mix(0.088, 0.030, s)); hp = c; }
+    d = min(d, hair);
+    float m = sstep(0.010, -0.010, d) * step(hy, uv.y);
+    float3 sil = float3(0.006, 0.012, 0.035) + float3(1.0, 0.95, 0.85) * sstep(-0.022, 0.0, d) * 0.42;
+    col = mix(col, sil, m);
+  }
+  float flip = sstep(0.74, 0.86, a) * (1.0 - sstep(0.90, 1.0, a));
+  if (flip > 0.0) {
+    float k = sstep(0.74, 1.0, a); float2 fc = float2(0.05, hy + 0.13 * sin(k * 3.14159) - 0.03);
+    float2 p = rot2(uv - fc, 0.35 - k * 0.8) / 0.15; float fin = 1e3;
+    for (int s2 = 0; s2 < 2; s2++) { float sg = s2 == 0 ? -1.0 : 1.0; float2 q2 = p - float2(0.0, 0.05); q2.y += 0.55 * q2.x * q2.x; float2 fd = normalize(float2(sg * 0.96, 0.28)); float al = dot(q2, fd), pe = dot(q2, float2(-fd.y, fd.x));
+      fin = min(fin, max(abs(pe) - 0.20 * pow(sin(saturate(al / 1.15) * 3.14159), 0.7) * (1.0 - 0.45 * saturate(al / 1.15)), max(-al, al - 1.15))); }
+    fin = min(fin, sdSeg(p, float2(0.0, 0.08), float2(0.0, -0.9)) - mix(0.09, 0.16, saturate(-p.y / 0.9)));
+    float3 sil = float3(0.006, 0.014, 0.040) + float3(1.0, 0.95, 0.85) * sstep(-0.03, 0.0, fin) * 0.3;
+    col = mix(col, sil, sstep(0.02, -0.02, fin) * step(hy, uv.y) * flip);
+  }
+  // 出水、入水的水圈和溅起来的水珠
+  for (int i = 0; i < 2; i++) {
+    float st = i == 0 ? 0.02 : 0.78; float age = (a - st) * 9.0;
+    if (age > 0.0 && age < 3.5) { float2 q = (uv - float2(0.0, hy - 0.035)) * float2(1.0, 5.5);
+      col += float3(0.85, 0.92, 1.0) * exp(-abs(length(q) - age * 0.16) * 42.0) * exp(-age * 0.9) * 0.9 * step(uv.y, hy);
+      for (int k = 0; k < 10; k++) { float fk = float(k); float2 h = hash22(float2(fk * 3.1 + float(i) * 9.0, 5.0)); float tt2 = age * 0.42;
+        float2 sp = float2((h.x - 0.5) * 0.5 * tt2 * 2.0, hy + (0.9 + 0.8 * h.y) * tt2 - 1.9 * tt2 * tt2);
+        col += float3(0.9, 0.95, 1.0) * star(uv - sp, 0.007 + 0.004 * h.y) * step(hy, sp.y) * exp(-age * 0.8) * 1.4; } }
+  }
+  // 珍珠：举过头顶，升起来，融进月亮
+  float pa = sstep(0.04, 0.2, a) * (1.0 - sstep(0.60, 0.70, a));
+  col += float3(0.85, 0.96, 1.0) * (sstep(0.022, 0.016, length(uv - pearl)) * 2.6 + exp(-length(uv - pearl) * 22.0) * 0.9) * pa;
+  col += float3(1.0, 0.97, 0.88) * exp(-length(uv - m0) * 4.0) * 0.30 * give * (1.0 - 0.6 * sstep(0.8, 1.0, a));
+  // 月亮旁边多了一颗星，是那粒珍珠
+  col += float3(0.85, 0.95, 1.0) * star(uv - float2(0.28, 0.70), 0.016) * sstep(0.62, 0.8, a) * (1.3 + 0.5 * sin(t * 2.2));
+  col += motes(uv, float2(0.0, -0.1), 1.5, t * 0.5, sstep(0.5, 1.0, a) * 0.6, float3(0.8, 0.9, 1.0), 41.0);
+  col *= 1.0 - 0.30 * sstep(0.5, 1.3, length(uv * float2(1.5, 1.0)));
+  return col;
+}
 static float3 sceneRelDeep(float2 uv, Uniforms u) {
-  float t = u.time; float P = relP(u); bool run = u.prog >= 0.0;
-  float fl = 0.55; float3 ro = float3(0.0); float3 rd = normalize(float3(uv.x * fl, uv.y * fl, -1.0));
-  float lift = 0.85 + 0.35 * P;
-  float3 top = float3(0.02, 0.20, 0.38), mid = float3(0.010, 0.085, 0.20), bot = float3(0.003, 0.025, 0.075);
+  float t = u.time; bool game = gameOn(u);
+  float P = game ? gameP(u, 0.30, 0.86, 1.0) : relP(u); bool run = u.prog >= 0.0 || game;
+  float E = game ? u.game.z : 0.0; float kick = game ? exp(-u.game.w * 5.0) : 0.0;
+  float cut = 0.86;
+  float flash = P < cut ? exp(-(cut - P) * 70.0) : exp(-(P - cut) * 120.0);
+  if (P >= cut) return sceneRelDeepAbove(uv, u, (P - cut) / (1.0 - cut)) + float3(0.75, 0.9, 1.0) * flash * 1.6;
+  float fl = 0.55;
+  float asc = sstep(0.30, 0.84, P);                       // 往上游了多少
+  float near = sstep(0.55, 1.0, asc);                     // 快到海面了
+  float2 ub = uv + float2(0.0, asc * 2.7);                // 贴着海底的那套坐标：海底往下退
+  float lift = 0.85 + 0.75 * asc + 0.25 * E;
+  float3 top = mix(float3(0.02, 0.20, 0.38), float3(0.10, 0.36, 0.56), near), mid = mix(float3(0.010, 0.085, 0.20), float3(0.02, 0.15, 0.30), asc), bot = float3(0.003, 0.025, 0.075);
   float3 water = (uv.y > 0.0 ? mix(mid, top, sstep(0.0, 1.1, uv.y)) : mix(mid, bot, sstep(0.0, -1.0, uv.y))) * lift;
   float3 col = water;
-  // 海面透下来的光：顶上一团柔光，加几道光柱
-  float2 src = float2(0.18, 1.7); float2 dv = uv - src; float a = atan2(dv.x, -dv.y);
+  // 海面透下来的光：顶上一团柔光，加几道光柱；越往上越亮
+  float2 src = float2(0.10, 1.7 - 0.55 * near); float2 dv = uv - src; float a = atan2(dv.x, -dv.y);
   float sh = noise(float2(a * 11.0 + t * 0.05, 1.0)) * 0.6 + noise(float2(a * 27.0 - t * 0.07, 4.0)) * 0.4;
   sh = sstep(0.42, 0.85, sh);
   float fall = exp(-length(dv) * 0.95) * 3.2;
-  col += float3(0.30, 0.75, 0.90) * sh * fall * 0.11 * lift;
-  col += float3(0.20, 0.60, 0.80) * exp(-length(dv * float2(0.6, 1.0)) * 1.6) * 0.4;
-  // 远处的礁石剪影，给画面一层纵深
-  float reef = 0.0 + 0.16 * fbm(float2(uv.x * 2.4 + 7.0, 2.0)) + 0.03 * noise(float2(uv.x * 15.0, 5.0)) - 0.05;
-  col = mix(col, water * 0.62, sstep(reef + 0.03, reef - 0.03, uv.y) * 0.6);
+  col += float3(0.30, 0.75, 0.90) * sh * fall * (0.11 + 0.10 * asc) * lift;
+  col += float3(0.20, 0.60, 0.80) * exp(-length(dv * float2(0.6, 1.0)) * 1.6) * (0.4 + 0.4 * near);
+  // 从水下看海面：一层晃动的亮纹，中间是月亮化开的一团光
+  if (near > 0.0) {
+    float cy = mix(1.9, 0.62, near); float dy = uv.y - cy;
+    if (dy > -0.25) {
+      float k = sstep(-0.25, 0.05, dy);
+      float rip = noise(float2(uv.x * 5.0 + t * 0.3, dy * 16.0 - t * 0.6)) * 0.6 + noise(float2(uv.x * 13.0 - t * 0.4, dy * 30.0 + t)) * 0.4;
+      float2 md = float2(uv.x - 0.02 + 0.03 * sin(t * 1.3 + dy * 20.0), (dy - 0.14) * 1.5);
+      col = mix(col, float3(0.10, 0.30, 0.46) * (0.6 + 0.9 * rip), k * 0.8);
+      col += float3(0.95, 0.98, 0.90) * exp(-dot(md, md) * 30.0) * (1.2 + 0.8 * rip) * k;
+      col += float3(0.6, 0.85, 1.0) * sstep(0.62, 0.9, rip) * k * 0.35;
+    }
+  }
+  // 远处的礁石剪影
+  float reef = 0.0 + 0.16 * fbm(float2(ub.x * 2.4 + 7.0, 2.0)) + 0.03 * noise(float2(ub.x * 15.0, 5.0)) - 0.05;
+  col = mix(col, water * 0.62, sstep(reef + 0.03, reef - 0.03, ub.y) * 0.6);
   // 海底：起伏的沙地，上面有焦散
-  if (rd.y < -0.01) {
-    float tp = -1.1 / rd.y; float3 p = rd * tp; float2 q = p.xz;
+  float3 rdb = normalize(float3(ub.x * fl, ub.y * fl, -1.0));
+  if (rdb.y < -0.01) {
+    float tp = -1.1 / rdb.y; float3 p = rdb * tp; float2 q = p.xz;
     float dune = fbm(q * 0.7 + 3.0); float rip = sin((q.y + dune * 2.0) * 9.0 + fbm(q * 2.0) * 4.0);
     float ca = caustic(q * 1.7 + float2(0.0, t * 0.05), t * 0.5);
     float3 sand = float3(0.05, 0.16, 0.22) * (0.55 + 0.5 * dune + 0.08 * rip) + float3(0.35, 0.8, 0.85) * ca * 0.22;
     col = mix(sand * lift, col, 1.0 - exp(-tp * 0.16));
   }
-  // 远处游过的一群鱼，逆光只看得到剪影
+  // 远处游过的一群鱼
   for (int i = 0; i < 12; i++) {
     float fi = float(i); float2 h = hash22(float2(fi * 2.3, 9.0));
     float cx = fract(t * 0.022 + 0.25) * 2.0 - 1.0 + (h.x - 0.5) * 0.42;
-    float2 p = float2(cx + 0.02 * sin(t + fi), 0.42 + (h.y - 0.5) * 0.22 + 0.02 * sin(t * 0.7 + fi * 1.3));
+    float2 p = float2(cx + 0.02 * sin(t + fi), 0.42 + (h.y - 0.5) * 0.22 + 0.02 * sin(t * 0.7 + fi * 1.3) - asc * 1.6);
     float sz = 0.028 + 0.014 * h.x;
     float2 q = (uv - p) / sz; q.y += 0.08 * sin(q.x * 4.0 - t * 8.0 + fi);
     col = mix(col, water * 0.35, sstep(0.08, -0.06, fishShape(q)) * 0.6);
   }
-  // 纸船往深处漂去
-  float e = pow(sstep(0.04, 0.88, P), 1.2);
-  BoatT b; b.sc = 1.0;
-  b.pos = float3(0.05 + 0.35 * sin(e * 3.6) * e, mix(-0.40, -0.06, e) + 0.03 * sin(t * 0.8), mix(-2.5, -9.5, e));
-  b.yaw = 1.5708 + 0.35 * (1.0 - e) - 0.15 + 0.08 * sin(t * 0.4); b.roll = 0.10 * sin(t * 0.7); b.pitch = 0.06 * sin(t * 0.9 + 1.0) - 0.08 * e;
-  float gone = sstep(0.76, 0.92, P);
-  float tb = gone < 1.0 ? marchBoat(ro, rd, b) : -1.0;
-  if (tb > 0.0) {
-    float3 hp = ro + rd * tb;
-    float3 glowc = float3(0.75, 0.92, 1.0) * (run || P > 0.5 ? 0.9 : 0.0);
-    float3 bc = shadeBoat(hp, rd, b, normalize(float3(0.2, 0.9, 0.3)), float3(0.50, 0.80, 0.95), float3(0.06, 0.20, 0.32), glowc);
-    bc *= 0.8 + 0.7 * caustic(hp.xz * 2.6 + float2(1.0, t * 0.05), t * 0.5);
-    bc = mix(bc, water, 1.0 - exp(-tb * 0.16));
-    float nd = noise(boatLocal(hp, b).xy * 15.0 + 2.0); float keep = sstep(gone * 1.3 - 0.3, gone * 1.3 - 0.12, nd);
-    col = mix(col, bc, keep) + float3(0.6, 0.9, 1.0) * 2.2 * keep * (1.0 - keep) * 4.0;
+  // 沙地上张开的扇贝，里面一粒发光的珍珠
+  float2 s0 = float2(0.03, -0.50); float SR = 0.17;
+  float take = sstep(0.22, 0.30, P);                       // 珍珠被捧走
+  float pg = (run ? 1.0 : 0.55) * (0.85 + 0.15 * sin(t * 1.7));
+  float2 sq = (ub - s0) / SR;
+  if (abs(sq.x) < 1.3 && sq.y > -0.75 && sq.y < 1.25) {
+    float2 pl = float2(0.0, 0.16); float pd = length(sq - pl);
+    float3 nacre = float3(0.75, 0.95, 1.0) * exp(-pd * 2.6) * 0.62 * pg * (1.0 - take);
+    float4 f1 = shellFan(sq, 1.0);                          // 立着的那片：朝着我们的是珠光的内面
+    float3 c1 = mix(float3(0.62, 0.34, 0.46), float3(1.0, 0.86, 0.84), f1.x) * (float3(0.30, 0.46, 0.56) * lift + nacre);
+    c1 += (pal(f1.y * 0.35 + 0.55) * 0.5 + 0.5) * 0.10 * f1.x * (lift + nacre.g);
+    col = mix(col, c1, f1.w);
+    float4 f2 = shellFan(float2(sq.x, -sq.y + 0.02), 0.42); // 平放的那片
+    float3 c2 = mix(float3(0.52, 0.28, 0.40), float3(0.98, 0.80, 0.80), f2.x) * (float3(0.24, 0.38, 0.48) * lift + nacre * 1.3);
+    col = mix(col, c2, f2.w);
+    col = mix(col, float3(0.9, 0.7, 0.7) * (0.25 * lift + nacre), sstep(0.11, 0.07, length(sq * float2(1.0, 2.4))));   // 铰合处
   }
-  // 水里的悬浮物，被光柱照到的更亮
+  // 美人鱼：从右下游过来，捧起珍珠，往上游
+  float come = sstep(0.08, 0.26, P);
+  float sway = 0.03 * sin(t * 0.45);
+  float2 mp = mix(float2(1.05, -1.05), float2(0.10, -0.52), come * come * (3.0 - 2.0 * come));
+  mp = mix(mp, float2(sway, -0.10 + 0.05 * E + 0.03 * kick), sstep(0.26, 0.44, P));
+  mp.y -= 0.10 * near;
+  float ang = mix(0.95, 0.10 * sin(t * 0.5), sstep(0.20, 0.36, P));
+  float msc = 0.37;
+  float wave = t * (2.6 + 1.4 * asc) + (game ? u.game.y * 46.0 : 0.0); float amp = 0.75 + 0.35 * asc + 0.6 * E + 0.3 * kick;
+  float2 fwd = float2(-sin(ang), cos(ang));
+  float2 hand = mp + fwd * 0.90 * msc;
+  float2 pearl = mix(s0 + float2(0.0, 0.16 * SR) - float2(0.0, asc * 2.7), hand, take);
+  float3 mlight = float3(0.30, 0.75, 0.90) * (0.35 + 0.6 * asc + 0.5 * E) + float3(0.75, 0.95, 1.0) * take * 0.25;
+  if (P > 0.06) {
+    // 她身后拖着的一道光和一串气泡：游得越快越亮
+    float tr = (0.15 + 0.85 * asc) * (game ? 0.35 + 1.4 * E : 0.7);
+    float2 tq = uv - (mp - fwd * 0.55); float along = -dot(tq, fwd), side = dot(tq, float2(fwd.y, -fwd.x));
+    col += float3(0.35, 0.85, 1.0) * exp(-side * side * (90.0 + 60.0 * along)) * exp(-max(along, 0.0) * 1.6) * sstep(-0.05, 0.30, along) * 0.22 * tr;
+    for (int i = 0; i < 14; i++) {
+      float fi = float(i); float2 h = hash22(float2(fi * 3.9, 57.0)); float life = fract(t * (0.35 + 0.3 * h.y) + h.x + P * 9.0);
+      float2 bp = mp - fwd * (0.45 + life * (0.6 + 0.5 * h.y)) + float2(-fwd.y, fwd.x) * (h.x - 0.5) * (0.10 + 0.25 * life);
+      col += float3(0.7, 0.95, 1.0) * star(uv - bp, 0.006 + 0.006 * h.y) * sin(life * 3.14159) * tr * 1.2;
+    }
+    col = drawMermaid(col, uv, mp, ang, msc, wave, amp, mlight, t);
+  }
+  // 珍珠
+  { float pd = length(uv - pearl); float pr = 0.021;
+    float3 n = sphN(uv, pearl, pr);
+    float3 pc = float3(0.82, 0.94, 1.0) * (0.9 + 1.5 * pow(n.z, 2.0)) + (pal(n.x * 0.4 + n.y * 0.3 + 0.6) * 0.5 + 0.5) * 0.35;
+    col = mix(col, pc * (0.8 + 1.4 * pg), sstep(pr, pr - 0.004, pd));
+    col += float3(0.70, 0.93, 1.0) * (exp(-pd * 13.0) * 0.55 + exp(-pd * 4.0) * 0.12) * pg * (1.0 + 1.2 * E);
+    col += float3(0.8, 0.95, 1.0) * star(uv - pearl, 0.020) * pg * (0.5 + 0.5 * sin(t * 2.3)) * 0.8; }
+  // 水里的悬浮物，被光柱照到的更亮；往上游的时候它们往下掠过去
   for (int l = 0; l < 3; l++) {
     float fl2 = float(l); float sc = 7.0 + fl2 * 6.0;
-    float2 p = float2(uv.x * sc + fl2 * 3.0 + t * 0.03 * (1.0 + fl2), (uv.y - t * 0.012 * (1.0 + fl2)) * sc);
+    float2 p = float2(uv.x * sc + fl2 * 3.0 + t * 0.03 * (1.0 + fl2), (uv.y - t * 0.012 * (1.0 + fl2) + asc * (2.0 + fl2)) * sc);
     float2 id = floor(p), f = fract(p) - 0.5; float2 h = hash22(id + fl2 * 13.0);
     float d = length(f - (h - 0.5) * 0.7);
-    col += float3(0.55, 0.85, 0.95) * exp(-d * d * (500.0 - fl2 * 120.0)) * (0.10 + 0.5 * sh * fall * 0.3) * step(h.x, 0.6) * (0.5 + 0.5 * sin(t * 1.5 + h.y * 30.0));
+    col += float3(0.55, 0.85, 0.95) * exp(-d * d * (500.0 - fl2 * 120.0)) * (0.10 + 0.5 * sh * fall * 0.3 + 0.25 * E) * step(h.x, 0.6) * (0.5 + 0.5 * sin(t * 1.5 + h.y * 30.0));
   }
   // 海草：前景的暗影，随水摆动
   for (int l = 0; l < 2; l++) {
     float fl2 = float(l); float sc = 8.0 - fl2 * 3.5;
-    float cell = floor(uv.x * sc + fl2 * 0.5); float2 h = hash22(float2(cell, fl2 * 7.0 + 1.0));
+    float cell = floor(ub.x * sc + fl2 * 0.5); float2 h = hash22(float2(cell, fl2 * 7.0 + 1.0));
+    if (abs(cell + 0.5 - fl2 * 0.5) < 1.2 - fl2 * 0.4) continue;                   // 中间留给贝壳
     float baseY = -1.02; float hgt = (0.16 + 0.34 * h.x) * (1.0 + fl2 * 0.7);
-    float v = (uv.y - baseY) / hgt;
+    float v = (ub.y - baseY) / hgt;
     float cxp = (cell + 0.5 - fl2 * 0.5 + (h.y - 0.5) * 0.6) / sc + 0.05 * sin(t * 0.7 + cell * 1.7 + v * 2.5) * v * v;
     float wdt = (0.010 + 0.008 * h.y) * (1.0 + fl2 * 1.2) * (1.0 - v * 0.85);
     float soft = 0.004 + 0.006 * fl2;
-    float m = sstep(wdt + soft, wdt - soft, abs(uv.x - cxp)) * step(0.0, v) * sstep(1.0, 0.9, v);
+    float m = sstep(wdt + soft, wdt - soft, abs(ub.x - cxp)) * step(0.0, v) * sstep(1.0, 0.9, v);
     col = mix(col, mix(float3(0.006, 0.05, 0.07), float3(0.003, 0.025, 0.04), fl2) * (0.6 + 0.8 * v), m * (0.8 + 0.15 * fl2));
   }
   // 几串气泡
   for (int l = 0; l < 2; l++) {
     float fl2 = float(l); float sc = 9.0 + fl2 * 7.0;
-    float2 p = float2(uv.x * sc + fl2 * 3.0, (uv.y - t * (0.07 + 0.05 * fl2)) * sc);
+    float2 p = float2(uv.x * sc + fl2 * 3.0, (uv.y - t * (0.07 + 0.05 * fl2) + asc * 2.4) * sc);
     float2 id = floor(p), f = fract(p) - 0.5; float2 h = hash22(id + fl2 * 13.0);
-    if (h.x < 0.05) { float r = 0.10 + 0.16 * h.y; float2 c = (h - 0.5) * 0.4 + float2(0.08 * sin(t * 2.0 + h.x * 30.0), 0.0); float d = length(f - c); float2 hl = f - c + float2(r * 0.4, -r * 0.4);
+    if (h.x < 0.05 + 0.05 * E) { float r = 0.10 + 0.16 * h.y; float2 c = (h - 0.5) * 0.4 + float2(0.08 * sin(t * 2.0 + h.x * 30.0), 0.0); float d = length(f - c); float2 hl = f - c + float2(r * 0.4, -r * 0.4);
       col += float3(0.6, 0.9, 1.0) * (sstep(0.035, 0.0, abs(d - r)) * (0.18 + 0.25 * saturate((f.y - c.y) / r)) + exp(-dot(hl, hl) * 700.0) * 0.6) / (1.0 + fl2 * 0.5); }
   }
-  float3 v3 = b.pos - ro; float2 bs = float2(v3.x / -v3.z, v3.y / -v3.z) / fl;
-  // 光点从四周聚过来把它吞没
-  float sw = sstep(0.62, 0.80, P) * (1.0 - sstep(0.92, 1.0, P));
-  if (sw > 0.01) for (int i = 0; i < 22; i++) {
-    float fi = float(i); float2 h = hash22(float2(fi * 1.9, 31.0)); float an = fi * 0.71 + t * (0.4 + h.x);
-    float rr = (0.30 * (1.0 - sstep(0.62, 0.9, P)) + 0.03) * (0.5 + h.y);
-    col += float3(0.7, 0.95, 1.0) * star(uv - bs - float2(cos(an), sin(an)) * rr, 0.009) * sw * (0.6 + 0.4 * sin(t * 6.0 + fi));
-  }
-  col += motes(uv, float2(0.0, -0.3), 1.6, t * 0.5, 0.05 + 0.6 * sstep(0.85, 1.0, P), float3(0.6, 0.9, 1.0), 17.0);
+  col += float3(0.6, 0.92, 1.0) * tapRing(uv, u) * 0.9;
+  col += motes(uv, float2(0.0, -0.3), 1.6, t * 0.5, 0.05 + 0.5 * E, float3(0.6, 0.9, 1.0), 17.0);
   col *= 1.0 - 0.35 * sstep(0.35, 1.2, length(uv * float2(1.6, 1.0)));
-  return col;
+  return col + float3(0.75, 0.9, 1.0) * flash * 1.6;
 }
 
 // ───────── 8 热气球 ─────────
@@ -918,7 +1159,11 @@ static float4 cloudLayer(float2 uv, float sc, float scroll, float t, float seed,
   return float4(c, m);
 }
 static float3 sceneRelBalloon(float2 uv, Uniforms u) {
-  float t = u.time; float P = relP(u);
+  float t = u.time; bool game = gameOn(u);
+  // 小游戏：前四分之一把球囊吹鼓，然后升空
+  float P = game ? (u.game2.x >= 0.0 ? mix(0.60, 1.0, u.game2.x) : mix(0.13, 0.60, sstep(0.25, 1.0, u.game.y))) : relP(u);
+  float E = game ? u.game.z : 0.0; float kick = game ? exp(-u.game.w * 6.0) : 0.0;
+  float infl = game && u.game2.x < 0.0 ? sstep(0.0, 0.25, u.game.y) : 1.0;
   float rise = sstep(0.14, 0.92, P), far = sstep(0.55, 0.96, P);
   float3 col = mix(float3(1.0, 0.62, 0.66), float3(0.30, 0.48, 0.92), sstep(-0.9, 0.8, uv.y));
   col = mix(col, float3(0.70, 0.56, 0.95), 0.30 * sstep(-0.3, 0.3, uv.y) * (1.0 - sstep(0.3, 1.0, uv.y))); col = mix(col, float3(0.30, 0.48, 0.92), 0.25 * rise);
@@ -932,7 +1177,8 @@ static float3 sceneRelBalloon(float2 uv, Uniforms u) {
   for (int l = 0; l < 2; l++) { float4 c = cloudLayer(uv, 1.5 + float(l) * 0.6, rise * (0.9 + float(l) * 0.7), t, float(l) * 9.0, 0.60 - float(l) * 0.03); col = mix(col, c.rgb * (0.70 + 0.10 * float(l)), c.a * (0.6 + 0.25 * float(l))); }
   // 热气球
   float2 c0 = float2(0.03 * sin(t * 0.5), -0.20 + 0.45 * sstep(0.10, 0.6, P) + 0.42 * far);
-  float size = 0.30 * (1.0 - 0.74 * far); float alpha = 1.0 - sstep(0.88, 0.98, P);
+  float size = 0.30 * (1.0 - 0.74 * far) * (0.62 + 0.38 * infl) * (1.0 + 0.045 * kick); float alpha = 1.0 - sstep(0.88, 0.98, P);
+  c0.y -= 0.16 * (1.0 - infl);
   float2 q = (uv - c0) / size; q = rot2(q, 0.04 * sin(t * 0.6));
   float basketY = -1.78; float2 bq = q - float2(0.0, basketY);
   if (alpha > 0.0) {
@@ -943,11 +1189,12 @@ static float3 sceneRelBalloon(float2 uv, Uniforms u) {
     float3 bk = float3(0.52, 0.36, 0.22) * (0.75 + 0.25 * sin(bq.x * 90.0) * sin(bq.y * 90.0)) * (0.7 + 0.5 * (bq.x + 0.15) * 2.0);
     col = mix(col, bk, sstep(0.01, -0.01, bsd) * alpha);
     // 火焰
-    float flame = 0.5 + 0.5 * rise * (1.0 - far);
-    float2 fq = q - float2(0.0, -1.52); col += float3(1.0, 0.62, 0.2) * exp(-dot(fq * float2(3.0, 1.6), fq * float2(3.0, 1.6)) * 22.0) * (0.8 + 0.3 * sin(t * 13.0)) * flame * 1.6 * alpha;
+    float flame = game ? (0.35 + 1.5 * E + 0.9 * kick) * (1.0 - far) : 0.5 + 0.5 * rise * (1.0 - far);
+    float2 fq = q - float2(0.0, -1.52); float fs = 1.0 / (0.8 + 0.5 * min(flame, 2.0)); col += float3(1.0, 0.62, 0.2) * exp(-dot(fq * float2(3.0, 1.6 * fs), fq * float2(3.0, 1.6 * fs)) * 22.0) * (0.8 + 0.3 * sin(t * 13.0)) * flame * 1.6 * alpha;
     // 球囊
     float w = q.y >= 0.0 ? sqrt(max(1.0 - q.y * q.y, 0.0)) : pow(max(1.0 - pow(-q.y / 1.45, 1.8), 0.0), 0.7);
     w = max(w, q.y > -1.45 ? 0.15 : 0.0);
+    w *= mix(0.62, 1.0, infl) * (1.0 + 0.03 * kick);
     if (q.y < 1.0 && q.y > -1.45 && abs(q.x) < w + 0.03) {
       float nx = clamp(q.x / w, -1.0, 1.0); float nz = sqrt(1.0 - nx * nx); float ny = q.y >= 0.0 ? q.y : -0.4 - 0.2 * (-q.y / 1.45);
       float3 n = normalize(float3(nx * sqrt(max(1.0 - ny * ny * (q.y >= 0.0 ? 1.0 : 0.0), 0.05)), ny, nz * sqrt(max(1.0 - ny * ny * (q.y >= 0.0 ? 1.0 : 0.0), 0.05))));
@@ -979,6 +1226,17 @@ static float3 sceneRelBalloon(float2 uv, Uniforms u) {
   float4 nc = cloudLayer(uv, 1.1, rise * 2.6, t, 21.0, 0.63); col = mix(col, nc.rgb * 0.86, nc.a * 0.9 * sstep(0.0, 0.12, rise) * (1.0 - sstep(0.88, 1.0, rise)));
   col += motes(uv, c0 + float2(0.0, -0.5 * size), 0.3, t, rise * (1.0 - far) * 0.6, float3(1.0, 0.9, 0.95), 5.0);
   col += motes(uv, float2(0.0, 0.2), 1.3, t * 0.6, sstep(0.9, 1.0, P) * 0.6, float3(1.0, 0.92, 0.96), 12.0);
+  if (game) {
+    // 打得越快：风从身边掠过的细线、吊篮下撒出来的光
+    for (int i = 0; i < 14; i++) { float fi = float(i); float2 h = hash22(float2(fi * 5.1, 77.0));
+      float y = 1.3 - fract(h.y + t * (0.5 + 1.2 * E) * (0.6 + 0.6 * h.x)) * 2.6; float dx = uv.x - (h.x - 0.5) * 1.1; float dy = uv.y - y;
+      col += float3(1.0, 0.95, 1.0) * exp(-dx * dx * 22000.0) * exp(-dy * dy * 55.0) * E * E * 0.30 * sstep(0.3, 0.5, u.game.y + step(0.0, u.game2.x)); }
+    col += motes(uv, c0 + float2(0.0, -0.55 * size), 0.35, t * 1.5, E * 1.5 * alpha, float3(1.0, 0.85, 0.6), 63.0);
+    col *= 1.0 + 0.15 * E;
+    col += float3(1.0, 0.9, 0.8) * tapRing(uv, u) * 0.6;
+    col += rewardBurst(uv, c0, u, float3(1.0, 0.72, 0.85), 4.0);
+    col += rewardBurst(uv, c0 + float2(0.18, 0.12), u, float3(0.70, 0.75, 1.0), 9.0) * 0.7;
+  }
   return col;
 }
 
@@ -999,7 +1257,9 @@ static float3 heaven(float3 d, float k) {   // 链环映出来的环境：上亮
   return c * (0.7 + 0.5 * k);
 }
 static float3 sceneRelArrow(float2 uv, Uniforms u) {
-  float t = u.time; float P = relP(u);
+  float t = u.time; bool game = gameOn(u);
+  float P = game ? (u.game2.x >= 0.0 ? mix(0.115, 0.80, u.game2.x) : mix(0.03, 0.11, u.game.y)) : relP(u);
+  float E = game ? u.game.z : 0.0; float kick = game ? exp(-u.game.w * 5.0) : 0.0;
   float hitP = 0.20; float tau = max(P - hitP, 0.0) * u.dur * 0.55; bool hit = P >= hitP;
   float calm = sstep(0.3, 1.0, P);
   float3 col = mix(float3(1.0, 0.74, 0.46), float3(0.42, 0.56, 0.92), sstep(-0.8, 0.95, uv.y));
@@ -1014,9 +1274,9 @@ static float3 sceneRelArrow(float2 uv, Uniforms u) {
   col = mix(col, mix(c0.rgb, float3(1.0, 0.94, 0.86), 0.6) * (0.80 + 0.10 * calm), c0.a * 0.28 * sstep(0.2, -0.3, uv.y));
   // 光做的一对翅膀、光环和中间一团柔光
   float2 wc = float2(0.0, 0.42);
-  float flap = 0.86 + 0.05 * sin(t * 0.7) + 0.12 * sstep(0.0, hitP, P) + (hit ? 0.16 * exp(-tau * 0.9) * cos(tau * 4.0) : 0.0);
+  float flap = 0.86 + 0.05 * sin(t * 0.7) + 0.10 * E + 0.07 * kick + 0.12 * sstep(0.0, hitP, P) + (hit ? 0.16 * exp(-tau * 0.9) * cos(tau * 4.0) : 0.0);
   float wl = wingShape(float2(-(uv.x - wc.x) - 0.035, uv.y - wc.y), flap), wr = wingShape(float2((uv.x - wc.x) - 0.035, uv.y - wc.y), flap);
-  float wI = 0.30 + 0.18 * calm + (hit ? 0.4 * exp(-tau * 1.2) : 0.0);
+  float wI = 0.30 + 0.18 * calm + 0.55 * E + 0.25 * kick + (hit ? 0.4 * exp(-tau * 1.2) : 0.0);
   col += float3(1.0, 0.95, 0.86) * (wl + wr) * wI;
   float2 bd = (uv - wc - float2(0.0, -0.07)) * float2(9.0, 3.2);
   col += float3(1.0, 0.93, 0.78) * exp(-dot(bd, bd)) * 0.35;
@@ -1046,6 +1306,7 @@ static float3 sceneRelArrow(float2 uv, Uniforms u) {
       float ndv = max(dot(-rd, n), 0.0); float3 F0 = float3(0.30, 0.31, 0.36);
       float3 iron = heaven(reflect(rd, n), calm) * (F0 + (float3(1.0) - F0) * pow(1.0 - ndv, 5.0)) * 0.5;
       float glowk = hit ? sstep(0.0, 1.5, tau - abs(p.x) * 0.26) : 0.0;
+      if (game && !hit) { float idx = (p.x / 0.268 + 4.5) / 9.0; glowk = sstep(idx - 0.02, idx + 0.10, u.game.y * 1.12) * (0.55 + 0.25 * E + 0.2 * sin(t * 3.0 + p.x * 9.0)); }   // 一节一节被光烧红
       col = mix(iron, float3(1.7, 0.95, 0.20) * (0.5 + 0.5 * ndv) + float3(0.9, 0.8, 0.6) * pow(1.0 - ndv, 3.0), glowk);
     }
   }
@@ -1076,7 +1337,7 @@ static float3 sceneRelArrow(float2 uv, Uniforms u) {
   col = mix(col, mix(c1.rgb, float3(1.0, 0.94, 0.84), 0.6) * (0.90 + 0.10 * calm), c1.a * sstep(-0.30, -0.85, uv.y) * 0.95);
   for (int i = 0; i < 9; i++) {
     float fi = float(i); float2 h = hash22(float2(fi * 4.4, 61.0));
-    if (h.x > 0.35 + 0.65 * calm) continue;
+    if (h.x > 0.35 + 0.65 * max(calm, E)) continue;
     float life = fract(t * (0.035 + 0.03 * h.y) + h.x * 7.0);
     float2 p = float2((h.y - 0.5) * 0.95 + 0.07 * sin(t * 0.8 + fi * 2.0), mix(1.1, -1.1, life));
     float2 q = rot2(uv - p, 0.6 * sin(t * 0.7 + fi) + fi) / (0.07 + 0.04 * h.x);
@@ -1084,6 +1345,12 @@ static float3 sceneRelArrow(float2 uv, Uniforms u) {
     col = mix(col, float3(1.0, 0.98, 0.95) * (0.92 - 0.22 * sstep(0.03, 0.0, abs(q.x))), sstep(0.05, -0.05, d) * 0.9);
   }
   col += motes(uv, float2(0.0, -0.5), 1.5, t * 0.6, calm * 0.7, float3(1.0, 0.82, 0.42), 23.0);
+  if (game) {
+    col += float3(1.0, 0.86, 0.5) * (tapRing(uv, u) + star(uv - u.tap, 0.02) * exp(-u.game.w * 6.0) * 1.5);
+    col += motes(uv, wc + float2(0.0, -0.2), 0.9, t * 1.3, E * 1.4, float3(1.0, 0.88, 0.55), 71.0);
+    col *= 1.0 + 0.18 * E;
+    col += rewardBurst(uv, B, u, float3(1.0, 0.84, 0.45), 6.0) * sstep(0.12, 0.16, u.game2.x);
+  }
   return col;
 }
 
@@ -1093,8 +1360,9 @@ static float3 potionColor(float P) {
   return mix(mix(mix(a, b, sstep(0.24, 0.56, P)), m, sstep(0.58, 0.72, P)), c, sstep(0.72, 0.90, P));
 }
 static float3 sceneRelPotion(float2 uv, Uniforms u) {
-  float t = u.time; float P = relP(u);
-  float3 liq = potionColor(P); float glowv = 0.50 + 0.30 * sstep(0.1, 0.9, P);
+  float t = u.time; bool game = gameOn(u); float P = game ? gameP(u, 0.30, 0.90, 1.0) : relP(u);
+  float E = game ? u.game.z : 0.0; float kick = game ? exp(-u.game.w * 4.0) : 0.0;
+  float3 liq = potionColor(P); float glowv = 0.50 + 0.30 * sstep(0.1, 0.9, P) + 0.40 * E;
   float3 col = mix(float3(0.030, 0.018, 0.042), float3(0.005, 0.003, 0.009), sstep(-0.6, 0.9, uv.y));
   float2 c0 = float2(0.0, -0.18); float R = 0.31;
   col += float3(0.20, 0.10, 0.32) * exp(-length(uv - c0 - float2(0.0, 0.25)) * 2.4) * 0.10;
@@ -1113,12 +1381,12 @@ static float3 sceneRelPotion(float2 uv, Uniforms u) {
     ;
   }
   // 蒸汽：从锅口往上散
-  float steam = sstep(0.42, 0.62, P) * (1.0 - 0.6 * sstep(0.9, 1.0, P)) + 0.10;
+  float steam = sstep(0.42, 0.62, P) * (1.0 - 0.6 * sstep(0.9, 1.0, P)) + 0.10 + 0.7 * E;
   { float dy = uv.y - rimY; if (dy > 0.0) { float widen = 0.5 + dy * 1.6; float sx = uv.x / (rimW * widen);
       float dens = fbm(float2(sx * 2.2 + 0.4 * sin(dy * 3.0 + t * 0.3), dy * 3.4 - t * 0.33)) * exp(-sx * sx * 1.8) * exp(-dy * 1.6);
       col += mix(liq, float3(1.0), 0.25) * sstep(0.28, 0.80, dens * 1.9) * steam * 0.42; } }
   // 黑泡泡（烦恼）：一个个落进药里
-  float ripple = sstep(0.05, 0.09, P) * (1.0 - sstep(0.20, 0.26, P)) * 0.6;
+  float ripple = sstep(0.05, 0.09, P) * (1.0 - sstep(0.20, 0.26, P)) * 0.6 + kick * 0.5;
   for (int i = 0; i < 5; i++) {
     float fi = float(i); float2 h = hash22(float2(fi * 3.3, 71.0));
     float st = 0.22 + fi * 0.07; float k = sstep(st, st + 0.07, P), sink = sstep(st + 0.07, st + 0.11, P);
@@ -1142,7 +1410,7 @@ static float3 sceneRelPotion(float2 uv, Uniforms u) {
     float3 inside = col * 0.85 + float3(0.012, 0.008, 0.018);
     if (abs(dx) < 1.0 && uv.y < LY + el) {
       float2 lp = uv - c0;
-      float swirl = fbm(rot2(lp, t * 0.15 + length(lp) * 3.0) * 7.0 + float2(0.0, t * 0.05));
+      float swirl = fbm(rot2(lp, t * 0.15 + (game ? u.game.y * 16.0 : 0.0) + length(lp) * (3.0 + 5.0 * E)) * 7.0 + float2(0.0, t * 0.05));
       if (uv.y > LY - el) {
         float2 sq = float2(dx, (uv.y - LY) / 0.030);
         float rip = sin(length(sq) * 9.0 - t * 4.0) * saturate(ripple) * 0.22;
@@ -1153,7 +1421,7 @@ static float3 sceneRelPotion(float2 uv, Uniforms u) {
         float thick = pow(n.z, 1.3);
         inside = liq * glowv * mix(0.20, 1.0, thick) * (1.0 - 0.45 * depth) * (0.60 + 0.5 * swirl);
         inside += liq * 0.35 * glowv * exp(-length(lp - float2(0.0, -0.06)) * 7.0);
-        float act2 = 0.25 + 0.75 * sstep(0.2, 0.7, P);
+        float act2 = max(0.25 + 0.75 * sstep(0.2, 0.7, P), E * 1.3);
         float2 bp = float2(uv.x * 30.0, (uv.y - t * 0.10 * act2) * 30.0); float2 bid = floor(bp), bf = fract(bp) - 0.5; float2 bh = hash22(bid + 3.0);
         if (bh.x < 0.22 * act2) { float br2 = 0.10 + 0.18 * bh.y; float bdd = length(bf - (bh - 0.5) * 0.4); inside += mix(float3(1.0), liq, 0.4) * (sstep(0.05, 0.0, abs(bdd - br2)) * 0.45 + sstep(br2, 0.0, bdd) * 0.06) * glowv; }
       }
@@ -1200,7 +1468,7 @@ static float3 sceneRelPotion(float2 uv, Uniforms u) {
     col += float3(0.22, 0.95, 0.75) * (sstep(wdt, wdt * 0.3, best) * 1.1 + exp(-best * 70.0) * 0.22) * pourK;
   }
   // 蒸发：亮亮的小泡从药面升起，过了锅口就散掉
-  float ev = sstep(0.45, 0.62, P) * (1.0 - 0.75 * sstep(0.92, 1.0, P));
+  float ev = max(sstep(0.45, 0.62, P) * (1.0 - 0.75 * sstep(0.92, 1.0, P)), E);
   if (ev > 0.01) for (int i = 0; i < 16; i++) {
     float fi = float(i); float2 h = hash22(float2(fi * 2.7, 83.0)); float life = fract(t * (0.14 + 0.12 * h.y) + h.x);
     float2 p = float2((h.x - 0.5) * lw * 1.5 * (1.0 + life * 0.6) + 0.02 * sin(t * 2.0 + fi), LY + life * (0.55 + 0.3 * h.y));
@@ -1209,6 +1477,12 @@ static float3 sceneRelPotion(float2 uv, Uniforms u) {
     col += float3(1.0, 0.9, 0.7) * star(uv - p - float2(0.0, 0.02), 0.008) * al * sstep(0.8, 1.0, life) * 2.0;
   }
   col += motes(uv, float2(0.0, 0.0), 1.2, t * 0.5, sstep(0.85, 1.0, P) * 0.6, float3(1.0, 0.80, 0.42), 29.0);
+  if (game) {
+    col += mix(liq, float3(1.0), 0.4) * tapRing(uv, u) * 0.8;
+    col += liq * exp(-length(uv - float2(0.0, rimY + 0.1)) * 3.0) * 0.30 * E;
+    col += rewardBurst(uv, float2(0.0, rimY + 0.05), u, float3(1.0, 0.72, 0.30), 8.0);
+    col += rewardBurst(uv, float2(0.0, rimY + 0.25), u, mix(liq, float3(1.0), 0.3), 13.0) * 0.8;
+  }
   return col;
 }
 
