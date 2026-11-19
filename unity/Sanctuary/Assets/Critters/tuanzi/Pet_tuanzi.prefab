@@ -489,6 +489,7 @@ GameObject:
   m_Component:
   - component: {fileID: 44182567550943159}
   - component: {fileID: 2034002099511762520}
+  - component: {fileID: 2029240940834913145}
   m_Layer: 0
   m_Name: Pet_tuanzi
   m_TagString: Untagged
@@ -537,6 +538,25 @@ LODGroup:
     - renderer: {fileID: 7213492960928245852}
     - renderer: {fileID: 8867390897055293666}
   m_Enabled: 1
+--- !u!114 &2029240940834913145
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3162222249779032229}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7c1e5a3b9d2f4e68a1b0c4d5e6f70812, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Yuanjing.FurShells
+  source: {fileID: -5495902117074765545, guid: fa86a312a871a4d328e1dc8ed8da415d, type: 3}
+  near: {fileID: 7009761557928686631}
+  far: {fileID: 7213492960928245852}
+  shadow: {fileID: 8867390897055293666}
+  nearShells: 28
+  farShells: 6
+  shadowShells: 1
 --- !u!1 &3209603180847054264
 GameObject:
   m_ObjectHideFlags: 0
@@ -1101,7 +1121,7 @@ SkinnedMeshRenderer:
   m_Quality: 4
   m_UpdateWhenOffscreen: 1
   m_SkinnedMotionVectors: 1
-  m_Mesh: {fileID: 998140210826135094, guid: da80ba4f3a408410f9db175532a6c17c, type: 2}
+  m_Mesh: {fileID: -5495902117074765545, guid: fa86a312a871a4d328e1dc8ed8da415d, type: 3}
   m_Bones:
   - {fileID: 1674207876751148362}
   - {fileID: 9209455364583376890}
@@ -1309,7 +1329,7 @@ SkinnedMeshRenderer:
   m_Quality: 4
   m_UpdateWhenOffscreen: 1
   m_SkinnedMotionVectors: 1
-  m_Mesh: {fileID: 4300000, guid: da80ba4f3a408410f9db175532a6c17c, type: 2}
+  m_Mesh: {fileID: -5495902117074765545, guid: fa86a312a871a4d328e1dc8ed8da415d, type: 3}
   m_Bones:
   - {fileID: 1674207876751148362}
   - {fileID: 9209455364583376890}
@@ -1546,7 +1566,7 @@ SkinnedMeshRenderer:
   m_Quality: 4
   m_UpdateWhenOffscreen: 1
   m_SkinnedMotionVectors: 1
-  m_Mesh: {fileID: -8433433675046032693, guid: da80ba4f3a408410f9db175532a6c17c, type: 2}
+  m_Mesh: {fileID: -5495902117074765545, guid: fa86a312a871a4d328e1dc8ed8da415d, type: 3}
   m_Bones:
   - {fileID: 1674207876751148362}
   - {fileID: 9209455364583376890}

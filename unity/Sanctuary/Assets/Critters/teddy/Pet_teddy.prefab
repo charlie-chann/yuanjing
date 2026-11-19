@@ -439,7 +439,7 @@ SkinnedMeshRenderer:
   m_Quality: 4
   m_UpdateWhenOffscreen: 1
   m_SkinnedMotionVectors: 1
-  m_Mesh: {fileID: -1014608399726272855, guid: 4f71fb7cd078645c29ad1e63b2221a46, type: 2}
+  m_Mesh: {fileID: -5566367898225598931, guid: 0fd210e4560874d96a8c220a06f00923, type: 3}
   m_Bones:
   - {fileID: 7465800789518974595}
   - {fileID: 762348993669980265}
@@ -1051,7 +1051,7 @@ SkinnedMeshRenderer:
   m_Quality: 4
   m_UpdateWhenOffscreen: 1
   m_SkinnedMotionVectors: 1
-  m_Mesh: {fileID: -6524043240875470560, guid: 4f71fb7cd078645c29ad1e63b2221a46, type: 2}
+  m_Mesh: {fileID: -5566367898225598931, guid: 0fd210e4560874d96a8c220a06f00923, type: 3}
   m_Bones:
   - {fileID: 7465800789518974595}
   - {fileID: 762348993669980265}
@@ -1381,7 +1381,7 @@ SkinnedMeshRenderer:
   m_Quality: 4
   m_UpdateWhenOffscreen: 1
   m_SkinnedMotionVectors: 1
-  m_Mesh: {fileID: 4300000, guid: 4f71fb7cd078645c29ad1e63b2221a46, type: 2}
+  m_Mesh: {fileID: -5566367898225598931, guid: 0fd210e4560874d96a8c220a06f00923, type: 3}
   m_Bones:
   - {fileID: 7465800789518974595}
   - {fileID: 762348993669980265}
@@ -1669,6 +1669,7 @@ GameObject:
   m_Component:
   - component: {fileID: 3375257891807263051}
   - component: {fileID: 5840279776250663936}
+  - component: {fileID: 4984524751987367422}
   m_Layer: 0
   m_Name: Pet_teddy
   m_TagString: Untagged
@@ -1717,6 +1718,25 @@ LODGroup:
     - renderer: {fileID: 8361029311878019882}
     - renderer: {fileID: 5133805846763960048}
   m_Enabled: 1
+--- !u!114 &4984524751987367422
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8528338397426381195}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7c1e5a3b9d2f4e68a1b0c4d5e6f70812, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Yuanjing.FurShells
+  source: {fileID: -5566367898225598931, guid: 0fd210e4560874d96a8c220a06f00923, type: 3}
+  near: {fileID: 6856421272341766129}
+  far: {fileID: 8361029311878019882}
+  shadow: {fileID: 5133805846763960048}
+  nearShells: 28
+  farShells: 6
+  shadowShells: 1
 --- !u!1 &8686278931193113041
 GameObject:
   m_ObjectHideFlags: 0

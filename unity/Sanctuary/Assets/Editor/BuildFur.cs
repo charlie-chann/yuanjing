@@ -47,33 +47,8 @@ public static partial class SanctuaryBuild
 {
     const string CritterDir = "Assets/Critters";
 
-    /// 给蒙皮网格套上 shells 层壳。壳和身体共用骨骼权重；uv1.x 记第几层，uv2 记没动时的位置
-    static Mesh FurMesh(Mesh src, int shells)
-    {
-        var pos = src.vertices; var nrm = src.normals; var col = src.colors32; var bw = src.boneWeights;
-        int n = pos.Length;
-        var tris = src.triangles;
-        var P = new List<Vector3>(n * (shells + 1)); var N = new List<Vector3>(); var C = new List<Color32>(); var W = new List<BoneWeight>();
-        var S = new List<Vector2>(); var R = new List<Vector3>(); var T = new List<int>(tris.Length * (shells + 1));
-        for (int s = 0; s <= shells; s++)
-        {
-            float h = s / (float)shells;
-            for (int i = 0; i < n; i++)
-            {
-                P.Add(pos[i]); N.Add(nrm[i]); C.Add(col.Length == n ? col[i] : new Color32(200, 200, 200, 128)); W.Add(bw[i]);
-                S.Add(new Vector2(h, 0)); R.Add(pos[i]);
-            }
-            // 从里往外排：先画里层，外层靠深度挡在前面
-            foreach (int t in tris) T.Add(t + s * n);
-        }
-        var m = new Mesh { name = src.name + "_fur", indexFormat = IndexFormat.UInt32 };
-        m.SetVertices(P); m.SetNormals(N); m.SetColors(C); m.SetUVs(1, S); m.SetUVs(2, R);
-        m.boneWeights = W.ToArray();
-        m.bindposes = src.bindposes;
-        m.SetTriangles(T, 0);
-        var b = src.bounds; b.Expand(b.size.magnitude * 0.15f); m.bounds = b;
-        return m;
-    }
+    /// 给蒙皮网格套上 shells 层壳：算法在 FurShells.Build（运行时现算，包里不存）。这里只在生成预制体时临时算一份，用来定大小和包围盒
+    static Mesh FurMesh(Mesh src, int shells) => FurShells.Build(src, shells);
 
     /// 把一只带骨骼动作的动物拼成预制体（Assets/Critters/名字/Pet_名字.prefab）：套毛、挂动画。height 是站着的肩高（米）
     /// 毛的样子：curl 卷毛、comb 顺毛、density 每米多少根
@@ -95,15 +70,14 @@ public static partial class SanctuaryBuild
             m.SetFloat("_Ambient", 0.5f);
             m.SetFloat("_SunScale", 0.2f);
         }, "Yuanjing/Fur");
-        string meshPath = $"{CritterDir}/{who}/{who}_fur.asset";
-        AssetDatabase.DeleteAsset(meshPath);
+        // 带毛的网格不再存成资源（十只约 205 MB，每层都是身体那份的复制品）：预制体里只记身体的网格和层数，FurShells 在运行时现算
+        AssetDatabase.DeleteAsset($"{CritterDir}/{who}/{who}_fur.asset");
         var src = smr.sharedMesh;
         var fur = FurMesh(src, shells);
-        AssetDatabase.CreateAsset(fur, meshPath);
         // 远处用的省力版：6 层（俯视的时候一只狗在屏幕上就指甲盖大，20 层看不出区别）
-        var furFar = FurMesh(src, 6);
+        const int farShells = 6;
+        var furFar = FurMesh(src, farShells);
         furFar.name = src.name + "_fur_far";
-        AssetDatabase.AddObjectToAsset(furFar, meshPath);
         // 按模型本来的大小缩放到想要的个头（原模型的单位不一定是米）
         smr.sharedMesh = fur;
         smr.sharedMaterial = mat;
@@ -130,7 +104,6 @@ public static partial class SanctuaryBuild
         // 另挂一个只投影子的：身体一层加毛尖一层（两层，约两万个三角形），轮廓和毛的长度一样；毛本身不再投影子
         var shadowMesh = FurMesh(src, 1);
         shadowMesh.name = src.name + "_fur_shadow";
-        AssetDatabase.AddObjectToAsset(shadowMesh, meshPath);
         var shadowGo = Object.Instantiate(smr.gameObject, smr.transform.parent);
         shadowGo.name = smr.name + "_shadow";
         var smrShadow = shadowGo.GetComponent<SkinnedMeshRenderer>();
@@ -152,9 +125,18 @@ public static partial class SanctuaryBuild
         var clips = AssetDatabase.LoadAllAssetsAtPath(fbx).OfType<AnimationClip>().Where(c => !c.name.StartsWith("__preview")).ToArray();
         foreach (var c in clips) if (anim.GetClip(c.name) == null) anim.AddClip(c, c.name);
         Directory.CreateDirectory($"{CritterDir}/{who}");
+        // 大小、包围盒、远近切换都按带毛的网格定好了：存预制体时换回身体的网格，毛交给 FurShells 现算
+        int furTris = fur.triangles.Length / 3;
+        // （刚挂上时 source 还是空的，它不会在这里现算；摆进场景、启用的时候才算）
+        var shellsComp = root.AddComponent<FurShells>();
+        shellsComp.source = src;
+        shellsComp.near = smr; shellsComp.far = smrFar; shellsComp.shadow = smrShadow;
+        shellsComp.nearShells = shells; shellsComp.farShells = farShells; shellsComp.shadowShells = 1;
+        foreach (var r in new[] { smr, smrFar, smrShadow }) r.sharedMesh = src;
         var prefab = PrefabUtility.SaveAsPrefabAsset(root, $"{CritterDir}/{who}/Pet_{who}.prefab");
         Object.DestroyImmediate(root);
-        Debug.Log($"[yuanjing] 带毛的动物 {who}：{fur.triangles.Length / 3} 个三角形（{shells} 层毛），动作 {string.Join(" ", clips.Select(c => c.name))}，缩放 {scale:F3}");
+        Object.DestroyImmediate(fur); Object.DestroyImmediate(furFar); Object.DestroyImmediate(shadowMesh);
+        Debug.Log($"[yuanjing] 带毛的动物 {who}：{furTris} 个三角形（{shells} 层毛），动作 {string.Join(" ", clips.Select(c => c.name))}，缩放 {scale:F3}");
         return prefab;
     }
 }

@@ -122,7 +122,10 @@ public static partial class SanctuaryBuild
                 center.y = map.H(center.x, center.z);
                 var pos = new List<Vector3>(); var nrm = new List<Vector3>(); var col = new List<Color32>();
                 var uv0 = new List<Vector2>(); var uv1 = new List<Vector3>();
-                var near = new List<int>(); var far = new List<int>();
+                var near = new List<int>();
+                // 远处那档只留五分之一的草：它的网格只存这五分之一的顶点（以前把全部顶点又存了一遍，白占一半的体积和显存）
+                var fpos = new List<Vector3>(); var fnrm = new List<Vector3>(); var fcol = new List<Color32>();
+                var fuv0 = new List<Vector2>(); var fuv1 = new List<Vector3>(); var far = new List<int>();
                 int n = (int)(GrassChunk * GrassChunk * perSqm);
                 int side = Mathf.CeilToInt(Mathf.Sqrt(n));
                 float cell = GrassChunk / side;
@@ -169,18 +172,25 @@ public static partial class SanctuaryBuild
                         }
                         var list = new List<int> { b, b + 2, b + 1, b + 1, b + 2, b + 3, b + 2, b + 4, b + 3, b + 3, b + 4, b + 5, b + 4, b + 6, b + 5 };
                         near.AddRange(list);
-                        if (rank < 0.2f) far.AddRange(list);
+                        if (rank < 0.2f)
+                        {
+                            int fb = fpos.Count;
+                            for (int q = b; q < pos.Count; q++) { fpos.Add(pos[q]); fnrm.Add(nrm[q]); fcol.Add(col[q]); fuv0.Add(uv0[q]); fuv1.Add(uv1[q]); }
+                            foreach (int q in list) far.Add(q - b + fb);
+                        }
                         total++;
                     }
                 if (pos.Count == 0) continue;
 
-                Mesh Make(string name, List<int> tris)
+                // 草会被风吹、会变宽：包围盒留出余量，不然贴着屏幕边会被整块裁掉。两档用同一个包围盒（按全部的草算）
+                Bounds? shared = null;
+                Mesh Make(string name, List<Vector3> p, List<Vector3> nn, List<Color32> cc, List<Vector2> u0, List<Vector3> u1, List<int> tris)
                 {
-                    var m = new Mesh { name = name, indexFormat = pos.Count > 65000 ? IndexFormat.UInt32 : IndexFormat.UInt16 };
-                    m.SetVertices(pos); m.SetNormals(nrm); m.SetColors(col); m.SetUVs(0, uv0); m.SetUVs(1, uv1);
+                    var m = new Mesh { name = name, indexFormat = p.Count > 65000 ? IndexFormat.UInt32 : IndexFormat.UInt16 };
+                    m.SetVertices(p); m.SetNormals(nn); m.SetColors(cc); m.SetUVs(0, u0); m.SetUVs(1, u1);
                     m.SetTriangles(tris, 0);
-                    // 草会被风吹、会变宽：包围盒留出余量，不然贴着屏幕边会被整块裁掉
-                    var bb = m.bounds; bb.Expand(new Vector3(0.6f, 0.4f, 0.6f)); m.bounds = bb;
+                    if (shared == null) { var bb = m.bounds; bb.Expand(new Vector3(0.6f, 0.4f, 0.6f)); shared = bb; }
+                    m.bounds = shared.Value;
                     if (first == null) { AssetDatabase.CreateAsset(m, assetPath); first = m; }
                     else AssetDatabase.AddObjectToAsset(m, assetPath);
                     return m;
@@ -193,7 +203,9 @@ public static partial class SanctuaryBuild
                 {
                     var c = new GameObject(name);
                     c.transform.SetParent(go.transform, false);
-                    c.AddComponent<MeshFilter>().sharedMesh = Make($"{go.name}_{name}", tris);
+                    c.AddComponent<MeshFilter>().sharedMesh = name == "near"
+                        ? Make($"{go.name}_{name}", pos, nrm, col, uv0, uv1, tris)
+                        : Make($"{go.name}_{name}", fpos, fnrm, fcol, fuv0, fuv1, tris);
                     var mr = c.AddComponent<MeshRenderer>();
                     mr.sharedMaterial = mat;
                     mr.shadowCastingMode = ShadowCastingMode.Off;
