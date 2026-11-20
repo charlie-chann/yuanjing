@@ -248,7 +248,7 @@ def test_islet_same_seat_two_people(client, login):
 
 
 def test_pets_bond_greet_and_gift(client, login):
-    """小动物：摸和喂涨交情（每天各算 3 次）、喂要花金币、熟了会迎接和送礼物"""
+    """小动物：摸和喂涨亲密度（每天摸算 3 次、喂算 5 次）、喂一把普通口粮要花金币、过了门槛有里程碑礼物"""
     a = login()
     s = client.get("/pets", headers=a).json()
     assert len(s["pets"]) == 10 and all(p["level"] == 0 and not p["greet"] and p["gift"] is None for p in s["pets"])
@@ -258,22 +258,25 @@ def test_pets_bond_greet_and_gift(client, login):
     rs = [client.post("/pets/teddy/pet", headers=a).json() for _ in range(4)]
     assert [r["counted"] for r in rs] == [True, True, True, False] and rs[-1]["affinity"] == 3
     assert rs[2]["level_up"] and rs[2]["level"] == 1 and rs[-1]["pets_left"] == 0
-    # 喂 3 次：每次花 2 金币、涨 2
-    for i in range(3):
+    assert [r["gain"] for r in rs] == [1, 1, 1, 0] and all(r["milestone"] is None for r in rs)
+    # 喂 5 次普通口粮：每次花 2 金币、涨 2。第一次到 5，跨过第一个里程碑，送一包 10 金币
+    for i in range(5):
         r = client.post("/pets/teddy/feed", headers=a).json()
-        assert r["counted"] and r["coins"] == coins - 2 * (i + 1)
-    assert r["affinity"] == 9 and r["level"] == 1 and r["feeds_left"] == 0
+        assert r["counted"] and r["gain"] == 2 and not r["favorite"] and r["coins"] == coins - 2 * (i + 1) + 10
+        assert (r["milestone"] or {}).get("at") == (5 if i == 0 else None)
+    assert r["affinity"] == 13 and r["level"] == 2 and r["feeds_left"] == 0
     r = client.post("/pets/teddy/feed", headers=a).json()
-    assert not r["counted"] and r["affinity"] == 9
+    assert not r["counted"] and r["affinity"] == 13 and r["gain"] == 0 and r["coins"] == coins - 12 + 10
     # 别的动物、别的人互不影响
     assert client.get("/pets", headers=login()).json()["pets"][0]["affinity"] == 0
-    assert [p["affinity"] for p in client.get("/pets", headers=a).json()["pets"]] == [9] + [0] * 9
+    assert [p["affinity"] for p in client.get("/pets", headers=a).json()["pets"]] == [13] + [0] * 9
 
 
 def test_pets_best_friend_gift(client, login, db_session=None):
-    """交情到「最好的朋友」：当天第一次上岛来迎接、必有礼物，礼物一天只能收一次"""
+    """亲密度到「最好的朋友」：当天第一次上岛来迎接、必有礼物（一件收藏品，进背包），礼物一天只能收一次"""
     from app.db import SessionLocal
     from app.models import PetBond, User
+    from app.routers.pets import GIFTS
     a = login()
     client.post("/pets/shiba/pet", headers=a)
     with SessionLocal() as db:
@@ -281,15 +284,22 @@ def test_pets_best_friend_gift(client, login, db_session=None):
         b.affinity = 30
         db.commit()
     s = {p["id"]: p for p in client.get("/pets", headers=a).json()["pets"]}
-    assert s["shiba"]["level"] == 3 and s["shiba"]["greet"] and s["shiba"]["gift"] == "一根捡来的树枝"
+    assert s["shiba"]["level"] == 3 and s["shiba"]["greet"] and s["shiba"]["gift"] and s["shiba"]["gift_item"] in GIFTS["shiba"]
     # 再取一次：今天已经迎接过了，礼物还在（还没收）
     s = {p["id"]: p for p in client.get("/pets", headers=a).json()["pets"]}
     assert not s["shiba"]["greet"] and s["shiba"]["gift"]
     before = client.get("/pets", headers=a).json()["coins"]
     g = client.post("/pets/shiba/gift", headers=a).json()
-    assert 4 <= g["got"] <= 9 and g["coins"] == before + g["got"] and g["name"] == "年糕"
-    assert client.post("/pets/shiba/gift", headers=a).json()["got"] == 0
+    # 不再换金币：got 是 0，给的是收藏品
+    assert g["got"] == 0 and g["coins"] == before and g["name"] == "年糕" and g["count"] == 1
+    assert g["item"]["id"] == s["shiba"]["gift_item"] and g["what"] == s["shiba"]["gift"]
+    bag = client.get("/bag", headers=a).json()["items"]
+    assert [(i["id"], i["kind"], i["count"]) for i in bag] == [(g["item"]["id"], "gift", 1)]
+    assert client.post("/pets/shiba/gift", headers=a).json()["item"] is None
     assert {p["id"]: p for p in client.get("/pets", headers=a).json()["pets"]}["shiba"]["gift"] is None
+    # 礼物册里记下了收到过这一种
+    book = {p["id"]: p for p in client.get("/pets/gifts", headers=a).json()["pets"]}
+    assert [d["id"] for d in book["shiba"]["daily"] if d["seen"]] == [g["item"]["id"]]
 
 
 def test_crowd_follows_time():

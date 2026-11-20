@@ -17,6 +17,34 @@ namespace Yuanjing
         public TextMesh nameTag;
         /// 嘴里叼着的东西、放在地上的食物（生成场景时就挂好，平时藏着）
         public GameObject giftInMouth, food;
+        /// 礼物的模型（gift_<编号>）、鱼的模型（fish_<编号>）：BuildIslet 把 Toon/Models 里有的都给上。
+        /// 今天的礼物是哪一件（pets 指令的第五段）就叼哪一件；喂的是鱼就在嘴边放那条鱼
+        public GameObject[] giftPrefabs = new GameObject[0], fishPrefabs = new GameObject[0];
+        GameObject fishFood;
+
+        static GameObject FindPrefab(GameObject[] list, string name)
+        {
+            if (list != null) foreach (var g in list) if (g != null && g.name == name) return g;
+            return null;
+        }
+
+        /// 叼的礼物换成 gift_<id>（dried_fish 用 gift_fish）；没有这个模型、没给编号就还叼原来那件
+        void SwapGift(string id)
+        {
+            if (string.IsNullOrEmpty(id) || giftInMouth == null) return;
+            var prefab = FindPrefab(giftPrefabs, "gift_" + (id == "dried_fish" ? "fish" : id));
+            if (prefab == null || giftInMouth.name == "Gift_" + id) return;
+            var old = giftInMouth.transform;
+            var go = Instantiate(prefab, old.parent);
+            go.name = "Gift_" + id;
+            go.transform.localPosition = old.localPosition;
+            go.transform.localRotation = old.localRotation;
+            go.transform.localScale = old.localScale;
+            int k = rest.IndexOf(old);
+            if (k >= 0) rest[k] = go.transform;
+            Destroy(old.gameObject);
+            giftInMouth = go;
+        }
         /// 带骨骼动作的那种（柴犬）：有这个就播现成的动作片段，不用下面那套「部件各自转」
         public Animation rig;
         string clipNow = "";
@@ -86,9 +114,10 @@ namespace Yuanjing
         }
 
         /// 进岛时由 Flutter 告诉：和这只有多熟、要不要来迎接、今天有没有礼物
-        public void Bond(int newLevel, bool greet, bool gift)
+        public void Bond(int newLevel, bool greet, bool gift, string giftId = null)
         {
             level = newLevel;
+            if (gift) SwapGift(giftId);
             greetPending = greet && level >= 2;
             hasGift = gift && level >= 2;
             giftDropped = false;
@@ -98,17 +127,34 @@ namespace Yuanjing
         }
 
         /// 摸它、喂它
-        public void React(string action, int newLevel)
+        public void React(string action, int newLevel, string item = null)
         {
             level = Mathf.Max(level, newLevel);
             var p = Player();
             if (p != null) Face(p.position - transform.position, 1f);
             if (action == "feed" && food != null)
             {
-                food.SetActive(true);
-                food.transform.SetParent(null, true);
-                food.transform.position = Ground(transform.position + transform.forward * 0.42f * transform.localScale.x);
-                food.transform.rotation = Quaternion.identity;
+                Vector3 at = Ground(transform.position + transform.forward * 0.42f * transform.localScale.x);
+                // 喂的是钓上来的鱼（item 是鱼的编号）：嘴边地上放那条鱼（侧躺着），不摆食盆；别的（food_*、空）照旧摆食盆
+                if (fishFood != null) Destroy(fishFood);
+                fishFood = null;
+                var fp = FindPrefab(fishPrefabs, "fish_" + item);
+                if (!string.IsNullOrEmpty(item) && fp != null)
+                {
+                    fishFood = Instantiate(fp);
+                    fishFood.name = "FoodFish";
+                    // 鱼的原点在嘴、头朝 +z、背朝 +y：侧躺（绕 z 转 90 度），身子中段摆在食盆的位置，头斜着朝向它
+                    var rot = Quaternion.Euler(0, transform.eulerAngles.y + 115f, 0);
+                    fishFood.transform.SetPositionAndRotation(at + rot * Vector3.back * 0.09f + Vector3.up * 0.022f, rot * Quaternion.Euler(0, 0, 90f));
+                    food.SetActive(false);
+                }
+                else
+                {
+                    food.SetActive(true);
+                    food.transform.SetParent(null, true);
+                    food.transform.position = at;
+                    food.transform.rotation = Quaternion.identity;
+                }
                 state = State.Eat;
                 eatT = 0;
             }
@@ -202,6 +248,7 @@ namespace Yuanjing
                     if (eatT > 3.2f)
                     {
                         if (food != null) food.SetActive(false);
+                        if (fishFood != null) { Destroy(fishFood); fishFood = null; }
                         state = State.Happy;
                         stateT = 0;
                         Ambience.Hearts(transform.position + Vector3.up * 0.7f, 6);

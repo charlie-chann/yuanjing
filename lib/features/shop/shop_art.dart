@@ -2,6 +2,9 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../sanctuary/islet_art.dart';
+import 'frame_art.dart';
+
 /// 商城卡片上的「商品图」：没有图片素材，全部用代码画。
 ///
 /// 每件商品一块深色的底、一团自己颜色的光，上面画着这件东西本身；[clock] 是商城页共用的一个 0~1 循环时钟，
@@ -43,6 +46,26 @@ const _looks = <String, _Look>{
   'pet_bowl': _Look([Color(0xFF103346), Color(0xFF061218)], Color(0xFF7FD3FF)),
   'pet_ball': _Look([Color(0xFF3F1616), Color(0xFF140707)], Color(0xFFFF8A72)),
   'pet_bed': _Look([Color(0xFF402238), Color(0xFF140A12)], Color(0xFFFFB3D1)),
+  // 小寺的口粮
+  'food_kibble': _Look([Color(0xFF3A2A14), Color(0xFF120C06)], Color(0xFFE0B06C)),
+  'food_dried_fish': _Look([Color(0xFF14323A), Color(0xFF071216)], Color(0xFFEBC27A)),
+  'food_bone': _Look([Color(0xFF3F1C16), Color(0xFF140907)], Color(0xFFFFB9A0)),
+  'food_cream': _Look([Color(0xFF3A2A3F), Color(0xFF120C14)], Color(0xFFF9D36B)),
+  // 小动物的礼物（头像框）
+  'frame_teddy': _Look([Color(0xFF3A2614), Color(0xFF120B06)], Color(0xFFC08A55)),
+  'frame_shiba': _Look([Color(0xFF24321A), Color(0xFF0B1008)], Color(0xFF8DB45A)),
+  'frame_cotton': _Look([Color(0xFF1C3350), Color(0xFF080F18)], Color(0xFFBFE2FF)),
+  'frame_tangerine': _Look([Color(0xFF40260E), Color(0xFF140B04)], Color(0xFFFFB04A)),
+  'frame_tangyuan': _Look([Color(0xFF16304A), Color(0xFF070E16)], Color(0xFF8FD0FF)),
+  'frame_huajuan': _Look([Color(0xFF3A2A1E), Color(0xFF120D09)], Color(0xFFFFD2C4)),
+  'frame_zhima': _Look([Color(0xFF2E2A26), Color(0xFF0E0C0B)], Color(0xFFF1E3C4)),
+  'frame_tuanzi': _Look([Color(0xFF401612), Color(0xFF140706)], Color(0xFFF0C95F)),
+  'frame_momo': _Look([Color(0xFF161C36), Color(0xFF060810)], Color(0xFFFFE7A0)),
+  'frame_doubao': _Look([Color(0xFF3A1E2C), Color(0xFF120910)], Color(0xFFE9B9C6)),
+  'frame_shell': _Look([Color(0xFF12343A), Color(0xFF061214)], Color(0xFFBFE6E8)),
+  'frame_autumn': _Look([Color(0xFF3F2210), Color(0xFF140A05)], Color(0xFFF2A54A)),
+  'frame_meadow': _Look([Color(0xFF1C3620), Color(0xFF08110A)], Color(0xFFBFE3A8)),
+  'frame_pearl': _Look([Color(0xFF2E2238), Color(0xFF0E0A12)], Color(0xFFF3E6EC)),
   'voice_affirm': _Look([Color(0xFF2E2318), Color(0xFF0B0A0D)], Color(0xFFE9CF8F)),
   'voice_library': _Look([Color(0xFF221D36), Color(0xFF0A0910)], Color(0xFFB8A2F2)),
 };
@@ -122,6 +145,15 @@ class _ArtPainter extends CustomPainter {
         _affirm(canvas);
       case 'voice_library':
         _vinyl(canvas);
+      default:
+        if (keepsakeFrameIds.contains(id)) {
+          _keepsake(canvas);
+        } else if (id.startsWith('food_')) {
+          // 小寺的口粮：用背包里那张小画，轻轻左右晃
+          canvas.rotate(0.05 * math.sin(_p(2)));
+          canvas.scale(0.8);
+          paintItem(canvas, id);
+        }
     }
     canvas.restore();
 
@@ -298,6 +330,19 @@ class _ArtPainter extends CustomPainter {
       final v = math.pow(math.max(0.0, math.sin(_p(2) + 1)), 4).toDouble();
       _sparkle(canvas, const Offset(-22, -24), 2 + 4 * v, Colors.white.withValues(alpha: v));
     }
+  }
+
+  /// 小动物的礼物：一个淡淡的人像，外面套着这件头像框（和戴在头像上的是同一幅画，这里会动一点）
+  void _keepsake(Canvas canvas) {
+    canvas.scale(0.8);
+    final ghost = Paint()..color = Colors.white.withValues(alpha: 0.16);
+    canvas.drawCircle(Offset.zero, keepsakeHole, Paint()..color = Colors.black.withValues(alpha: 0.22));
+    canvas.drawCircle(const Offset(0, -9), 11, ghost);
+    canvas.save();
+    canvas.clipPath(Path()..addOval(Rect.fromCircle(center: Offset.zero, radius: keepsakeHole)));
+    canvas.drawOval(Rect.fromCenter(center: const Offset(0, 25), width: 48, height: 36), ghost);
+    canvas.restore();
+    paintKeepsakeFrame(canvas, id, t: clock.value);
   }
 
   void _bowl(Canvas canvas) {

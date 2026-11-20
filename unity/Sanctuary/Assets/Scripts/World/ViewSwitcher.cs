@@ -12,7 +12,7 @@ namespace Yuanjing
         public TopDownCamera top;
         public ThirdPersonCamera follow;
         public FirstPersonCamera first;
-        public string mode = "top";
+        public string mode = "level";
         public float topFov = 36f, followFov = 52f, firstFov = 62f, maxZoom = 8f;
         /// 殿里平视的视角放宽一点：竖屏上下还要让出两截给界面，人整个、佛像整尊才放得进中间那一截
         public float interiorFov = 58f;
@@ -77,6 +77,19 @@ namespace Yuanjing
         }
 
         public void SetZoom(float z) => zoomTarget = Mathf.Clamp(z, 1f, maxZoom);
+
+        // ── 自由环绕（现在唯一的操作方式）：左手摇杆走路，拖屏绕着人转、上下看（能一直压到俯视），捏合拉远拉近 ──
+        /// 捏合：镜头离人的远近是平常的几倍（minReach 到 maxReach；殿里天花板低，最远收到 interiorMaxReach）
+        public float minReach = 0.45f, maxReach = 4.2f, interiorMaxReach = 4.2f;
+        float reach = 1f;
+        public float Reach => reach;
+        public void SetReach(float r)
+        {
+            reach = Mathf.Clamp(r, minReach, follow != null && follow.interior ? interiorMaxReach : maxReach);
+            if (follow != null) follow.zoomScale = reach;
+        }
+        /// 抬高到多少度以上，挡在镜头和人之间的屋檐、树冠开始镂空（到 seeFull 度完全镂空）
+        public float seeFrom = 24f, seeFull = 42f;
         public float ZoomTarget => zoomTarget;
 
         void Use(string m, bool smooth)
@@ -101,14 +114,16 @@ namespace Yuanjing
             active = next;
             if (next == follow)
             {
-                // 平视：和人差不多高，能往上抬一点、往下压很多；要抬头看高处用仰视或第一人称
-                follow.minPitch = -12f;
-                follow.maxPitch = 75f;
+                // 自由环绕：能仰一点看屋檐，能一直压到快垂直的俯视
+                follow.free = true;
+                follow.minPitch = -18f;
+                follow.maxPitch = 82f;
+                follow.zoomScale = reach;
                 follow.distance = follow.interior ? (wide ? interiorWideDistance : interiorDistance) : seated ? seatedDistance : 3.0f;
                 follow.height = 0.95f;
                 follow.Snap(yawNow);
                 // 外面：比 Snap 的 16 度放平一些；殿里：Snap 已经按屋里的高低摆好
-                if (!follow.interior) follow.Pitch(6.4f);
+                if (!follow.interior) follow.Pitch(18f);
             }
             else if (next == first)
             {
@@ -155,6 +170,12 @@ namespace Yuanjing
         public override void Focus(float amount)
         {
             if (top != null) top.Focus(amount);
+        }
+
+        /// 聚焦到身边的小动物、谷子上（自由环绕时才有）
+        public void Subject(Transform t, Vector3 point, float amount, float dist = 2.1f, float toward = 0.6f, float pitch = 20f)
+        {
+            if (follow != null) follow.Subject(t, point, amount, dist, toward, pitch);
         }
 
         public override void CloseUp(Vector3 focus, Vector3 eye)
@@ -226,10 +247,11 @@ namespace Yuanjing
             if (keepOut != null) follow.keepOut = keepOut;
             if (first != null) first.interior = inside;
             if (!inside) wide = false;
+            SetReach(reach);
             if (active == follow)
             {
                 follow.distance = inside ? (wide ? interiorWideDistance : interiorDistance) : seated ? seatedDistance : 3.0f;
-                if (inside) follow.Pitch(follow.interiorPitch);
+                if (inside && !follow.free) follow.Pitch(follow.interiorPitch);
             }
         }
 
@@ -271,7 +293,11 @@ namespace Yuanjing
             }
             // 人的位置给着色器：俯视时用来把挡住人的屋檐树冠镂空（半径），其他视角只用来让脚边的草倒伏（半径 0 就是不镂空）
             Vector3 tp = target.position;
-            Shader.SetGlobalVector(SeeId, new Vector4(tp.x, tp.y, tp.z, active == top && blend >= 1f && cuW <= 0.001f ? top.seeRadius : 0f));
+            // 自由环绕时镜头抬高了也一样：屋檐、树冠挡住人就镂空（平着看时不镂空，镜头自己会躲开挡着的东西）
+            float see = active == top && blend >= 1f && cuW <= 0.001f ? top.seeRadius : 0f;
+            if (active == follow && !follow.interior && cuW <= 0.001f)
+                see = top.seeRadius * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(seeFrom, seeFull, follow.PitchNow)) * Mathf.Clamp01(follow.DistanceNow / 4f);
+            Shader.SetGlobalVector(SeeId, new Vector4(tp.x, tp.y, tp.z, see));
             Shader.SetGlobalFloat("_YJCloud", top.cloudShadow);
             // 平视时挡在镜头和自己之间的别人（后面一排坐着的人、从镜头前走过的香客）用网点淡掉（YJAnime.shader 的 YJOccluderFade）：
             // 告诉着色器自己那一团在哪、多大（身上几个蒙皮网格的包围盒）。俯视、第一人称、特写时不管

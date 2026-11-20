@@ -14,6 +14,8 @@ namespace Yuanjing
         public GameObject[] looks;          // 小人的几套样子（第 0 套留给自己）
         public Transform seatsRoot;
         public bool benchSeats;
+        /// 石凳：坐下前站在凳前多远（0 是教堂的长椅：直接走到座位点上）
+        public float benchStep;
         /// 人从哪里进来、从哪里离开
         public Vector3 entrance, entranceInside;
         /// 散步的人会去的地方：位置和看向哪里
@@ -458,8 +460,14 @@ namespace Yuanjing
         /// 蒲团前面、草垫上站的地方
         Vector3 StandPoint(Vector3 seat, Folk f)
         {
-            if (benchSeats) return seat;
             Vector3 fwd = SeatLook(seat) - seat; fwd.y = 0; fwd.Normalize();
+            if (benchSeats)
+            {
+                // 长椅（教堂）：座位点就是站的地方。石凳（benchStep > 0）：凳前的地上，背对着凳子站好再坐
+                if (benchStep <= 0f) return seat;
+                var gd = GameDirector.Instance;
+                return seat + Vector3.down * (gd != null ? gd.seatDrop : 0f) + fwd * benchStep;
+            }
             return seat + fwd * Folk.SeatStep * f.transform.lossyScale.y / 0.806f;
         }
 
@@ -484,7 +492,8 @@ namespace Yuanjing
                 else Reseat(p, index);
                 yield break;
             }
-            if (benchSeats) p.folk.SetPose(Folk.Pose.Bench);
+            if (benchSeats && benchStep > 0f) p.folk.SitBench(seat, yaw);
+            else if (benchSeats) p.folk.SetPose(Folk.Pose.Bench);
             else p.folk.SitOn(seat, yaw);
             p.seated = true;
         }

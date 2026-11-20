@@ -82,10 +82,17 @@ public class HallCrowdTest
     float hallFloor;
     /// 同 GameDirector.InHall（每帧要算很多次，不走反射）
     bool InHall(Vector3 p) => hallRect.Contains(new Vector2(p.x, p.z)) && p.y > hallFloor - 0.22f;
+    /// 院子里石凳上的座位数（殿里蒲团的序号从它起）；殿里蒲团的个数
+    const int Od = 12;
+    int HallSeatN => Get<Transform>(gd, "hallSeats").childCount;
+    /// 殿里的一点（x、z），高度在金砖地上一点
+    Vector3 HP(float x, float z) => new Vector3(x, hallFloor + 0.02f, z);
+    /// 相对某个拜垫、蒲团的一点：水平偏 dx、dz，离地 dy
+    Vector3 Rel(Vector3 o, float dx, float dy, float dz) => new Vector3(o.x + dx, hallFloor + dy, o.z + dz);
     Vector3 Mat(int m) => Get<Transform>(gd, "hallMats").GetChild(m).position;
     Vector3 Cushion(int k) => Get<Transform>(gd, "hallSeats").GetChild(k).position;
-    Vector3 CushionStand(int k) => Call<Vector3>(gd, "SeatStand", 60 + k);
-    Vector3 CushionLane(int k) => Call<Vector3>(gd, "SeatLane", 60 + k);
+    Vector3 CushionStand(int k) => Call<Vector3>(gd, "SeatStand", Od + k);
+    Vector3 CushionLane(int k) => Call<Vector3>(gd, "SeatLane", Od + k);
     string Slot(string id) => Call<string>(pil, "HallSlot", id);
 
     Component NpcFolk(string id)
@@ -194,7 +201,7 @@ public class HallCrowdTest
         {
             Vector3 p = pos[i] = all[i].transform.position;
             inH[i] = InHall(p);
-            near[i] = inH[i] || (p.z > 13.2f && p.z < 14.5f && Mathf.Abs(p.x) < 3f && p.y > 0.5f);
+            near[i] = inH[i] || (p.z > 15.2f && p.z < 16.7f && Mathf.Abs(p.x) < 10.5f && p.y > 0.9f);
         }
         // 殿里有几位香客
         int inside = 0;
@@ -269,7 +276,7 @@ public class HallCrowdTest
             if (onMat && idx == 1 && meIn && Time.time - playerInSince > 12f) { centreMatWhileIn++; Log($"！你在殿里时 {id} 在中间拜垫上（{s}）"); }
             // 你的蒲团、拜垫：香客不占
             if (mySeat == -2) mySeat = Get<int>(gd, "MySeat");
-            if (!onMat && mySeat == 60 + idx) { tookMine++; Log($"！{id} 坐在你的蒲团 {idx} 上"); }
+            if (!onMat && mySeat == Od + idx) { tookMine++; Log($"！{id} 坐在你的蒲团 {idx} 上"); }
             if (onMat && Flat(Me, Mat(idx)) < 0.2f && Get<bool>(gd, "PlayerResting")) { tookMine++; Log($"！{id} 和你在同一块拜垫 {idx} 上"); }
         }
     }
@@ -285,10 +292,10 @@ public class HallCrowdTest
             foreach (var f in npcs) if (Flat(f.transform.position, c) < r) return true;
             return false;
         }
-        for (int i = 0; i < 16; i++)
+        for (int i = 0; i < HallSeatN; i++)
         {
             bool sitting = npcs.Exists(f => Flat(f.transform.position, Cushion(i)) < 0.15f && !Moving(f));
-            bool free = Call<bool>(gd, "SeatFree", 60 + i);
+            bool free = Call<bool>(gd, "SeatFree", Od + i);
             if (sitting) Check(!free, $"{when} 蒲团{i} 上坐着香客，SeatFree 却是 true");
             else if (!Anyone(CushionStand(i), 1.0f) && !Anyone(Cushion(i), 1.0f)) Check(free, $"{when} 蒲团{i} 周围没人，SeatFree 却是 false");
         }
@@ -330,7 +337,7 @@ public class HallCrowdTest
                 {
                     Vector3 x = Vector3.MoveTowards(new Vector3(a.x, 0, a.z), new Vector3(b.x, 0, b.z), d);
                     if (x.z < 11f || Flat(x, r[0]) < 0.15f) continue;
-                    x.y = InHall(new Vector3(x.x, 0.72f, x.z)) ? 0.72f : 0.735f;
+                    x.y = InHall(new Vector3(x.x, hallFloor, x.z)) ? hallFloor : 1.08f;
                     foreach (var c in Physics.OverlapCapsule(x + Vector3.up * 0.3f, x + Vector3.up * 1.4f, 0.2f, ~0, QueryTriggerInteraction.Ignore))
                         if (HallSolid(c))
                         {
@@ -441,8 +448,9 @@ public class HallCrowdTest
             yield return OnlySent(60f);
             var cases = new (Vector3 me, int mat)[]
             {
-                (new Vector3(0.9f, 0.74f, 16.1f), 4), (new Vector3(-0.9f, 0.74f, 16.1f), 3), (new Vector3(0.9f, 0.74f, 16.1f), 0),
-                (new Vector3(0.2f, 0.74f, 15.6f), 4), (new Vector3(-0.5f, 0.74f, 16.6f), 2),
+                // 中门里一两米（门里那一点 z 17.34）：香客从中门进来正要经过的地方
+                (HP(0.9f, 18.45f), 4), (HP(-0.9f, 18.45f), 3), (HP(0.9f, 18.45f), 0),
+                (HP(0.2f, 17.95f), 4), (HP(-0.5f, 18.95f), 2),
             };
             Time.timeScale = 2f;
             foreach (var (me, mat) in cases)
@@ -531,14 +539,15 @@ public class HallCrowdTest
             int bow1 = CountEvents(events, "鞠躬") + CountEvents(events, "合掌");
             Log($"1 你在院子里 7 分钟：进殿 {in1} 次、跪拜 {kneel1}、鞠躬合掌 {bow1}、静坐 {sit1}、出殿 {out1}；殿里人数（按时间）{Hist()}最多 {maxInside} 位");
             Check(in1 >= 3, $"7（10）分钟只有 {in1} 位进殿");
-            Check(kneel1 + bow1 >= 2, $"7 分钟只拜了 {kneel1 + bow1} 次");
+            // 殿大了：从院子走到拜垫要四五十秒（老殿十几秒），7 分钟里拜的次数少一些
+            Check(kneel1 + bow1 >= 1, $"7 分钟只拜了 {kneel1 + bow1} 次");
             Check(sit1 >= 1, "7 分钟没人在殿里静坐");
             Check(out1 >= 2, $"7 分钟只有 {out1} 位出殿");
-            Check(maxInside <= 4, $"殿里一下子有 {maxInside} 位");
+            Check(maxInside <= 6, $"殿里一下子有 {maxInside} 位");
             Shot("court_view");
 
             // ── 2 你站在殿里过道东边（面朝佛像），快进 6 分钟：照样有人进出，但不去中间那块拜垫 ──
-            Teleport(new Vector3(0.9f, 0.74f, 16.1f), 0f);
+            Teleport(HP(0.9f, 26.0f), 0f);
             yield return new WaitForSeconds(1f);
             Time.timeScale = 6f;
             for (int k = 0; k < 18; k++)
@@ -557,31 +566,31 @@ public class HallCrowdTest
             yield return OnlySent(90f);
             // 3a 香客正走去西边内列第二个蒲团（1 号），走到离它 1–1.6 米时你在旁边点「坐下」（指定这一个）：你坐上，他让开
             {
-                Teleport(new Vector3(-0.9f, 0.74f, 16.6f), 270f);
+                Teleport(HP(-0.9f, 27.8f), 270f);
                 yield return new WaitForSeconds(0.5f);
                 string id = Call<string>(pil, "HallSend", "m", 1, 60f);
                 Assert.IsNotNull(id, "没有能请进殿的香客");
                 var nf = NpcFolk(id);
                 Vector3 st = CushionStand(1);
                 float t0 = Time.time;
-                while (Time.time - t0 < 60f && !(Slot(id) == "m1" && Flat(nf.transform.position, st) < 1.6f && Flat(nf.transform.position, st) > 1.0f)) { yield return null; Sample(); }
+                while (Time.time - t0 < 100f && !(Slot(id) == "m1" && Flat(nf.transform.position, st) < 1.6f && Flat(nf.transform.position, st) > 1.0f)) { yield return null; Sample(); }
                 Log($"3a 香客 {id} 走去蒲团1：{Slot(id)}，离站的地方 {Flat(nf.transform.position, st):F2} 米");
                 Check(Slot(id) == "m1", $"3a 香客没在去蒲团1 的路上（{Slot(id)}）");
                 // 离蒲团1 站的地方 0.8–1 米（站在 0.7 米以内香客就当你要坐、先让了，这里要的是两人同时去）、离香客最远的一点
-                Vector3 me = AwayFrom(nf, new Vector3(-3.5f, 0.74f, 15.5f), new Vector3(-3.45f, 0.74f, 16.35f), new Vector3(-3.3f, 0.74f, 15.95f), new Vector3(-4.0f, 0.74f, 15.0f));
+                Vector3 me = AwayFrom(nf, Rel(st, 0.9f, 0.02f, 0.25f), Rel(st, -0.9f, 0.02f, 0.25f), Rel(st, 0.6f, 0.02f, 0.7f), Rel(st, -0.6f, 0.02f, 0.7f));
                 Log($"3a 你从 {F(me)} 点坐下（离香客 {Flat(me, nf.transform.position):F2} 米）");
                 Teleport(me, 270f);
                 int n0 = sent.Count;
-                Cmd("{\"cmd\":\"sit\",\"seat\":61}");
+                Cmd("{\"cmd\":\"sit\",\"seat\":13}");
                 Reply sat = null;
                 yield return Wait("seated", 15f, n0, null, r => sat = r);
                 yield return Run(4f);
-                Log($"3a 你点坐下 61：{(sat != null ? $"坐在 {sat.seat}" : "没坐下")}，香客 {id} 现在 {Slot(id)}，在 {F(nf.transform.position)}，离蒲团1 {Flat(nf.transform.position, Cushion(1)):F2} 米");
-                Check(sat != null && sat.seat == 61, $"3a 你没坐上蒲团1（{sat?.seat}）");
+                Log($"3a 你点坐下 13：{(sat != null ? $"坐在 {sat.seat}" : "没坐下")}，香客 {id} 现在 {Slot(id)}，在 {F(nf.transform.position)}，离蒲团1 {Flat(nf.transform.position, Cushion(1)):F2} 米");
+                Check(sat != null && sat.seat == Od + 1, $"3a 你没坐上蒲团1（{sat?.seat}）");
                 Check(Slot(id) != "m1" && Slot(id) != "m1+", $"3a 香客还占着蒲团1（{Slot(id)}）");
                 Check(Flat(nf.transform.position, Cushion(1)) > 0.6f, "3a 香客还在蒲团1 跟前");
                 Check(events.Exists(e => e.Contains($"让开蒲团 {id}")), "3a 香客没让开");
-                yield return ShotFrom("race_seat", new Vector3(-2.6f, 1.6f, 14.9f), new Vector3(-4.4f, 0.8f, 16.2f), 50f);
+                yield return ShotFrom("race_seat", Rel(Cushion(1), 2.0f, 0.9f, -1.6f), Rel(Cushion(1), 0f, 0.1f, 0f), 50f);
                 n0 = sent.Count;
                 Cmd("{\"cmd\":\"stand\"}");
                 yield return Wait("arrived", 12f, n0, null, r => { });
@@ -589,14 +598,14 @@ public class HallCrowdTest
             }
             // 3b 香客正走去 0 号拜垫（中间西边那块），离它 1–1.8 米时你点「跪拜」（这一块）：你跪上去，他让开
             {
-                Teleport(new Vector3(-1.75f, 0.74f, 17.2f), 0f);
+                Teleport(Rel(Mat(0), -0.75f, 0.02f, -0.6f), 0f);
                 yield return new WaitForSeconds(0.5f);
                 string id = Call<string>(pil, "HallSend", "k", 0, 0f);
                 Assert.IsNotNull(id, "没有能请进殿的香客");
                 var nf = NpcFolk(id);
                 Vector3 mp = Mat(0);
                 float t0 = Time.time;
-                while (Time.time - t0 < 60f && !(Slot(id) == "k0" && Flat(nf.transform.position, mp) < 1.8f && Flat(nf.transform.position, mp) > 1.0f)) { yield return null; Sample(); }
+                while (Time.time - t0 < 100f && !(Slot(id) == "k0" && Flat(nf.transform.position, mp) < 1.8f && Flat(nf.transform.position, mp) > 1.0f)) { yield return null; Sample(); }
                 Log($"3b 香客 {id} 走去拜垫0：{Slot(id)}，离拜垫 {Flat(nf.transform.position, mp):F2} 米");
                 Check(Slot(id) == "k0", $"3b 香客没在去拜垫0 的路上（{Slot(id)}）");
                 int n0 = sent.Count;
@@ -611,7 +620,7 @@ public class HallCrowdTest
                     Sample();
                     for (int i = n0; i < sent.Count && done == null; i++) { var r = JsonUtility.FromJson<Reply>(sent[i]); if (r.type == "actionDone") done = r; }
                     if (Get<string>(folk, "actNow") == "Kowtow_Scrub" && Get<float>(folk, "bowPhase") > bow) { bow = Get<float>(folk, "bowPhase"); deepest = Me; }
-                    if (!shot3b && bow > 0.85f) { shot3b = true; yield return ShotFrom("race_mat", new Vector3(-2.2f, 1.5f, 16.3f), new Vector3(-0.6f, 0.7f, 17.9f), 50f); }
+                    if (!shot3b && bow > 0.85f) { shot3b = true; yield return ShotFrom("race_mat", Rel(Mat(0), -1.2f, 0.8f, -1.5f), Rel(Mat(0), 0.4f, 0f, 0.1f), 50f); }
                 }
                 Log($"3b 你点跪拜 0：{(done != null ? "做完了" : "没做完")}，叩首最深 {bow:F2} 时你在 {F(deepest)}（拜垫 {F(mp)}），香客 {id} 现在 {Slot(id)}，在 {F(nf.transform.position)}");
                 Check(done != null && bow > 0.85f, "3b 你没跪拜完");
@@ -622,28 +631,30 @@ public class HallCrowdTest
             }
             // 3c 香客已经坐在西边内列第三个蒲团（2 号）上：你站到它前面的走道上，「坐下」不报它；点坐下（指定它）坐到旁边空的那个
             {
-                Teleport(new Vector3(-1.4f, 0.74f, 16.2f), 270f);
+                Teleport(HP(-0.9f, 27.8f), 270f);
                 string id = Call<string>(pil, "HallSend", "m", 2, 120f);
                 Assert.IsNotNull(id);
-                yield return WaitSlot(id, "m2+", 60f);
+                yield return WaitSlot(id, "m2+", 100f);
                 yield return Run(5f);
                 Log($"3c 香客 {id}：{Slot(id)}");
                 Check(Slot(id) == "m2+", $"3c 香客没坐上蒲团2（{Slot(id)}）");
                 Vector3 lane = CushionLane(2);
-                Teleport(new Vector3(lane.x + 0.05f, 0.74f, lane.z), 270f);
+                // 蒲团左右隔 1.5 米（老殿 0.9 米）：站在它和旁边 1 号蒲团的走道之间、偏它这边一点，1.2 米以内够得着的空蒲团只有旁边那个
+                Vector3 lane1 = CushionLane(1);
+                Teleport(HP(Mathf.Lerp(lane.x, lane1.x, 0.42f), lane.z), 270f);
                 yield return Run(0.8f);
                 var nr = LastNear();
                 Log($"3c 站在蒲团2 前的走道上：near.seat {nr.seat}");
                 CheckFree("3c");
-                Check(nr.seat != 62 && nr.seat >= 60, $"3c near 报的蒲团不对（{nr.seat}）");
+                Check(nr.seat != Od + 2 && nr.seat >= Od, $"3c near 报的蒲团不对（{nr.seat}）");
                 int n0 = sent.Count;
-                Cmd("{\"cmd\":\"sit\",\"seat\":62}");
+                Cmd("{\"cmd\":\"sit\",\"seat\":14}");
                 Reply sat = null;
                 yield return Wait("seated", 15f, n0, null, r => sat = r);
                 yield return Run(3f);
-                Log($"3c 点坐下 62：{(sat != null ? $"坐在 {sat.seat}" : "没坐下")}，你在 {F(Me)}，香客还是 {Slot(id)}");
-                Check(sat != null && sat.seat >= 60 && sat.seat != 62, $"3c 应该坐到旁边空的蒲团（{sat?.seat}）");
-                yield return ShotFrom("occupied_seat", new Vector3(-2.3f, 1.55f, 17.6f), new Vector3(-4.6f, 0.75f, 16.4f), 50f);
+                Log($"3c 点坐下 14：{(sat != null ? $"坐在 {sat.seat}" : "没坐下")}，你在 {F(Me)}，香客还是 {Slot(id)}");
+                Check(sat != null && sat.seat >= Od && sat.seat != Od + 2, $"3c 应该坐到旁边空的蒲团（{sat?.seat}）");
+                yield return ShotFrom("occupied_seat", Rel(Cushion(2), 2.2f, 0.85f, 1.3f), Rel(Cushion(2), -0.3f, 0.05f, 0f), 50f);
                 n0 = sent.Count;
                 Cmd("{\"cmd\":\"stand\"}");
                 yield return Wait("arrived", 12f, n0, null, r => { });
@@ -651,12 +662,12 @@ public class HallCrowdTest
             }
             // 3d 香客已经跪在西边那块拜垫（3 号）上：你站在它旁边，near 不报它；点鞠躬（指定它）就原地拜，不走上去
             {
-                Teleport(new Vector3(-1.6f, 0.74f, 17.0f), 0f);
+                Teleport(HP(-3.0f, 27.8f), 0f);
                 string id = Call<string>(pil, "HallSend", "k", 3, 0f);
                 Assert.IsNotNull(id);
-                yield return WaitSlot(id, "k3+", 60f);
+                yield return WaitSlot(id, "k3+", 100f);
                 Check(Slot(id) == "k3+", $"3d 香客没跪上拜垫3（{Slot(id)}）");
-                Teleport(new Vector3(-2.9f, 0.74f, 18.65f), 0f);
+                Teleport(Rel(Mat(3), 0.7f, 0.02f, 0.15f), 0f);
                 yield return Run(0.8f);
                 var nr = LastNear();
                 Log($"3d 站在拜垫3 旁边：near.mat {nr.mat}");
@@ -681,7 +692,7 @@ public class HallCrowdTest
 
             // ── 4 拍：你站在过道里（中间拜垫后面偏西），中间两边的拜垫上各有人跪拜叩首、西边拜垫上有人跪着、两边蒲团上有人静坐 ──
             {
-                Teleport(new Vector3(-0.2f, 0.74f, 15.85f), 0f);
+                Teleport(HP(-0.2f, 27.2f), 0f);
                 // 一位一位请（平常进殿的人前后隔 10–28 秒，这里隔 7 秒）
                 string a = Call<string>(pil, "HallSend", "k", 0, 0f);
                 yield return Run(7f);
@@ -697,7 +708,7 @@ public class HallCrowdTest
                 var fe = NpcFolk(e);
                 float t0 = Time.time;
                 bool s1 = false, s2 = false, s3 = false, s4 = false, s5 = false;
-                while (Time.time - t0 < 100f && !(s1 && s2 && s3 && s4 && s5))
+                while (Time.time - t0 < 160f && !(s1 && s2 && s3 && s4 && s5))
                 {
                     yield return null;
                     Sample();
@@ -707,7 +718,7 @@ public class HallCrowdTest
                     // 镜头跟前没人走过（走进来的人从镜头前面过时整个画面被他挡住）
                     bool clear = !AllFolk().Exists(x => x != (Component)folk && Moving(x) && Flat(x.transform.position, Me) < 3f);
                     if (!s1 && kowA && kneelE && clear) { s1 = true; Shot("level_kowtow_both_sides"); }
-                    if (s1 && !s5) { s5 = true; yield return ShotFrom("door_wide", new Vector3(1.25f, 2.35f, 14.9f), new Vector3(-0.7f, 0.75f, 17.7f), 58f); }
+                    if (s1 && !s5) { s5 = true; yield return ShotFrom("door_wide", new Vector3(2.6f, 3.4f, 21.6f), new Vector3(-0.7f, 1.3f, 29.2f), 58f); }
                     if (!s2 && kowA) { s2 = true; yield return ShotFrom("kowtow_side", fa.transform.position + new Vector3(-1.5f, 1.15f, -1.2f), fa.transform.position + new Vector3(0, 0.45f, 0.35f), 46f); }
                     if (!s3 && sitC) { s3 = true; yield return ShotFrom("meditate_west", Cushion(2) + new Vector3(1.7f, 1.05f, -0.9f), Cushion(2) + new Vector3(0, 0.55f, 0), 46f); }
                     if (!s4 && Slot(d) == "k3+" && Get<string>(NpcFolk(d), "actNow") == "Kneel_Loop") { s4 = true; yield return ShotFrom("kneel_west_mat", Mat(3) + new Vector3(-1.3f, 1.2f, -1.6f), Mat(3) + new Vector3(0, 0.55f, 0.4f), 46f); }
@@ -733,20 +744,20 @@ public class HallCrowdTest
                         // 那两位自己走在拜垫那边（镜头前面隔着你），不算挡镜头
                         bool clear = !AllFolk().Exists(x => x != (Component)folk && x != fa && x != fe && Moving(x) && Flat(x.transform.position, Me) < 3f);
                         if (!s1 && both && clear) { s1 = true; Shot("level_kowtow_both_sides"); }
-                        if (s1 && !s5) { s5 = true; yield return ShotFrom("door_wide", new Vector3(1.25f, 2.35f, 14.9f), new Vector3(-0.7f, 0.75f, 17.7f), 58f); }
+                        if (s1 && !s5) { s5 = true; yield return ShotFrom("door_wide", new Vector3(2.6f, 3.4f, 21.6f), new Vector3(-0.7f, 1.3f, 29.2f), 58f); }
                     }
                 }
                 Check(s1 && s2 && s3 && s4 && s5, $"4 没拍全：{s1} {s2} {s3} {s4} {s5}");
                 // 你坐到西边内列第二个蒲团（1 号）上：殿里静坐时的平视，对面东边蒲团上有人静坐、供桌前有人在拜
-                for (float t = 0; t < 40f && Slot(b) != "m10+"; t += Time.deltaTime) { yield return null; Sample(); }
+                for (float t = 0; t < 60f && Slot(b) != "m10+"; t += Time.deltaTime) { yield return null; Sample(); }
                 int n0 = sent.Count;
                 Teleport(CushionLane(1) + new Vector3(0.25f, 0.02f, -0.2f), 270f);
-                Cmd("{\"cmd\":\"sit\",\"seat\":61}");
+                Cmd("{\"cmd\":\"sit\",\"seat\":13}");
                 Reply sat = null;
                 yield return Wait("seated", 15f, n0, null, r => sat = r);
                 yield return Run(3.5f);
                 Shot("seated_west_view");
-                Check(sat != null && sat.seat == 61, $"4 没坐上蒲团1（{sat?.seat}）");
+                Check(sat != null && sat.seat == Od + 1, $"4 没坐上蒲团1（{sat?.seat}）");
                 // 夜里
                 Cmd("{\"cmd\":\"sky\",\"time\":\"night\",\"weather\":\"clear\",\"instant\":true}");
                 yield return Run(2f);
@@ -758,7 +769,7 @@ public class HallCrowdTest
                 // 都出殿：拜垫、蒲团全放掉
                 yield return OnlySent(200f);
                 int held = 0;
-                for (int i = 0; i < 16; i++) if (Call<bool>(pil, "HallSeatTaken", i)) held++;
+                for (int i = 0; i < HallSeatN; i++) if (Call<bool>(pil, "HallSeatTaken", i)) held++;
                 for (int i = 0; i < 5; i++) if (Call<bool>(pil, "HallMatTaken", i)) held++;
                 Log($"4 都出殿以后：殿里那一段 {Get<int>(pil, "HallVisitors")} 位，还占着的拜垫蒲团 {held} 个");
                 Check(Get<int>(pil, "HallVisitors") == 0 && held == 0, "4 出殿以后还占着东西");

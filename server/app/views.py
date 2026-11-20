@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from .ai import templates
 from .coins import daily_counts, today
+from .islet import bag_view
 from .models import Affirmation, CoinEntry, Destiny, FriendRequest, Friendship, Owned, Pet, User, VisionItem, Wish
 
 
@@ -67,6 +68,8 @@ def state(db: Session, u: User) -> dict:
         "pets": [{"id": p.id, "name": p.name, "kind": p.kind, "photo": p.photo_url} for p in db.scalars(select(Pet).where(Pet.user_id == u.id).order_by(Pet.id))],
         "owned": [o.item_id for o in owned],
         "equipped": [o.item_id for o in owned if o.equipped],
+        # 湖心小寺的背包：鱼、口粮、收藏品
+        "bag": bag_view(db, u),
         "friends": [brief(db, f, u) for f in (db.get(User, i) for i in friend_ids) if f is not None],
         "requests": [{"id": r.id, "user": brief(db, db.get(User, r.from_id), u), "ts": ms(r.created_at)} for r in requests],
         "daily": daily_counts(db, u),

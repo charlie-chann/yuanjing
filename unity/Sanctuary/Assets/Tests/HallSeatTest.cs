@@ -10,7 +10,7 @@ using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
 
 /// 评审第三轮（p3_fix1）的几处，用真的游戏量：
-/// 1. 殿里 16 个蒲团挨个坐一遍：平视镜头离人至少 1.5 米（以前靠墙那一列只剩 0.7 米，画面下面三分之一是后脑勺），各拍一张；
+/// 1. 殿里 15 个蒲团挨个坐一遍：平视镜头离人至少 1.5 米（以前靠墙那一列只剩 0.7 米，画面下面三分之一是后脑勺），各拍一张；
 ///    坐着时从正前方贴近拍脸（头顶在画面最上沿、不留空）：脸那一块不能是一整块深色（以前蒙皮网格的包围盒是站着的那一份，坐下以后脸被当成在画面外裁掉）。
 /// 2. 坐下、起身（院子里、殿里各一次）：每帧画完以后（所有 LateUpdate 之后）量髋挪了多少、身子转了多少——一帧里蹿 8 厘米以上、转 25 度以上都算「跳」。
 /// 3. 上下大殿的台阶（「进殿」自动走、「出殿」、摇杆推着走）：每帧量两只脚的脚底比台阶面低多少（插进去多深）、身子一帧里上下蹿多少。
@@ -199,7 +199,7 @@ public class HallSeatTest
         File.WriteAllText($"{Dir}/report.txt", report.ToString());
     }
 
-    /// 1. 殿里 16 个蒲团挨个坐：镜头离人多远、脸画出来没有
+    /// 1. 殿里 15 个蒲团挨个坐：镜头离人多远、脸画出来没有
     [UnityTest, Timeout(1200000)]
     public IEnumerator SeatViews()
     {
@@ -222,7 +222,7 @@ public class HallSeatTest
                 Vector3 stand = Call<Vector3>(gd, "SeatStand", seat);
                 Vector3 fwd = Call<Vector3>(gd, "SeatFwd", seat);
                 Vector3 p = stand + fwd * 0.5f;
-                p.y = 0.76f;
+                p.y = Get<float>(gd, "hallFloor") + 0.04f;
                 Teleport(p, Quaternion.LookRotation(-fwd).eulerAngles.y);
                 yield return new WaitForSeconds(0.6f);
                 n0 = sent.Count;
@@ -286,10 +286,13 @@ public class HallSeatTest
         {
             Time.captureFramerate = 30;
             Cmd("{\"cmd\":\"view\",\"kind\":\"level\"}");
-            // ── 坐下、起身：院子里 13 号、殿里 62 号 ──
-            foreach (int seat in new[] { 13, 62 })
+            // ── 坐下、起身：院子里的石凳挑一个没人坐的、殿里第 3 个蒲团 ──
+            int outdoorN = Get<int>(gd, "OutdoorSeats");
+            int freeBench = 1;
+            for (int i = 0; i < outdoorN; i++) if (Call<bool>(gd, "SeatFree", i)) { freeBench = i; break; }
+            foreach (int seat in new[] { freeBench, outdoorN + 2 })
             {
-                if (seat >= 60)
+                if (seat >= outdoorN)
                 {
                     int g0 = sent.Count;
                     Cmd("{\"cmd\":\"goto\",\"spot\":\"inhall\"}");

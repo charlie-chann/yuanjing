@@ -99,6 +99,23 @@ public class TextureRules : AssetPostprocessor
         if (assetPath.StartsWith("Assets/Toon/Textures/"))
         {
             bool grain = name.Contains("grain");
+            // 湖心小寺的地面（2026-11-19 岛扩大以后是 8192 × 8192，一个像素约 1 厘米）：保持 8192，用 ASTC 8×8（包里约 22 MB）。
+            // 照别的贴图那样限到 4096、ASTC 5×5 是 14 MB，但一个像素 2 厘米，比扩建前（1.4 厘米）还糊；8192 用 5×5 要 57 MB，用不起
+            if (name == "islet_ground")
+            {
+                imp.maxTextureSize = 8192;
+                imp.mipmapEnabled = true;
+                imp.filterMode = FilterMode.Trilinear;
+                imp.anisoLevel = 8;
+                imp.wrapMode = TextureWrapMode.Clamp;
+                imp.sRGBTexture = true;
+                var gios = imp.GetPlatformTextureSettings("iPhone");
+                gios.overridden = true;
+                gios.maxTextureSize = 8192;
+                gios.format = TextureImporterFormat.ASTC_8x8;
+                imp.SetPlatformTextureSettings(gios);
+                return;
+            }
             imp.maxTextureSize = 4096;
             imp.mipmapEnabled = true;
             imp.filterMode = FilterMode.Trilinear;

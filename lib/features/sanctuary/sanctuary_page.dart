@@ -9,6 +9,8 @@ import 'package:yuanjing_engine/yuanjing_engine.dart';
 import '../../app/skin.dart';
 import '../../app/store.dart';
 import '../wish/wish_answer.dart';
+import 'bag_sheet.dart';
+import 'sanctuary_hud.dart';
 import 'sanctuary_ui.dart';
 import 'wish_mask.dart';
 
@@ -57,7 +59,7 @@ const sanctuaryScenes = [
     line: '坐船上岛，石台上有蒲团，树下挂着许愿的红布条',
     image: 'assets/sanctuary/islet.jpg',
     places: {'court': '岛上', 'tree': '许愿树下', 'burner': '香炉前', 'hall': '大殿前', 'inhall': '大殿里'},
-    goTo: {'court': '起身走走', 'tree': '去许愿树', 'burner': '去香炉', 'hall': '去大殿', 'inhall': '进殿'},
+    goTo: {},
     seatName: '石台',
     offers: {
       'tree': [('ribbon', '挂红布条', true), ('plaque', '挂木牌', true)],
@@ -125,35 +127,30 @@ class _SanctuaryPageState extends State<SanctuaryPage> with TickerProviderStateM
   String? _pendingWish;
   String? _pendingMask;
 
-  /// 视角：top 俯视、level 平视、low 仰视、first 第一人称；放大倍数（双指捏合，1 到 8）
-  String _view = 'top';
-  /// 在大殿里：Unity 锁成平视，俯视、仰视的签子收起来（只剩平视、第一人称）
-  bool _viewLocked = false;
-  /// 大殿能不能走进去（Unity 进场时报的）
-  bool _hallOpen = false;
-  final ValueNotifier<double> _zoom = ValueNotifier(1);
-  double _zoomStart = 1;
+  /// 镜头离人的远近是平常的几倍（双指捏合：张开拉近、合拢拉远；Unity 那边按殿里殿外各自的上限再夹一遍）
+  double _reach = 1;
+  double _reachStart = 1;
 
-  void _setView(String mode) {
-    if (mode == _view) return;
-    if (_viewLocked && mode != 'level' && mode != 'first') return;
-    setState(() => _view = mode);
-    _send({'cmd': 'view', 'kind': mode});
-  }
-
-  void _setZoom(double z) {
-    z = z.clamp(1.0, 8.0);
-    if ((z - _zoom.value).abs() < 0.005) return;
-    _zoom.value = z;
-    _send({'cmd': 'zoom', 'x': z});
+  void _setReach(double r) {
+    r = r.clamp(0.45, 4.2);
+    if ((r - _reach).abs() < 0.01) return;
+    _reach = r;
+    _send({'cmd': 'reach', 'x': r});
   }
 
   /// 岛上的小动物：编号 → 服务器给的那一份（名字、交情、等级……）
   final Map<String, Map<String, dynamic>> _pets = {};
   /// 这会儿身边是哪一只（空字符串是没有）、是不是站在水边、身边最近的空蒲团（-1 是没有：走到蒲团跟前才显示「坐下」）
   String _nearPet = '';
-  bool _nearWater = false;
+  /// 身边的水：sea 湖、pond 小池塘、空字符串是不在水边
+  String _nearWater = '';
+  /// 附近有落在地上的小鸟、站在钟亭边
+  bool _nearBird = false;
+  bool _nearBell = false;
   int _nearSeat = -1;
+  /// 钓鱼到哪一步了：空字符串是没在钓；cast 竿刚甩出去、wait 等咬钩、bite 咬钩了、lift 提上来了（等服务器说是什么鱼、看鱼）
+  String _fish = '';
+  Duration _biteWindow = const Duration(milliseconds: 1800);
   /// 殿里：身边 0.9 米内的拜垫（-1 是没有）、是不是站在中间供桌前（能上香）
   int _nearMat = -1;
   bool _nearAltar = false;
@@ -251,30 +248,30 @@ class _SanctuaryPageState extends State<SanctuaryPage> with TickerProviderStateM
           _nearSeat = -1;
           _nearMat = -1;
           _nearAltar = false;
-          _viewLocked = false;
-          _hallOpen = msg['hall'] == true;
+          _nearBird = false;
+          _nearBell = false;
+          _nearWater = '';
+          _fish = '';
         });
         _send({'cmd': 'audio', 'on': _sound, 'volume': 1});
-        // 场景在后台一直留着：上次离开时的视角和放大倍数按这边记的重新对一遍
-        _send({'cmd': 'view', 'kind': _view});
-        _send({'cmd': 'zoom', 'x': _zoom.value});
+        // 场景在后台一直留着：上次离开时镜头的远近按这边记的重新对一遍
+        _send({'cmd': 'reach', 'x': _reach});
         _beat();
         _beatTimer?.cancel();
         _beatTimer = Timer.periodic(const Duration(seconds: 6), (_) => _beat());
         _loadPets();
       case 'view':
-        final m = msg['mode'] as String?;
-        // 进殿时 Unity 把放大放回 1 倍（殿里平视镜头离人很近），这边的放大标签跟着回去
-        final z = (msg['zoom'] as num?)?.toDouble();
-        if (z != null && (z - _zoom.value).abs() > 0.01) _zoom.value = z;
-        setState(() {
-          if (m != null) _view = m;
-          _viewLocked = msg['locked'] == true;
-        });
+        // 进出大殿时 Unity 会把远近按屋里的上限夹一遍，这边跟着记
+        final r = (msg['reach'] as num?)?.toDouble();
+        if (r != null) _reach = r;
+      case 'fish':
+        _onFish(msg);
       case 'near':
         setState(() {
           _nearPet = (msg['pet'] as String?) ?? '';
-          _nearWater = msg['water'] == true;
+          _nearWater = (msg['water'] as String?) ?? '';
+          _nearBird = msg['bird'] == true;
+          _nearBell = msg['bell'] == true;
           _nearSeat = (msg['seat'] as num?)?.toInt() ?? -1;
           _nearMat = (msg['mat'] as num?)?.toInt() ?? -1;
           _nearAltar = msg['altar'] == true;
@@ -368,61 +365,220 @@ class _SanctuaryPageState extends State<SanctuaryPage> with TickerProviderStateM
       final list = <String>[];
       for (final p in (r['pets'] as List).cast<Map<String, dynamic>>()) {
         _pets[p['id'] as String] = p;
-        list.add('${p['id']}:${p['level']}:${p['greet'] == true ? 1 : 0}:${p['gift'] != null ? 1 : 0}');
+        // 第五段：今天它叼来的是哪样收藏品（Unity 照着换嘴里叼的模型）
+        list.add('${p['id']}:${p['level']}:${p['greet'] == true ? 1 : 0}:${p['gift'] != null ? 1 : 0}:${p['gift_item'] ?? ''}');
       }
       _send({'cmd': 'pets', 'list': list.join('|')});
       setState(() {});
     } catch (_) {}
   }
 
-  Future<void> _petAct(String id, String action) async {
+  String _petName(String id) => (_pets[id]?['name'] as String?) ?? '它';
+
+  /// 摸一摸
+  Future<void> _stroke(String id) async {
     if (_busy) return;
-    final name = (_pets[id]?['name'] as String?) ?? '它';
+    final name = _petName(id);
     YuanjingHaptics.play('tick');
     if (!store.online) {
-      _send({'cmd': 'petact', 'id': id, 'action': action, 'seat': 0});
+      _send({'cmd': 'petact', 'id': id, 'action': 'pet', 'seat': 0});
       return;
     }
     try {
-      final r = (await store.api.post('/pets/$id/$action', {})) as Map<String, dynamic>;
+      final r = await store.strokePet(id);
       if (!mounted) return;
-      _pets[id] = r;
-      _send({'cmd': 'petact', 'id': id, 'action': action, 'seat': (r['level'] as num?)?.toInt() ?? 0});
-      if (action == 'feed') store.refresh();
+      _pets[id] = {...?_pets[id], ...r};
+      _send({'cmd': 'petact', 'id': id, 'action': 'pet', 'seat': (r['level'] as num?)?.toInt() ?? 0});
       final String line;
       if (r['level_up'] == true) {
         line = '$name和你更熟了：${r['level_name']}';
       } else if (r['counted'] != true) {
-        line = action == 'feed' ? '$name吃得很香。今天的交情已经涨满了，明天再来。' : '$name很受用。今天的交情已经涨满了，明天再来。';
+        line = '$name很受用。今天摸它的亲密度已经涨满了，明天再来。';
       } else {
         final next = r['next'];
-        final left = next == null ? '' : '（${r['affinity']} / $next）';
-        line = action == 'feed' ? '$name吃得很香（花了 $_feedCost 金币），交情 +2$left' : '$name蹭了蹭你的手，交情 +1$left';
+        line = '$name蹭了蹭你的手，亲密度 +1${next == null ? '' : '（${r['affinity']} / $next）'}';
       }
-      _say(line, const Duration(milliseconds: 2400));
+      await _say(line, const Duration(milliseconds: 2400));
+      _milestone(r);
     } on ApiError catch (e) {
       if (mounted) _say(e.message, const Duration(seconds: 2));
     } catch (_) {}
   }
 
-  /// 它把礼物放到脚边了：收下，换成金币
+  /// 喂它：从背包里挑一样（钓的鱼、买的口粮），或者花金币喂一把普通口粮
+  Future<void> _feedPet(String id) async {
+    if (_busy) return;
+    final name = _petName(id);
+    if (!store.online) {
+      YuanjingHaptics.play('tick');
+      _send({'cmd': 'petact', 'id': id, 'action': 'feed', 'seat': 0});
+      return;
+    }
+    // 弹层返回挑中的东西的编号；空字符串是「一把普通口粮」（花金币）；null 是没挑
+    final item = await showBagSheet(context, feedTo: id, feedToName: name, feedCost: _feedCost);
+    if (item == null || !mounted) return;
+    YuanjingHaptics.play('tick');
+    try {
+      final r = await store.feedPet(id, item: item.isEmpty ? null : item);
+      if (!mounted) return;
+      _pets[id] = {...?_pets[id], ...r};
+      _send({'cmd': 'petact', 'id': id, 'action': 'feed', 'seat': (r['level'] as num?)?.toInt() ?? 0, 'item': item});
+      store.refresh();
+      final gain = (r['gain'] as num?)?.toInt() ?? 0;
+      final reaction = (r['reaction'] as String?) ?? '';
+      final String line;
+      if (r['level_up'] == true) {
+        line = '$name和你更熟了：${r['level_name']}';
+      } else if (reaction.isNotEmpty) {
+        line = gain > 0 ? '$reaction 亲密度 +$gain' : '$reaction 今天喂它的亲密度已经涨满了。';
+      } else if (r['counted'] != true || gain <= 0) {
+        line = '$name吃得很香。今天喂它的亲密度已经涨满了，明天再来。';
+      } else {
+        final next = r['next'];
+        line = '$name吃得很香，亲密度 +$gain${next == null ? '' : '（${r['affinity']} / $next）'}';
+      }
+      await _say(line, const Duration(milliseconds: 2600));
+      _milestone(r);
+    } on ApiError catch (e) {
+      if (mounted) _say(e.message, const Duration(seconds: 2));
+    } catch (_) {}
+  }
+
+  /// 亲密度过了一个门槛：它送来一份礼物（金币、收藏品，或者一件商城里的专属物品）
+  void _milestone(Map<String, dynamic> r) {
+    final m = r['milestone'];
+    if (m is! Map || !mounted) return;
+    store.refresh();
+    YuanjingHaptics.play('tick');
+    final text = (m['text'] as String?) ?? '';
+    final coins = (m['coins'] as num?)?.toInt() ?? 0;
+    if (coins > 0) coinToast(context, coins, text.isEmpty ? '${r['name']}送你的礼物' : text);
+    if (text.isNotEmpty) _say(text, const Duration(milliseconds: 3600));
+  }
+
+  /// 它把礼物放到脚边了：收下，放进背包
   Future<void> _petGift(String id) async {
     if (!store.online || id.isEmpty) return;
     try {
-      final r = (await store.api.post('/pets/$id/gift', {})) as Map<String, dynamic>;
+      final r = await store.takePetGift(id);
+      if (!mounted) return;
       final got = (r['got'] as num?)?.toInt() ?? 0;
-      if (got <= 0 || !mounted) return;
+      final what = (r['what'] as String?) ?? '';
+      if (got <= 0 && r['item'] == null) return;
       _pets[id]?['gift'] = null;
       store.refresh();
       YuanjingHaptics.play('tick');
-      coinToast(context, got, '${r['name']}送你${r['what']}');
-      _say('${r['name']}叼来${r['what']}，放在你脚边。', const Duration(seconds: 3));
+      if (got > 0) coinToast(context, got, '${r['name']}送你$what');
+      _say(r['item'] != null ? '${r['name']}叼来$what，放在你脚边。已经收进背包了。' : '${r['name']}叼来$what，放在你脚边。', const Duration(seconds: 3));
     } catch (_) {}
   }
 
   void _feedWild(String kind) {
     YuanjingHaptics.play('tick');
     _send({'cmd': 'feed', 'kind': kind});
+  }
+
+  /// 敲钟
+  void _ring() {
+    if (_moving || _busy) return;
+    YuanjingHaptics.play('tick');
+    _markBusy();
+    _send({'cmd': 'ring'});
+  }
+
+  // ── 钓鱼 ──
+
+  /// 鱼提出水面了（Unity 的 shown）
+  Completer<void>? _fishShown;
+  bool _fishHinted = false;
+
+  void _castLine() {
+    if (_moving || _busy || _fish.isNotEmpty) return;
+    YuanjingHaptics.play('tick');
+    setState(() => _fish = 'cast');
+    _send({'cmd': 'fish', 'action': 'cast'});
+  }
+
+  void _reel() {
+    if (_fish != 'wait' && _fish != 'bite') return;
+    YuanjingHaptics.play('tick');
+    _send({'cmd': 'fish', 'action': 'reel'});
+  }
+
+  void _stopFishing() {
+    _send({'cmd': 'fish', 'action': 'stop'});
+    if (mounted) setState(() => _fish = '');
+  }
+
+  void _onFish(Map<String, dynamic> msg) {
+    switch (msg['state']) {
+      case 'cast':
+        setState(() => _fish = 'wait');
+        if (!_fishHinted) {
+          _fishHinted = true;
+          _say('盯着浮漂。它往下一沉，就点「提竿」。', const Duration(milliseconds: 3200));
+        }
+      case 'bite':
+        final w = (msg['window'] as num?)?.toDouble() ?? 1.8;
+        YuanjingHaptics.play('tick');
+        setState(() {
+          _biteWindow = Duration(milliseconds: (w * 1000).round());
+          _fish = 'bite';
+        });
+      case 'missed':
+        setState(() => _fish = 'wait');
+        _say('慢了一步，鱼跑了。再等等。', const Duration(milliseconds: 1800));
+      case 'early':
+        setState(() => _fish = '');
+        _say('提早了，鱼还没咬钩。', const Duration(milliseconds: 1800));
+      case 'hooked':
+        setState(() => _fish = 'lift');
+        _landFish((msg['spot'] as String?) ?? 'sea');
+      case 'shown':
+        _fishShown?.complete();
+        _fishShown = null;
+      case 'ended':
+        if (_fish.isNotEmpty) setState(() => _fish = '');
+    }
+  }
+
+  /// 提竿提中了：问服务器钓到的是什么，让 Unity 把它提出水面，再出一张卡片
+  Future<void> _landFish(String spot) async {
+    Map<String, dynamic> fish;
+    Map<String, dynamic> extra = const {};
+    if (!store.online) {
+      // 没联网：钓着玩，不进背包
+      fish = spot == 'pond'
+          ? {'id': 'crucian', 'name': '鲫鱼', 'rarity': 'common', 'about': '没联网，这条先放回水里。', 'size_cm': 14}
+          : {'id': 'whitebait', 'name': '白条', 'rarity': 'common', 'about': '没联网，这条先放回水里。', 'size_cm': 12};
+    } else {
+      try {
+        final r = await store.catchFish(spot, time: _timeShown, weather: _weatherShown);
+        fish = (r['fish'] as Map).cast<String, dynamic>();
+        extra = {'count': r['count'], 'left': r['left'], 'got': r['got']};
+      } on ApiError catch (e) {
+        _stopFishing();
+        if (mounted) _say(e.message, const Duration(milliseconds: 2600));
+        return;
+      } catch (_) {
+        _stopFishing();
+        if (mounted) _say('线断了，鱼跑了。', const Duration(seconds: 2));
+        return;
+      }
+    }
+    if (!mounted) return;
+    final shown = _fishShown = Completer<void>();
+    _send({'cmd': 'fish', 'action': 'show', 'kind': fish['id']});
+    await shown.future.timeout(const Duration(seconds: 4), onTimeout: () {});
+    if (!mounted) return;
+    YuanjingHaptics.play('tick');
+    final got = (extra['got'] as num?)?.toInt() ?? 0;
+    if (got > 0) {
+      store.refresh();
+      coinToast(context, got, '第一次钓到${fish['name']}');
+    }
+    await showFishCaught(context, {...fish, ...extra});
+    _stopFishing();
   }
 
   // ── 和服务器同步：谁在场、天气、别人留下的心意 ──
@@ -519,12 +675,6 @@ class _SanctuaryPageState extends State<SanctuaryPage> with TickerProviderStateM
   }
 
   // ── 走动和动作 ──
-
-  void _go(String spot) {
-    if (_moving || _busy) return;
-    YuanjingHaptics.play('tick');
-    _send({'cmd': 'goto', 'spot': spot});
-  }
 
   /// 坐到身边那个空蒲团上（Unity 报的最近的一个）
   void _sit() {
@@ -787,87 +937,45 @@ class _SanctuaryPageState extends State<SanctuaryPage> with TickerProviderStateM
       ? (_seat >= _seats ? scene.places['inhall'] ?? '' : scene.places['court'] ?? '')
       : scene.places[_at] ?? '';
 
-  List<PlaqueAction> _actions() {
-    final base = _placeActions();
-    final extra = <PlaqueAction>[];
-    final pet = _pets[_nearPet];
-    if (pet != null) {
-      final name = pet['name'] as String;
-      extra.add(PlaqueAction('摸摸$name', primary: true, onTap: () => _petAct(_nearPet, 'pet')));
-      extra.add(PlaqueAction('喂$name', onTap: () => _petAct(_nearPet, 'feed')));
-    }
-    if (_nearWater) extra.add(PlaqueAction('喂鱼', primary: extra.isEmpty && base.isEmpty, onTap: () => _feedWild('fish')));
-    if (_at == 'court' && _seat < 0) extra.add(PlaqueAction('喂小鸟', onTap: () => _feedWild('birds')));
-    if (extra.isEmpty) return base;
-    // 小动物在身边时，摸它是第一块（朱漆的），原来的第一块退成普通的
-    final lead = extra.where((a) => a.primary || pet != null && a.label.startsWith('喂') && a.label != '喂鱼' && a.label != '喂小鸟').toList();
-    final tail = extra.where((a) => !lead.contains(a)).toList();
-    return [
-      ...lead,
-      for (final a in base) lead.isEmpty ? a : PlaqueAction(a.label, onTap: a.onTap),
-      ...tail,
-    ];
-  }
-
-  /// 人在大殿里面（站着，或者坐在殿里的蒲团上：Unity 这时锁着平视）
-  bool get _inHall => _at == 'inhall' || _viewLocked || (_at == 'seat' && _seat >= _seats);
-
-  List<PlaqueAction> _placeActions() {
-    final here = scene.offers[_at] ?? const <(String, String, bool)>[];
-    final offers = [for (var i = 0; i < here.length; i++) PlaqueAction(here[i].$2, primary: i == 0, onTap: () => _offer(here[i].$1, here[i].$2, here[i].$3))];
-    final inHall = _inHall;
-    final others = [
-      for (final spot in scene.places.keys)
-        if (spot != _at && spot != 'court' && (spot != 'inhall' || (_hallOpen && !inHall)))
-          // 在殿里时「去大殿」就是走出殿门、站到殿前
-          PlaqueAction(inHall && spot == 'hall' ? '出殿' : scene.goTo[spot]!, onTap: () => _go(spot)),
-    ];
+  /// 此刻身边能做的事（画面右边那一列）。走到跟前才有：没有「去某处」的按钮，路自己走
+  List<HudPrompt> _prompts() {
+    if (_fish.isNotEmpty) return const [];
+    // 自己走去坐的那几步：只留一条「停下」
+    if (_moving) return _at.isEmpty ? const [] : [HudPrompt('停下', 'stand', () => _send({'cmd': 'halt'}))];
     if (_at == 'seat') {
       return [
-        PlaqueAction('许愿', primary: true, onTap: _wish),
-        PlaqueAction('合掌', onTap: () => _act('pray')),
-        PlaqueAction('鞠躬', onTap: () => _act('bow')),
-        // 坐着不给「跪拜」：盘坐在圆蒲团上跪不下去（膝盖、小腿会插进蒲团里）；要跪拜先起身，走到拜垫或空地上
-        PlaqueAction('静坐', onTap: _meditate),
-        PlaqueAction('起身', onTap: _stand),
-        ...others,
+        HudPrompt('许愿', 'wish', _wish),
+        HudPrompt('静坐', 'calm', _meditate),
+        HudPrompt('起身', 'stand', _stand),
       ];
     }
-    // 走到蒲团跟前（Unity 报了身边有空蒲团）才有「坐下」，坐的是最近的那个
-    final sit = _nearSeat >= 0;
-    if (_at == 'inhall') {
-      // 大殿里：站在中间供桌前能上香；走到拜垫跟前，跪拜、鞠躬、合掌都在那块拜垫上做（面朝佛像）；走到静坐的蒲团跟前能坐下。
-      // 站在拜垫上（中间那块离供桌也不远，上香也有）：跪拜在前、是主按钮，上香跟在后面
-      final mat = _nearMat >= 0 ? _nearMat : null;
-      final onMat = mat != null;
-      return [
-        if (onMat) PlaqueAction('跪拜', primary: true, onTap: () => _act('kneel', mat: mat)),
-        if (_nearAltar) PlaqueAction('上香', primary: !onMat, onTap: () => _offer('incense', '上香', false)),
-        if (sit) PlaqueAction('坐下', primary: !onMat && !_nearAltar, onTap: _sit),
-        if (!onMat) PlaqueAction('跪拜', onTap: () => _act('kneel')),
-        PlaqueAction('鞠躬', onTap: () => _act('bow', mat: mat)),
-        PlaqueAction('合掌', primary: !onMat && !_nearAltar && !sit, onTap: () => _act('pray', mat: mat)),
-        ...others,
-      ];
+    final out = <HudPrompt>[];
+    if (_nearPet.isNotEmpty) {
+      final id = _nearPet;
+      final name = _pets[id] == null ? '' : _petName(id);
+      out.add(HudPrompt('抚摸$name', 'paw', () => _stroke(id)));
+      out.add(HudPrompt('喂食$name', 'food', () => _feedPet(id)));
     }
-    if (_at == 'court') {
-      return [
-        if (sit) PlaqueAction('坐下', primary: true, onTap: _sit),
-        PlaqueAction('合掌', primary: !sit, onTap: () => _act('pray')),
-        PlaqueAction('鞠躬', onTap: () => _act('bow')),
-        PlaqueAction('跪拜', onTap: () => _act('kneel')),
-        ...others,
-      ];
+    // 许愿树下挂布条、木牌，香炉前上香
+    for (final o in scene.offers[_at] ?? const <(String, String, bool)>[]) {
+      out.add(HudPrompt(o.$2, o.$1 == 'incense' ? 'incense' : o.$1, () => _offer(o.$1, o.$2, o.$3)));
     }
-    if (_at.isEmpty) return const [];
-    return [
-      ...offers,
-      if (sit) PlaqueAction('坐下', primary: offers.isEmpty, onTap: _sit),
-      PlaqueAction('合掌', primary: offers.isEmpty && !sit, onTap: () => _act('pray')),
-      PlaqueAction('鞠躬', onTap: () => _act('bow')),
-      PlaqueAction('跪拜', onTap: () => _act('kneel')),
-      ...others,
-    ];
+    if (_at == 'inhall' && _nearAltar) out.add(HudPrompt('上香', 'incense', () => _offer('incense', '上香', false)));
+    // 走到垫子跟前才能跪拜：拜垫上（面朝佛像），或者蒲团旁边
+    if (_nearMat >= 0) {
+      final mat = _nearMat;
+      out.add(HudPrompt('跪拜', 'kneel', () => _act('kneel', mat: mat)));
+    } else if (_nearSeat >= 0) {
+      out.add(HudPrompt('跪拜', 'kneel', () => _act('kneel')));
+    }
+    if (_nearSeat >= 0) out.add(HudPrompt('坐下', 'sit', _sit));
+    if (_nearBell) out.add(HudPrompt('敲钟', 'bell', _ring));
+    if (_nearBird) out.add(HudPrompt('喂小鸟', 'bird', () => _feedWild('birds')));
+    if (_nearWater.isNotEmpty) {
+      out.add(HudPrompt('钓鱼', 'fish', _castLine));
+      if (_nearWater == 'pond') out.add(HudPrompt('喂鱼', 'food', () => _feedWild('fish')));
+    }
+    return out.length > 5 ? out.sublist(0, 5) : out;
   }
 
   void _showSky() {
@@ -933,12 +1041,12 @@ class _SanctuaryPageState extends State<SanctuaryPage> with TickerProviderStateM
     final size = MediaQuery.sizeOf(context);
     final meditating = _meditateUntil != null;
     final left = meditating ? _meditateUntil!.difference(DateTime.now()) : Duration.zero;
-    final showActions = _ready && !_moving && !_busy && !meditating && _subtitle == null;
+    final showActions = _ready && !_moving && !_busy && !meditating && (_subtitle == null || _fish.isNotEmpty);
     // 自动走的路上（从码头进殿要走四十多秒）：木牌那里只留一块「停下」；点画面别处照样改道
     final showHalt = _ready && _moving && !_busy && !meditating && _subtitle == null && _at.isNotEmpty;
     // 摇杆：做事的时候（拜、上香、系布条、许愿，镜头常凑近成特写）收起来，那时推了也不走；
     // 有字幕时也先藏起来（字幕正好在摇杆那一带），手指按上去照样能走、摇杆也出来
-    final showStick = !_busy && (_subtitle == null || _stickHeld);
+    final showStick = !_busy;
     return Scaffold(
       backgroundColor: Colors.black,
       resizeToAvoidBottomInset: false,
@@ -947,26 +1055,21 @@ class _SanctuaryPageState extends State<SanctuaryPage> with TickerProviderStateM
         // 拖动环顾四周，点远处走过去。手势在 Flutter 这层接，再转给 Unity。
         GestureDetector(
           behavior: HitTestBehavior.opaque,
-          // 一根手指拖：转头看；两根手指捏合：放大缩小
-          onScaleStart: (_) => _zoomStart = _zoom.value,
+          // 一根手指拖：绕着人转、上下看（能一直压到俯视）；两根手指：张开拉近、合拢拉远
+          onScaleStart: (_) => _reachStart = _reach,
           onScaleUpdate: (d) {
             if (d.pointerCount >= 2) {
-              _setZoom(_zoomStart * d.scale);
+              if (d.scale > 0.01) _setReach(_reachStart / d.scale);
             } else {
               _send({'cmd': 'look', 'dx': -d.focalPointDelta.dx / size.width, 'dy': d.focalPointDelta.dy / size.height});
             }
-          },
-          onTapUp: (d) {
-            // 右边竹签那一条不算点画面（万一点击穿过来了，别让人走过去）
-            final slips = d.localPosition.dx > size.width - 64 && d.localPosition.dy < MediaQuery.paddingOf(context).top + 300;
-            if (_ready && !_busy && !meditating && !slips) _send({'cmd': 'tap', 'x': d.localPosition.dx / size.width, 'y': d.localPosition.dy / size.height});
           },
         ),
         // 摇杆：左下角，按住拖动走路。底下那排木牌比较高，摇杆放在它和提示那行字的上面
         if (_ready && _meditateUntil == null)
           Positioned(
             left: 22,
-            bottom: MediaQuery.paddingOf(context).bottom + 6 + PlaqueBar.height + 30,
+            bottom: MediaQuery.paddingOf(context).bottom + 34,
             child: IgnorePointer(
               ignoring: _busy,
               child: AnimatedOpacity(
@@ -1085,43 +1188,70 @@ class _SanctuaryPageState extends State<SanctuaryPage> with TickerProviderStateM
                 duration: const Duration(milliseconds: 700),
                 child: const Padding(
                   padding: EdgeInsets.only(bottom: 12),
-                  child: Text('左下角摇杆走动，拖动画面转视角', style: TextStyle(fontSize: 13, color: Colors.white70, shadows: _shadow)),
+                  child: Text('左下摇杆走动 · 拖动画面转视角 · 双指捏合拉远拉近', style: TextStyle(fontSize: 13, color: Colors.white70, shadows: _shadow)),
                 ),
               ),
             ),
-            // 此刻能做的事：一根麻绳上挂着的许愿木牌
-            IgnorePointer(
-              ignoring: !showActions,
-              child: AnimatedOpacity(
-                opacity: showActions ? 1 : 0,
-                duration: const Duration(milliseconds: 450),
-                child: PlaqueBar(
-                    actions: showHalt ? [PlaqueAction('停下', primary: true, onTap: () => _send({'cmd': 'halt'}))] : _actions(),
-                    active: showActions || showHalt),
-              ),
-            ),
+            // 给左下的摇杆、右下的动作键留出地方（字幕、提示在它们上面）
+            const SizedBox(height: 176),
             const SizedBox(height: 6),
           ]),
         ),
-        // 右边一串竹签：换视角（放在最上层，别的层盖不住它）；放大以后底下多一枚写着倍数的小牌，点一下还原
-        if (_ready && _meditateUntil == null)
+        // 画面右边：身边能做的事。走到小动物、钟、水边、垫子、香炉、许愿树跟前才冒出来
+        if (_ready)
           Positioned(
             right: 12,
-            top: MediaQuery.paddingOf(context).top + 4 + SkyTag.tagHeight + 14,
-            // 整串竹签连同缝隙都吞掉点击：点歪了也不会穿到下面的画面里，变成「走过去」
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () {},
-              child: ValueListenableBuilder<double>(
-                valueListenable: _zoom,
-                builder: (_, z, _) => ViewSlips(
-                    mode: _view,
-                    zoom: z,
-                    available: _viewLocked ? const ['level', 'first'] : ViewSlips.modes,
-                    onChanged: _setView,
-                    onResetZoom: () => _setZoom(1)),
+            top: size.height * 0.36,
+            bottom: MediaQuery.paddingOf(context).bottom + 190,
+            child: IgnorePointer(
+              ignoring: !showActions && !showHalt,
+              child: AnimatedOpacity(
+                opacity: showActions || showHalt ? 1 : 0,
+                duration: const Duration(milliseconds: 300),
+                child: Align(alignment: Alignment.centerRight, child: PromptList(prompts: showActions || showHalt ? _prompts() : const [])),
               ),
             ),
+          ),
+        // 右下角：随时能做的动作。钓鱼时换成「提竿」和「收竿」
+        if (_ready && !meditating)
+          Positioned(
+            right: 18,
+            bottom: MediaQuery.paddingOf(context).bottom + 30,
+            child: _fish.isNotEmpty
+                ? Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                    RoundAction('收竿', size: 52, onTap: _stopFishing),
+                    const SizedBox(width: 14),
+                    AnimatedOpacity(
+                      opacity: _fish == 'wait' || _fish == 'bite' ? 1 : 0.35,
+                      duration: const Duration(milliseconds: 200),
+                      child: ReelButton(biting: _fish == 'bite', window: _biteWindow, onTap: _reel),
+                    ),
+                  ])
+                : IgnorePointer(
+                    ignoring: !showActions,
+                    child: AnimatedOpacity(
+                      opacity: showActions ? 1 : 0,
+                      duration: const Duration(milliseconds: 300),
+                      child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                        Padding(padding: const EdgeInsets.only(bottom: 44), child: RoundAction('鞠躬', size: 54, onTap: () => _act('bow'))),
+                        const SizedBox(width: 10),
+                        RoundAction('合掌', size: 72, primary: true, onTap: () => _act('pray')),
+                      ]),
+                    ),
+                  ),
+          ),
+        // 右上角天色牌子下面：背包（钓的鱼、口粮、小动物送的礼物）、钓鱼图鉴、小动物册
+        if (_ready && !meditating)
+          Positioned(
+            right: 16,
+            top: MediaQuery.paddingOf(context).top + 4 + SkyTag.tagHeight + 14,
+            child: Column(children: [
+              GlyphButton('bag', label: '背包', onTap: () => showBagSheet(context)),
+              const SizedBox(height: 10),
+              GlyphButton('fish', label: '钓鱼图鉴', onTap: () => showFishBook(context)),
+              const SizedBox(height: 10),
+              GlyphButton('paw', label: '小动物册', onTap: () => showPetBook(context, pet: _nearPet.isEmpty ? null : _nearPet)),
+            ]),
           ),
         // 进殿：先是一对关着的寺门（Unity 第一次加载要一两秒），场景准备好了门往两边推开。放在最上层，门关着时盖住所有按钮
         TempleGate(

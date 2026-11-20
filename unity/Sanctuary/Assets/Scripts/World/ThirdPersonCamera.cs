@@ -77,7 +77,7 @@ namespace Yuanjing
         {
             yaw = yawTarget = facingYaw;
             pitch = pitchTarget = interior ? interiorPitch : 16f;
-            dist = distance;
+            dist = distance * zoomScale;
             snapped = true;
             userAim = false;
             tilt = tiltTarget = FrameTilt(Orbit(target.position + Vector3.up * height, yaw, pitch, distance));
@@ -164,7 +164,7 @@ namespace Yuanjing
             }
             lastTarget = target.position;
             float sp = vel.magnitude;
-            if (sp > 0.3f && Time.time - lastTouch > 1.2f)
+            if (!free && sp > 0.3f && Time.time - lastTouch > 1.2f)
             {
                 float heading = Mathf.Atan2(vel.x, vel.z) * Mathf.Rad2Deg;
                 float diff = Mathf.DeltaAngle(yawTarget, heading);
@@ -177,12 +177,52 @@ namespace Yuanjing
         /// 往左右（15 度一档，最多 75 度）找一个退得开的方向，慢慢转过去。手指拖过 3 秒内、人在走、坐着跪着做动作时不管（殿里的蒲团有自己挑的方向）。
         /// 门槛定得低（1.1 米）：在供桌前回头看门时镜头被佛坛挡在 1.4 米上下、抬到供桌上面从人身后看过去，那是要的样子（转开了反而让花觚挡在镜头前）
         public float clearMin = 1.1f;
+        /// 自由环绕（摇杆走路、拖屏转视角的那套操作）：镜头不自己往人身后转、不自己找退得开的方向，全听手指的
+        public bool free;
+        /// 捏合拉远拉近：实际离人多远 = distance × zoomScale
+        public float zoomScale = 1f;
+        /// 此刻镜头的俯角（度）、离人多远
+        public float PitchNow => pitch;
+        public float DistanceNow => dist;
+        /// 聚焦的对象（身边的小动物、撒了谷子的地方）：转轴从人身上往它那边挪、镜头收近，人和它一起在画面里。null 是没有
+        Transform subject;
+        Vector3 subjectPoint;
+        float subjectW, subjectTarget, subjectDist = 2.1f, subjectToward = 0.6f;
+        /// 聚焦时镜头往右偏几度（竖屏左右视角只有二十几度，4 度大约是屏幕宽的六分之一）
+        public float subjectShift = 4.5f;
+
+        /// 聚焦到一个东西上（t 可以是空的，那就用 point）；amount 0 放开、1 完全聚焦；dist 是聚焦时镜头离转轴多远。
+        /// 刚聚焦上的那一刻镜头转到人的斜后方（越过肩膀看它，它在画面正中，人在一边）；之后手指拖动照样能转
+        public void Subject(Transform t, Vector3 point, float amount, float dist = 2.1f, float toward = 0.6f, float pitchWanted = 20f)
+        {
+            subjectToward = toward;
+            bool fresh = amount > 0.01f && (subjectTarget <= 0.01f || t != subject || (t == null && (point - subjectPoint).sqrMagnitude > 1f));
+            subject = t;
+            subjectPoint = point;
+            subjectTarget = Mathf.Clamp01(amount);
+            subjectDist = dist;
+            if (fresh && target != null && Time.time - lastTouch > 1.2f)
+            {
+                Vector3 to = (t != null ? t.position : point) - target.position;
+                to.y = 0;
+                if (to.sqrMagnitude > 0.01f)
+                {
+                    float heading = Mathf.Atan2(to.x, to.z) * Mathf.Rad2Deg;
+                    // 镜头朝向 = 人到它的方向再偏开 25 度（越过人的肩膀看它；竖屏窄，偏多了人就出画面了）：往离现在近的那一边偏
+                    float a1 = heading + 25f, a2 = heading - 25f;
+                    float pick = Mathf.Abs(Mathf.DeltaAngle(yawTarget, a1)) < Mathf.Abs(Mathf.DeltaAngle(yawTarget, a2)) ? a1 : a2;
+                    yawTarget = yawTarget + Mathf.DeltaAngle(yawTarget, pick);
+                    pitchTarget = Mathf.Clamp(pitchWanted, minPitch, maxPitch);
+                }
+            }
+        }
+        public bool HasSubject => subjectTarget > 0.01f;
         float clearNext;
         Folk targetFolk;
 
         void SeekClearYaw(Vector3 pivot, float blockedAt)
         {
-            if (!interior || blockedAt >= clearMin || Time.time < clearNext || Time.time - lastTouch < 3f || vel.magnitude > 0.15f) return;
+            if (free || !interior || blockedAt >= clearMin || Time.time < clearNext || Time.time - lastTouch < 3f || vel.magnitude > 0.15f) return;
             clearNext = Time.time + 0.6f;
             if (targetFolk == null) targetFolk = target.GetComponentInParent<Folk>();
             if (targetFolk != null && (targetFolk.pose != Folk.Pose.None || targetFolk.Moving)) return;
@@ -216,12 +256,36 @@ namespace Yuanjing
             haveY = true;
             Vector3 pivot = new Vector3(target.position.x, followY, target.position.z) + Vector3.up * height;
             if (interior) pivot.y = Mathf.Min(pivot.y, ceiling - 0.6f);
+            // 聚焦：转轴挪到人和它中间偏它那边、镜头收近（人还在画面里，它在正中）
+            subjectW = dt <= 0 ? subjectTarget : Mathf.MoveTowards(subjectW, subjectTarget, dt / 0.6f);
+            float sw = Mathf.SmoothStep(0f, 1f, subjectW);
+            if (sw > 0.001f)
+            {
+                Vector3 sp = subject != null ? subject.position + Vector3.up * subjectPoint.y : subjectPoint;
+                pivot = Vector3.Lerp(pivot, Vector3.Lerp(pivot, sp, subjectToward), sw);
+            }
+            // 聚焦时人不能挡在镜头和它之间（它绕着人转、蹭到脚边时会这样）：镜头到它的方向和它到人的方向不到 48 度，就慢慢绕开
+            if (sw > 0.5f && dt > 0 && Time.time - lastTouch > 1.2f)
+            {
+                Vector3 toMe = target.position - (subject != null ? subject.position : subjectPoint);
+                toMe.y = 0;
+                if (toMe.sqrMagnitude > 0.04f)
+                {
+                    // 镜头在转轴的哪个方向：朝向转 180 度
+                    float camDir = yawTarget + 180f, meDir = Mathf.Atan2(toMe.x, toMe.z) * Mathf.Rad2Deg;
+                    float sep = Mathf.DeltaAngle(meDir, camDir);
+                    if (Mathf.Abs(sep) < 48f) yawTarget += (sep >= 0 ? 1f : -1f) * 110f * dt;
+                }
+            }
             Quaternion rot = Quaternion.Euler(pitch, yaw, 0);
             Vector3 back = rot * Vector3.back;
-            float want = distance;
+            float want = Mathf.Lerp(distance * zoomScale, Mathf.Min(distance * zoomScale, subjectDist), sw);
+            // 屋里往上抬（俯视）时：离人最远只到天花板底下，不靠「把镜头按在天花板下」来凑（那样画面会歪）
+            if (interior && back.y > 0.05f) want = Mathf.Min(want, Mathf.Max(0.6f, (ceiling - 0.35f - pivot.y) / back.y));
+            float reach = want;
             // 被挡住就收近
             LastHit = "";
-            if (Physics.SphereCast(pivot, 0.18f, back, out var hit, distance, blockers, QueryTriggerInteraction.Ignore))
+            if (Physics.SphereCast(pivot, 0.18f, back, out var hit, reach, blockers, QueryTriggerInteraction.Ignore))
             {
                 // 屋里墙近：收到墙跟前为止（宁可离人近一点，也不能钻到墙外面去）
                 want = Mathf.Max(interior ? 0.35f : 1.0f, hit.distance - 0.05f);
@@ -247,9 +311,11 @@ namespace Yuanjing
             }
             Quaternion look = Quaternion.LookRotation(pivot + Vector3.up * 0.1f - pos);
             // 画面上下抬压：人整个在界面中间露出来的那一截里，屋里再把佛像整尊放进来（手指拖过就停在那里）
-            if (!userAim) tiltTarget = FrameTilt((pos, look));
+            // 聚焦着小动物时不管「人整个放进画面」那一套：画面正中给它
+            if (!userAim) tiltTarget = sw > 0.5f ? 0f : FrameTilt((pos, look));
             tilt = dt <= 0 ? tiltTarget : Mathf.Lerp(tilt, tiltTarget, 1 - Mathf.Exp(-3f * dt));
-            transform.SetPositionAndRotation(pos, look * Quaternion.Euler(-tilt, 0, 0));
+            // 聚焦时镜头再往右偏一点：它落在画面中间偏左，右边那一列「能做的事」不压在它身上
+            transform.SetPositionAndRotation(pos, look * Quaternion.Euler(-tilt, subjectShift * sw, 0));
         }
     }
 }

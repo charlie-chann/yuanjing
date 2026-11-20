@@ -47,8 +47,9 @@ public class RouteTest
     }
 
     // ── 画图 ──
-    const int W = 640, H = 1000;
-    const float X0 = -16f, Z0 = -25f, PPM = 20f;
+    // 整座岛（扩建以后 x -37…37、z -29…59）
+    const int W = 740, H = 880;
+    const float X0 = -37f, Z0 = -29f, PPM = 10f;
     Texture2D map;
     Vector2Int Px(Vector3 p) => new Vector2Int(Mathf.RoundToInt((p.x - X0) * PPM), Mathf.RoundToInt((p.z - Z0) * PPM));
 
@@ -110,9 +111,10 @@ public class RouteTest
         gd = gdType.GetProperty("Instance").GetValue(null);
         yield return new WaitForSeconds(1f);
         float ty = SpotFloor("hall").y;
-        var targets = new[] { SpotFloor("hall"), SpotFloor("burner"), new Vector3(0, 0.72f, 17f), new Vector3(10.5f, ty, 8.8f), new Vector3(-10.5f, ty, 8.8f) };
+        var targets = new[] { SpotFloor("hall"), SpotFloor("burner"), SpotFloor("inhall"), new Vector3(10.5f, ty, 8.6f), new Vector3(-10.5f, ty, 8.6f) };
         foreach (float sx in new[] { -1f, 1f })
-            foreach (var (x, z) in new[] { (3.1f, 9.4f), (3.26f, 10.14f), (3.0f, 10.6f), (2.0f, 9.3f), (2.9f, 9.0f) })
+            // 垂带石 x 8.2..8.68、z 8.9..10.8（2026-11-19 扩建后台阶宽 16.4 米）
+            foreach (var (x, z) in new[] { (9.1f, 9.4f), (9.2f, 10.1f), (9.0f, 10.5f), (7.8f, 9.0f), (8.9f, 8.7f) })
                 foreach (var b in targets)
                 {
                     var a = new Vector3(sx * x, ty, z);
@@ -156,7 +158,6 @@ public class RouteTest
                         if (c.x >= 0 && c.x < W && c.y >= 0 && c.y < H) map.SetPixel(c.x, c.y, col);
                     }
             // 中间过道
-            foreach (var z in new[] { sb.yMin, sb.yMax }) Line(new Vector3(-0.85f, 0, z), new Vector3(0.85f, 0, z), new Color(0.6f, 0.55f, 0.4f));
             foreach (var o in (Array)Get("obstacles"))
             {
                 var c = (Vector3)o.GetType().GetField("center").GetValue(o);
@@ -177,7 +178,8 @@ public class RouteTest
                 ("院子", SpotFloor("court")), ("树下", SpotFloor("tree")), ("树北边", new Vector3(-8.6f, 0, 1.0f)), ("香炉前", SpotFloor("burner")),
                 ("池塘边", new Vector3(5.6f, 0, -1.6f)), ("西边草地", new Vector3(-10f, 0, -8f)), ("东边草地", new Vector3(8.5f, 0, -10.5f)),
                 ("石台东头", new Vector3(10.6f, 0.07f, 5.0f)), ("殿前", SpotFloor("hall")), ("殿里", SpotFloor("inhall")), ("钟亭前", new Vector3(11.8f, 0, 2.6f)),
-                ("西廊下", new Vector3(-2.6f, 0.735f, 11.8f)), ("殿东侧台基上", new Vector3(7.7f, 0.72f, 17f)), ("殿东北角外", new Vector3(10.2f, 0.61f, 19.5f)),
+                ("西廊下", new Vector3(-7f, 1.08f, 12.0f)), ("殿东侧台基上", new Vector3(21.9f, 1.08f, 27f)), ("殿东北角外", new Vector3(25.6f, 0f, 45.5f)),
+                ("殿后", new Vector3(0f, 0f, 46f)), ("殿西边的甬道", new Vector3(-25.8f, 0f, 27f)), ("殿后的台基上", new Vector3(0f, 1.08f, 42.2f)),
             };
             var targets = new (string name, Vector3 p)[]
             {
@@ -204,13 +206,14 @@ public class RouteTest
                     if (bad != null) fails.Add($"{sn}→{tn}：{bad}");
                     if (nearBurner < 1.5f) fails.Add($"{sn}→{tn}：离香炉只有 {nearBurner:F2} 米");
                     // 一头在大殿台基上、一头在台基下：照理就得绕到前面走台阶，按「走到台阶下再上去」的直线算
-                    bool OnPodium(Vector3 v) => Mathf.Abs(v.x) < 8.8f && v.z > 10.9f && v.z < 23.85f;
+                    bool OnPodium(Vector3 v) => Mathf.Abs(v.x) < 23.15f && v.z > 10.75f && v.z < 43.45f;
                     if (OnPodium(a) != OnPodium(b))
                     {
-                        var foot = new Vector3(0, 0, 9.3f);
+                        var foot = new Vector3(0, 0, 8.6f);
                         straight = Flat(a, foot) + Flat(foot, b);
                     }
-                    if (len > straight * 1.6f + 4f) fails.Add($"{sn}→{tn}：绕得太远 {len:F1} 米（直线 {straight:F1}）");
+                    // 殿大了：在台基上绕到前廊、从殿后绕到殿前都要多走不少（直线穿不过殿）
+                    if (len > straight * 1.8f + 8f && !(OnPodium(a) && OnPodium(b) && len < 75f) && !(a.z > 40f && len < 110f)) fails.Add($"{sn}→{tn}：绕得太远 {len:F1} 米（直线 {straight:F1}）");
                     Log($"{sn}→{tn}：{len:F1} 米（直线 {straight:F1}）{(bad ?? "")} {string.Join(" ", path.Select(F))}");
                     Poly(a, path, routeCol);
                     checkedN++;

@@ -93,6 +93,11 @@ namespace Yuanjing
         public float seatDrop = 0.16f;
         /// 坐的是蒲团（盘坐）还是长椅
         public bool benchSeats;
+        /// 石凳（湖心小寺石台上的）：坐下前站在凳前多远。座位点在凳面上，seatDrop 是凳面高；人走到凳前、背对凳子站好再坐下（Folk.SitBench）。
+        /// 0 是教堂的长椅：直接走到座位点上
+        public float benchStep;
+        /// 殿的另外几个门（左右次间）：门外、门里各一点，和 hallDoorOut / hallDoorIn 一样用；进出殿挑顺路的那个门
+        public Vector3[] hallSideDoorsOut = new Vector3[0], hallSideDoorsIn = new Vector3[0];
         /// 走到离地点多近算到了
         public float nearRadius = 2.0f;
         /// 座位区（一排排蒲团）的范围，x 是左右、y 是南北（世界 z）；进出一律走中间的过道
@@ -169,10 +174,23 @@ namespace Yuanjing
         public Vector4[] planWalls = new Vector4[0];
         public string bell = "sfx_bell_temple";
 
+        // ── 靠近才能做的事：钓鱼、敲钟、喂小鸟 ──
+        /// 水面高度；小池塘在哪、多大（站在它边上钓的是池塘里的鱼，别处的水边是湖）
+        public float waterY = -0.42f;
+        public Vector3 pondCenter = new Vector3(8.8f, 0, -4.2f);
+        public float pondRadius = 4.6f;
+        public Fishing fishing;
+        /// 钟亭里的钟：离它 bellRadius 以内才显示「敲钟」
+        public BellRing bellRing;
+        public Vector3 bellAt = new Vector3(14.4f, 0, 6.6f);
+        public float bellRadius = 3.0f;
+        /// 离落在地上的小鸟多近才显示「喂小鸟」
+        public float birdRadius = 5.5f;
+
         [Serializable]
         class Msg
         {
-            public string cmd, scene, time, weather, spot, action, kind, id, list, name, text, tex;
+            public string cmd, scene, time, weather, spot, action, kind, id, list, name, text, tex, item;
             public int seat = -1, slot = -1, mat = -1, seed;
             public float dx, dy, x, y, volume = 1;
             public bool instant, on = true, mine;
@@ -274,8 +292,11 @@ namespace Yuanjing
         /// 回到用摇杆自由走的状态（坐着、跪着时不开碰撞胶囊）
         void FreeMove()
         {
+            // 从石凳上起身、原点还在往凳前滑：等滑完再开（Update 里接着开）
+            if (player.BenchGliding) { freeMoveLater = true; return; }
             if (player.controller != null && !player.controller.enabled && mySeat < 0 && !acting && !autoWalk) player.controller.enabled = true;
         }
+        bool freeMoveLater;
 
         /// 别的脚本要绕开院子里的东西走路时用
         public List<Vector3> PlanPath(Vector3 a, Vector3 b) => Route(a, b);
@@ -312,17 +333,26 @@ namespace Yuanjing
             {
                 // 门外廊下一点、门里一点：殿里那一段绕开柱子、经案、供桌、门扇（obstacles 里有），外面那一段照院子里的走法
                 var r = new List<Vector3>();
+                // 三间门都开着：挑顺路的那个（殿里那一头到门里、殿外那一头到门外的直线距离加起来最短；差不多就走中门）
+                Vector3 dOut = hallDoorOut, dIn = hallDoorIn;
+                Vector3 inP = ha ? a : b, outP = ha ? b : a;
+                float bestD = FlatDist(inP, dIn) + FlatDist(outP, dOut) - 1.5f;
+                for (int k = 0; k < hallSideDoorsOut.Length && k < hallSideDoorsIn.Length; k++)
+                {
+                    float d = FlatDist(inP, hallSideDoorsIn[k]) + FlatDist(outP, hallSideDoorsOut[k]);
+                    if (d < bestD) { bestD = d; dOut = hallSideDoorsOut[k]; dIn = hallSideDoorsIn[k]; }
+                }
                 if (ha)
                 {
-                    r.AddRange(HallPlan(a, hallDoorIn));
-                    r.Add(hallDoorOut);
-                    r.AddRange(RouteOutside(hallDoorOut, b));
+                    r.AddRange(HallPlan(a, dIn));
+                    r.Add(dOut);
+                    r.AddRange(RouteOutside(dOut, b));
                 }
                 else
                 {
-                    r.AddRange(RouteOutside(a, hallDoorOut));
-                    r.Add(hallDoorIn);
-                    r.AddRange(HallPlan(hallDoorIn, b));
+                    r.AddRange(RouteOutside(a, dOut));
+                    r.Add(dIn);
+                    r.AddRange(HallPlan(dIn, b));
                 }
                 return r;
             }
@@ -518,8 +548,18 @@ namespace Yuanjing
         {
             float len = FlatDist(p, q);
             int n = Mathf.Max(1, Mathf.CeilToInt(len / 0.08f));
-            for (int k = 1; k < n; k++) if (!HallFree(Vector3.Lerp(p, q, k / (float)n))) return false;
+            for (int k = 1; k < n; k++) if (!HallFreeFast(Vector3.Lerp(p, q, k / (float)n))) return false;
             return true;
+        }
+
+        /// 同 HallFree，查算好的网格（一格 0.1 米）：新大殿四十米宽，一条路要看上千个点，每个点再把几十个障碍量一遍就卡了
+        bool HallFreeFast(Vector3 p)
+        {
+            if (hallBlocked == null || hallGridBuilding) return HallFree(p);
+            if (p.x < hallX0 - 0.01f || p.x > hallRect.xMax - HallWallPad + 0.01f || p.z > hallZMax + 0.01f || p.z < hallZ0 - 0.01f) return false;
+            int ci = Mathf.Clamp(Mathf.RoundToInt((p.x - hallX0) / HallCell), 0, hallNx - 1);
+            int cj = Mathf.Clamp(Mathf.RoundToInt((p.z - hallZ0) / HallCell), 0, hallNz - 1);
+            return !CellOff(ci * hallNz + cj);
         }
 
         /// 一点落到格子上：离它最近、空着、又能直着走过去的那一格（0.15 米以内的不用看能不能直着走）；没有是 -1。
@@ -959,6 +999,12 @@ namespace Yuanjing
                     }
                     break;
                 case "zoom": if (cam is ViewSwitcher vz) vz.SetZoom(m.x); break;
+                // 捏合拉远拉近：镜头离人的远近是平常的 x 倍
+                case "reach": if (cam is ViewSwitcher vr) vr.SetReach(m.x); break;
+                // 钓鱼：cast 抛竿 / reel 提竿 / show 把 kind 这条鱼提出水面 / stop 收竿
+                case "fish": Fish(m.action, m.kind); break;
+                // 敲钟（站在钟亭边才行）
+                case "ring": Ring(); break;
                 // 特写多留一会儿（x 秒，0 是现在就收）：挂好布条以后 Flutter 念回应的那几句字幕，镜头一直对着新挂的那一件
                 case "linger":
                     if (m.x <= 0f) EndLinger();
@@ -975,7 +1021,16 @@ namespace Yuanjing
                 case "bell": sound.Play(bell, 0.8f); break;
                 case "pets": BondPets(m.list ?? ""); break;
                 case "petact":
-                    foreach (var c in Critter.All) if (c.id == m.id) { c.React(m.action, m.seat); sound.Play(m.action == "feed" ? "sfx_wood" : "sfx_sparkle", 0.4f); }
+                    foreach (var c in Critter.All)
+                        if (c.id == m.id)
+                        {
+                            c.React(m.action, m.seat, m.item);
+                            if (!acting && mySeat < 0 && !autoWalk) player.FaceTowards(c.transform.position);
+                            sound.Play(m.action == "feed" ? "sfx_wood" : "sfx_sparkle", 0.4f);
+                            // 摸它、喂它的那一阵镜头一直对着它
+                            petFocus = c.transform;
+                            petFocusUntil = Time.time + (m.action == "feed" ? 6.5f : 4f);
+                        }
                     break;
                 case "feed": Feed(m.kind); break;
             }
@@ -1009,7 +1064,14 @@ namespace Yuanjing
             // 在殿里重新进场：放开平视，换回进殿前的视角（发给 Flutter，它接着照这个重新对一遍）
             LeaveHallView(true);
             lingerCloseUp = 0;
+            if (fishing != null) fishing.Stop(false);
             cam.EndCloseUp();
+            // 操作方式只有一种：摇杆走路、拖屏绕着人转（以前的俯视、仰视、第一人称几档不再用）
+            if (cam is ViewSwitcher ev) { ev.SetMode("level"); ev.Subject(null, Vector3.zero, 0); }
+            petFocus = null;
+            birdFocusUntil = 0;
+            nearBird = false;
+            nearBell = false;
             stickHeld = false;
             Sky(m, true);
             // 直接站好（跪着、坐着时重新进场：不在院子里播起身那段）
@@ -1024,6 +1086,7 @@ namespace Yuanjing
             synced = false;
             nearPet = "";
             nearWater = "";
+            nextWaterScan = 0;
             nearSeat = -1;
             nearMat = -1;
             nearAltar = false;
@@ -1064,6 +1127,8 @@ namespace Yuanjing
                 stickYaw = cam.Yaw;
                 stickFrom = stick;
             }
+            // 钓着鱼推摇杆：收竿走人
+            if (fishing != null && fishing.Active) fishing.Stop();
             if (acting) return;
             if (mySeat >= 0)
             {
@@ -1400,9 +1465,11 @@ namespace Yuanjing
         }
 
         /// 坐下前站的那一点：圆蒲团前面的方草垫上（长椅就是座位点本身）
-        Vector3 SeatStand(int i) => benchSeats && !HallSeat(i) ? SeatGround(i) : SeatGround(i) + SeatFwd(i) * Folk.SeatStep * player.transform.lossyScale.y / 0.806f;
-        /// 这一排蒲团前面的走道上、正对着这个蒲团的一点（起身退到这里）
-        Vector3 SeatLane(int i) => HallSeat(i) ? SeatGround(i) + SeatFwd(i) * hallLane : SeatGround(i) + laneOffset;
+        Vector3 SeatStand(int i) => benchSeats && !HallSeat(i) ? SeatGround(i) + SeatFwd(i) * benchStep : SeatGround(i) + SeatFwd(i) * Folk.SeatStep * player.transform.lossyScale.y / 0.806f;
+        /// 这一排蒲团前面的走道上、正对着这个蒲团的一点（起身退到这里）；石凳就是凳前站的那一点
+        Vector3 SeatLane(int i) => HallSeat(i) ? SeatGround(i) + SeatFwd(i) * hallLane : BenchSeat(i) ? SeatStand(i) : SeatGround(i) + laneOffset;
+        /// 这个座位是石凳上的（坐下前站在凳前）
+        bool BenchSeat(int i) => benchSeats && benchStep > 0f && !HallSeat(i);
         /// 这个蒲团能不能坐：有人坐在上面、或者有人正走过去坐而且已经到跟前了，才算有人。
         /// 只是被香客记着（他这会儿在树下、香炉前、远处路上）的不算——看着是空的就能坐，坐了以后让他换一个（Pilgrims.Release）。
         /// 殿里的蒲团：进殿的香客坐在上面、或者已经走到跟前要坐了，也不能坐（Pilgrims.HallSeatTaken；他还在路上远处的话你先坐，他让开）
@@ -1459,6 +1526,14 @@ namespace Yuanjing
         List<Vector3> Approach(int seat, Vector3 me)
         {
             Vector3 s = SeatGround(seat), f = SeatFwd(seat), side = Vector3.Cross(Vector3.up, f);
+            if (BenchSeat(seat))
+            {
+                // 石凳：人在凳子后面、旁边就绕到凳前（凳子在要绕开的东西里），在凳前直接走过去
+                var bp = new List<Vector3>();
+                if (Vector3.Dot(me - s, f) < benchStep - 0.1f) bp.AddRange(Route(me, SeatStand(seat) + f * 0.25f));
+                bp.Add(SeatStand(seat));
+                return bp;
+            }
             float laneD = Vector3.Dot(SeatLane(seat) - s, f);
             float gap = HallSeat(seat) ? hallSeatGap : seatGap;
             Vector3 d = me - s;
@@ -1485,7 +1560,7 @@ namespace Yuanjing
             Halt();
             Vector3 stand = SeatStand(seat), lane = SeatLane(seat);
             var path = new List<Vector3>();
-            if (mySeat >= 0 && !HallSeat(mySeat) && !HallSeat(seat))
+            if (mySeat >= 0 && !HallSeat(mySeat) && !HallSeat(seat) && !BenchSeat(seat))
             {
                 // 换位置：先回到自己这一排的走道；不在同一排就到中间过道上，沿过道走到那一排（过道里没有蒲团）
                 Vector3 cur = SeatFloor(mySeat), target = SeatFloor(seat);
@@ -1548,7 +1623,8 @@ namespace Yuanjing
             }
             mySeat = chosen;
             at = "seat";
-            if (benchSeats && !HallSeat(chosen)) player.SetPose(Folk.Pose.Bench);
+            if (BenchSeat(chosen)) player.SitBench(pilgrims.Seat(chosen).position, yaw);
+            else if (benchSeats && !HallSeat(chosen)) player.SetPose(Folk.Pose.Bench);
             else player.SitOn(seatPos, yaw);
             cam.Focus(0.6f);
             // 殿里的蒲团：平视镜头挑一个退得开、不被金柱挡、最好看得见佛像的方向（靠墙的那几个从侧面看；哪儿都退不开就从头顶上看）
@@ -2212,7 +2288,7 @@ namespace Yuanjing
         // ── 殿里：锁平视 ──
 
         /// 告诉 Flutter 现在是什么视角、锁没锁
-        void SendView(ViewSwitcher vs) => Send($"{{\"type\":\"view\",\"mode\":\"{vs.Mode}\",\"locked\":{(inHall ? "true" : "false")},\"zoom\":{vs.ZoomTarget.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}}}");
+        void SendView(ViewSwitcher vs) => Send($"{{\"type\":\"view\",\"mode\":\"{vs.Mode}\",\"locked\":false,\"inhall\":{(inHall ? "true" : "false")},\"reach\":{vs.Reach.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)},\"zoom\":{vs.ZoomTarget.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}}}");
 
         /// 进殿：换成平视（殿里俯视看到的是屋顶）、镜头收近、不穿天花板；出殿：换回进殿前的视角
         void WatchHall()
@@ -2224,11 +2300,9 @@ namespace Yuanjing
                 inHall = true;
                 if (cam is ViewSwitcher vs)
                 {
+                    // 殿里照样能转、能压到俯视：镜头不高过天花板，被墙和柱子挡住就收近
                     viewBeforeHall = vs.Mode;
                     vs.SetInterior(true, hallCeiling, hallLookAts, hallCamKeepOut);
-                    vs.SetMode("level");
-                    // 外面放大了（捏合）进殿：殿里锁着平视、镜头只离人 2.6 米，放大四倍整个屏幕只剩自己的后背。进殿时放回 1 倍（SendView 带上，Flutter 的放大标签跟着回去）
-                    vs.SetZoom(1f);
                     SendView(vs);
                 }
             }
@@ -2258,7 +2332,8 @@ namespace Yuanjing
             {
                 var f = item.Split(':');
                 if (f.Length < 4 || !int.TryParse(f[1], out int level)) continue;
-                foreach (var c in Critter.All) if (c.id == f[0]) c.Bond(level, f[2] == "1", f[3] == "1");
+                // 第五段（可以没有）：今天礼物的收藏品编号（pinecone、shell_conch……），它叼的模型换成 gift_<编号>
+                foreach (var c in Critter.All) if (c.id == f[0]) c.Bond(level, f[2] == "1", f[3] == "1", f.Length > 4 ? f[4] : null);
             }
         }
 
@@ -2283,13 +2358,133 @@ namespace Yuanjing
                 if (Physics.Raycast(at + Vector3.up * 1.5f, Vector3.down, out var hit, 3f, ~(1 << 2), QueryTriggerInteraction.Ignore)) at.y = hit.point.y;
                 Ambience.Instance.FeedBirds(at);
                 sound.Play("sfx_cloth", 0.35f);
+                // 小鸟飞过来吃的那一阵，镜头对着谷子那一片
+                birdFocusAt = at;
+                birdFocusUntil = Time.time + 13f;
             }
             cam.Focus(0.4f);
         }
 
         string nearPet = "", nearWater = "";
         int nearSeat = -1, nearMat = -1;
-        bool nearAltar;
+        bool nearAltar, nearBird, nearBell;
+        /// 最近的那片水在哪（抛竿朝它）；下一次找水的时刻（一秒找四次就够）
+        Vector3 waterPoint;
+        float nextWaterScan;
+        /// 镜头正对着的小动物（摸、喂的那一阵）、对着谷子的那一阵
+        Transform petFocus;
+        float petFocusUntil, birdFocusUntil;
+        Vector3 birdFocusAt;
+
+        /// 身边最近的水：往四周 12 个方向、1.5 和 2.6 米处往下看，脚下是水（比水面低）就算。返回 sea、pond 或空
+        string ScanWater(Vector3 me)
+        {
+            if (me.y < waterY - 0.05f || InHall(me)) return "";
+            float best = float.MaxValue;
+            string kind = "";
+            for (int ring = 0; ring < 2; ring++)
+            {
+                float r = ring == 0 ? 1.5f : 2.6f;
+                for (int k = 0; k < 12; k++)
+                {
+                    float a = k * Mathf.PI / 6f;
+                    Vector3 q = me + new Vector3(Mathf.Sin(a), 0, Mathf.Cos(a)) * r;
+                    bool wet = !Physics.Raycast(new Vector3(q.x, me.y + 2.5f, q.z), Vector3.down, out var hit, 9f, ~(1 << 2), QueryTriggerInteraction.Ignore) || hit.point.y < waterY - 0.04f;
+                    if (!wet) continue;
+                    // 朝着人面对的方向的水优先
+                    float score = r - Vector3.Dot((q - me).normalized, player.transform.forward) * 0.6f;
+                    if (score < best)
+                    {
+                        best = score;
+                        waterPoint = q;
+                        kind = FlatDist(q, pondCenter) < pondRadius ? "pond" : "sea";
+                    }
+                }
+                if (kind != "") break;
+            }
+            return kind;
+        }
+
+        /// 钓鱼
+        void Fish(string action, string kind)
+        {
+            if (fishing == null) return;
+            switch (action)
+            {
+                case "cast":
+                    if (acting || autoWalk || mySeat >= 0 || sitting != null) { Send("{\"type\":\"fish\",\"state\":\"ended\"}"); return; }
+                    string w = ScanWater(player.transform.position);
+                    if (w == "") { Send("{\"type\":\"fish\",\"state\":\"ended\"}"); return; }
+                    Halt();
+                    cam.Focus(0);
+                    fishing.Cast(waterPoint, w);
+                    break;
+                case "reel": fishing.Reel(); break;
+                case "show": fishing.Show(kind ?? ""); break;
+                default: fishing.Stop(); break;
+            }
+        }
+
+        /// 敲钟：转过去、两手推撞木，撞上那一下钟声响起
+        void Ring()
+        {
+            if (acting || autoWalk || mySeat >= 0 || sitting != null || (bellRing != null && bellRing.Ringing) || FlatDist(player.transform.position, bellAt) > bellRadius + 0.8f)
+            {
+                Send("{\"type\":\"actionDone\",\"action\":\"ring\"}");
+                return;
+            }
+            StartCoroutine(RingBell());
+        }
+
+        static readonly Dictionary<string, float> PushPose = new Dictionary<string, float>
+        {
+            // 两臂往前平伸、手掌朝前（关节值在侧面图上试出来的：Arm Front-Back 负的才是往前）
+            { "Left Arm Down-Up", -0.45f }, { "Right Arm Down-Up", -0.45f }, { "Left Arm Front-Back", -0.5f }, { "Right Arm Front-Back", -0.5f },
+            { "Left Forearm Stretch", 0.3f }, { "Right Forearm Stretch", 0.3f },
+        };
+
+        IEnumerator RingBell()
+        {
+            acting = true;
+            Halt();
+            if (fishing != null) fishing.Stop(false);
+            Vector3 face = bellRing != null && bellRing.face != Vector3.zero ? bellRing.face : bellAt;
+            // 先走到撞木尾巴旁边站好（钟亭里挂了撞木的话）
+            if (bellRing != null && bellRing.stand != Vector3.zero && FlatDist(player.transform.position, bellRing.stand) > 0.25f)
+                yield return WalkScripted(Route(player.transform.position, bellRing.stand), 8f);
+            player.FaceTowards(face);
+            yield return new WaitForSeconds(0.35f);
+            player.custom.Clear();
+            foreach (var kv in PushPose) player.custom[kv.Key] = kv.Value;
+            player.customPitch = 0;
+            player.SetPose(Folk.Pose.Custom);
+            if (bellRing != null)
+            {
+                // 往后拉的时候身子后仰一点，撞出去时往前送
+                StartCoroutine(Lean(-6f, 0.7f, 10f, 0.28f));
+                yield return bellRing.Ring();
+            }
+            else
+            {
+                yield return new WaitForSeconds(0.9f);
+                sound.Play(bell, 1f);
+                yield return new WaitForSeconds(1.6f);
+            }
+            player.customPitch = 0;
+            player.SetPose(Folk.Pose.None);
+            acting = false;
+            Send("{\"type\":\"actionDone\",\"action\":\"ring\"}");
+        }
+
+        IEnumerator Lean(float back, float tBack, float fwd, float tFwd)
+        {
+            float t = 0;
+            while (t < tBack) { t += Time.deltaTime; player.customPitch = Mathf.SmoothStep(0, back, t / tBack); yield return null; }
+            t = 0;
+            while (t < tFwd) { t += Time.deltaTime; player.customPitch = Mathf.Lerp(back, fwd, t / tFwd); yield return null; }
+            t = 0;
+            while (t < 0.8f) { t += Time.deltaTime; player.customPitch = Mathf.SmoothStep(fwd, 0, t / 0.8f); yield return null; }
+        }
 
         /// 身边有没有小动物、是不是站在水边、有没有空蒲团、殿里有没有拜垫、是不是在供桌前
         /// （Flutter 据此显示「摸摸」「喂鱼」「坐下」「跪拜」「上香」）。变了才发
@@ -2303,39 +2498,60 @@ namespace Yuanjing
             bool altar = free && NearAltar(me);
             // 站在拜垫上（离拜垫比离旁边那个蒲团近）：只给拜，不给「坐下」（两边的拜垫离最北一排静坐的蒲团不到 1.2 米）
             if (seat >= 0 && mat >= 0 && FlatDist(hallMats.GetChild(mat).position, me) < FlatDist(SeatStand(seat), me)) seat = -1;
-            if (Critter.All.Count == 0 && Koi.All.Count == 0)
-            {
-                if (seat != nearSeat || mat != nearMat || altar != nearAltar)
-                {
-                    nearSeat = seat;
-                    nearMat = mat;
-                    nearAltar = altar;
-                    SendNear();
-                }
-                return;
-            }
+            bool fishingNow = fishing != null && fishing.Active;
             string pet = "";
-            float best = 1.9f;
-            foreach (var c in Critter.All)
+            Critter petC = null;
+            float best = 2.1f;
+            if (free && !fishingNow)
+                foreach (var c in Critter.All)
+                {
+                    float d = Vector3.Distance(c.transform.position, me);
+                    if (d < best) { best = d; pet = c.id; petC = c; }
+                }
+            // 小鸟：有落在地上的在附近才算（太近了它会飞走，所以圈子给大一些）；撒了谷子、鸟在吃的那一阵也算
+            bool bird = false;
+            if (free && !fishingNow)
+                foreach (var b in Bird.All)
+                    if (b.Grounded && Vector3.Distance(b.transform.position, me) < birdRadius) { bird = true; break; }
+            bool bellNear = free && !fishingNow && FlatDist(me, bellAt) < bellRadius && !InHall(me);
+            // 水边：一秒找四次（要往四周打二十几条线）
+            string water = nearWater;
+            if (Time.time >= nextWaterScan)
             {
-                float d = Vector3.Distance(c.transform.position, me);
-                if (d < best) { best = d; pet = c.id; }
+                nextWaterScan = Time.time + 0.25f;
+                water = free || fishingNow ? ScanWater(me) : "";
             }
-            string water = "";
-            foreach (var k in Koi.All)
-                if (new Vector2(k.center.x - me.x, k.center.z - me.z).magnitude < Mathf.Max(k.radius.x, k.radius.y) + 3.2f) { water = "1"; break; }
-            if (pet != nearPet || water != nearWater || seat != nearSeat || mat != nearMat || altar != nearAltar)
+            if (pet != nearPet || water != nearWater || seat != nearSeat || mat != nearMat || altar != nearAltar || bird != nearBird || bellNear != nearBell)
             {
                 nearPet = pet;
                 nearWater = water;
                 nearSeat = seat;
                 nearMat = mat;
                 nearAltar = altar;
+                nearBird = bird;
+                nearBell = bellNear;
                 SendNear();
+            }
+            // 镜头聚焦：站在小动物跟前（没推摇杆）就对着它、收近；摸、喂的那一阵一直对着；撒了谷子对着谷子那一片
+            if (cam is ViewSwitcher vs && !acting)
+            {
+                bool still = stick.sqrMagnitude < 0.01f && !autoWalk;
+                if (fishingNow)
+                    vs.Subject(null, fishing.Float + Vector3.up * 0.5f, still ? 1f : 0f, 3.3f, 0.3f);
+                else if (petFocus != null && Time.time < petFocusUntil && Vector3.Distance(petFocus.position, me) < 4.5f)
+                    vs.Subject(petFocus, Vector3.up * 0.3f, 1f, 1.9f, 1f);
+                else if (petC != null && still && !fishingNow)
+                    vs.Subject(petC.transform, Vector3.up * 0.3f, 1f, 2.1f, 1f);
+                else if (Time.time < birdFocusUntil && still && FlatDist(birdFocusAt, me) < 5f)
+                    // 小鸟在地上，旁边常有灌木草丛：从高一点的地方往下看，不让叶子挡在镜头前
+                    vs.Subject(null, birdFocusAt + Vector3.up * 0.1f, 1f, 2.6f, 0.95f, 38f);
+                else
+                    vs.Subject(null, Vector3.zero, 0);
+                if (petFocus != null && Time.time >= petFocusUntil) petFocus = null;
             }
         }
 
-        void SendNear() => Send($"{{\"type\":\"near\",\"pet\":\"{nearPet}\",\"water\":{(nearWater == "1" ? "true" : "false")},\"seat\":{nearSeat},\"mat\":{nearMat},\"altar\":{(nearAltar ? "true" : "false")}}}");
+        void SendNear() => Send($"{{\"type\":\"near\",\"pet\":\"{nearPet}\",\"water\":\"{nearWater}\",\"bird\":{(nearBird ? "true" : "false")},\"bell\":{(nearBell ? "true" : "false")},\"seat\":{nearSeat},\"mat\":{nearMat},\"altar\":{(nearAltar ? "true" : "false")}}}");
 
         void SyncPilgrims(string list)
         {
@@ -2481,6 +2697,7 @@ namespace Yuanjing
                     Send($"{{\"type\":\"arrived\",\"spot\":\"{near}\"}}");
                 }
             }
+            if (freeMoveLater && !player.BenchGliding) { freeMoveLater = false; FreeMove(); }
             WatchNearby();
             // 偶尔的声音：檐角的风铃，远处的钟
             nextChime -= dt;

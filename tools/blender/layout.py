@@ -5,7 +5,12 @@ from mathutils import noise, Vector
 
 WATER = -0.42                 # 水面高度
 ISLE_C = (0.0, 4.5)           # 小岛中心
-ISLE_R = (18.5, 21.8)         # 小岛的半宽、半深
+ISLE_R = (18.5, 21.8)         # 小岛（南半边，老岛）的半宽、半深
+# 2026-11-19 大殿放大十倍：岛在北边长出一大块圆角的地（葫芦形），老岛南半边的岸线不变
+LOBE_C = (0.0, 29.0)          # 北边那块地的中心
+LOBE_R = (33.2, 24.6)         # 半宽、半深（y 4.4 .. 53.6）
+LOBE_N = 5.0                  # 圆角方形的指数（越大越方）
+LOBE_BLEND = 3.5              # 两块地接起来的地方抹圆多少米（葫芦的腰）
 
 PATH_W = 1.35                 # 主路半宽
 PATH_Y0, PATH_Y1 = -15.2, 1.8  # 主路从码头到石台
@@ -18,12 +23,16 @@ POND = (8.8, -4.2)            # 小池塘
 POND_R = 3.1
 TERRACE = (-11.3, 1.8, 11.3, 9.2)  # 石台（蒲团，216 个座位）x0 y0 x1 y1
 TERRACE_H = 0.07
-HALL = (0.0, 17.3)            # 大殿模型原点（2026-11-17 加深后从 15.8 挪到 17.3；台基前沿还在 y 10.9）
-HALL_RECT = (-8.6, 10.9, 8.6, 23.7)  # 大殿台基 x0 y0 x1 y1（不算最外一圈 0.15 米的台座）
+HALL = (0.0, 27.1)            # 大殿模型原点（2026-11-19 面阔九间的大殿：台基 46 × 32.4，前沿还在 y 10.9）
+HALL_RECT = (-23.0, 10.9, 23.0, 43.3)  # 大殿台基 x0 y0 x1 y1（不算最外一圈 0.15 米的台座）
 DOCK_Y0, DOCK_Y1 = -15.4, -24.6  # 栈桥从岸边到尽头
 PAVILION = (14.4, 6.6)        # 钟亭（石台加宽后往东挪了）
-# 小土丘 x y 高 半径。殿后原来那座 (0, 24.2, 1.0, 4.5) 去掉了：大殿加深后它整个压在台基底下
-MOUNDS = [(-11.5, 18.5, 1.5, 4.8), (12.5, 19.5, 1.2, 4.2), (-15.0, 8.0, 0.6, 2.4)]
+# 小土丘 x y 高 半径。殿两侧原来那两座压在新台基底下，挪到殿后的两个角上（离台基 3 米以上，不挡绕殿走的路）
+MOUNDS = [(-26.6, 48.6, 1.3, 2.9), (26.4, 48.9, 1.1, 2.7), (-15.0, 8.0, 0.6, 2.4)]
+
+
+# 地形网格、islet_map.bytes、地面贴图覆盖的范围（x0, y0, x1, y1）。老的是 (-27, -29, 27, 33)
+EXTENT = (-37.0, -29.0, 37.0, 59.0)
 
 
 def smooth(a, b, x):
@@ -40,10 +49,27 @@ def isle_radius(theta):
     return r + wob
 
 
+def lobe_radius(theta):
+    """北边那块地：圆角方形，岸线只带很小的起伏（殿后、殿侧的地不宽，起伏大了会咬到台基边上）"""
+    c, s = math.cos(theta), math.sin(theta)
+    r = (abs(c / LOBE_R[0]) ** LOBE_N + abs(s / LOBE_R[1]) ** LOBE_N) ** (-1 / LOBE_N)
+    wob = noise.noise(Vector((c * 2.3 - 5.2, s * 2.3 + 2.4, 3.5))) * 0.9 + noise.noise(Vector((c * 6.1, s * 6.1, 1.7))) * 0.35
+    return r + wob
+
+
 def shore_dist(x, y):
-    """离岸线多远：正数在岛上，负数在水里"""
+    """离岸线多远：正数在岛上，负数在水里。两块地取大的那个，接缝处抹圆"""
     vx, vy = x - ISLE_C[0], y - ISLE_C[1]
-    return isle_radius(math.atan2(vy, vx)) - math.hypot(vx, vy)
+    a = isle_radius(math.atan2(vy, vx)) - math.hypot(vx, vy)
+    wx, wy = x - LOBE_C[0], y - LOBE_C[1]
+    b = lobe_radius(math.atan2(wy, wx)) - math.hypot(wx, wy)
+    # 接缝抹圆只在 y 2 以北做（到 y 5 才抹足）：老岛南半边的岸线不动。
+    # （北边那块地的南沿在 y 4.4 以北，南半边岸上、岸边 a 都比 b 大，取大的就是 a）
+    k = LOBE_BLEND * smooth(2.0, 5.0, y)
+    if k < 1e-6:
+        return max(a, b)
+    h = max(0.0, k - abs(a - b)) / k
+    return max(a, b) + h * h * k * 0.25
 
 
 def pond_radius(theta):

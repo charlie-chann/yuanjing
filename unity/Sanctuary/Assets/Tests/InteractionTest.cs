@@ -36,8 +36,13 @@ public class InteractionTest
     {
         public string type, spot, kind, reason, pet, mode, action, nohang, to;
         public int seat = -999, slot = -999, mat = -999;
-        public bool altar, locked, hall;
+        public bool altar, locked, hall, inhall;
     }
+
+    /// 院子里石凳上的座位数（殿里蒲团的序号从它起）
+    int Od => Get<int>(gd, "OutdoorSeats");
+    /// 殿里的一点（金砖地上一点）
+    Vector3 HP(float x, float z) => new Vector3(x, Get<float>(gd, "hallFloor") + 0.02f, z);
 
     void OnLog(string c, string st, LogType t)
     {
@@ -233,11 +238,12 @@ public class InteractionTest
             foreach (var t in UnityEngine.Object.FindObjectsByType<Transform>(FindObjectsSortMode.None))
                 if (System.Text.RegularExpressions.Regex.IsMatch(t.name, @"^Seat\d+$")) cushions++;
             Log($"进殿：座位 {seats} 个（院子里的蒲团 {cushions} 个，殿里的 {seats - cushions} 个）");
-            Assert.AreEqual(60, cushions, "院子里应该是 60 个蒲团");
-            Assert.AreEqual(76, seats, "殿里应该有 16 个静坐的蒲团");
+            Assert.AreEqual(12, cushions, "石台上应该是 6 条石凳、12 个座位");
+            Assert.AreEqual(27, seats, "殿里应该有 15 个静坐的蒲团");
+            Assert.AreEqual(5, Get<Transform>(gd, "hallMats").childCount, "殿里应该有 5 块拜垫（加上 15 个蒲团一共 20 个垫子）");
 
             // ── 坐下按钮：只在离蒲团前面那一点 1.2 米以内才报，坐最近的那个 ──
-            const int S = 14;   // 第 2 排、西边第 2 个
+            const int S = 4;   // 第 2 排西边那条石凳、靠西的座位
             Vector3 stand = Call<Vector3>(gd, "SeatStand", S), lane = Call<Vector3>(gd, "SeatLane", S);
             Cmd("{\"cmd\":\"view\",\"kind\":\"level\"}");
             Teleport(new Vector3(-4.5f, 0.06f, -1f), new Vector3(0, 0, 10));
@@ -251,8 +257,8 @@ public class InteractionTest
             int laneSeat = LastNearSeat();
             Log($"坐下按钮：远处 {farSeat}，过道里（离最近的蒲团 {Flat(new Vector3(0, 0, stand.z), Call<Vector3>(gd, "SeatStand", 12)):F2} 米）{aisleSeat}，第 {S} 号前面的走道上 {laneSeat}");
             Assert.AreEqual(-1, farSeat, "远处不该有坐下");
-            Assert.AreEqual(-1, aisleSeat, "过道中间离蒲团 1.3 米，不该有坐下");
-            Assert.AreEqual(S, laneSeat, "走道上应该报正对着的那个蒲团");
+            Assert.AreEqual(-1, aisleSeat, "过道中间离石凳五米多，不该有坐下");
+            Assert.AreEqual(S, laneSeat, "站在凳前应该报正对着的那个座位");
             Shot("near_seat_lane");
 
             // 坐下：seat 给 -1 也坐最近的
@@ -279,10 +285,10 @@ public class InteractionTest
 
             // 给一个远处的座位：不去那么远，坐身边最近的
             n0 = sent.Count;
-            Cmd("{\"cmd\":\"sit\",\"seat\":59}");
+            Cmd("{\"cmd\":\"sit\",\"seat\":11}");
             yield return Wait("seated", 15f, n0);
             Assert.IsNotNull(got);
-            Log($"给了 59 号（远处）：实际坐 {got.seat} 号");
+            Log($"给了 11 号（远处）：实际坐 {got.seat} 号");
             Assert.AreEqual(S, got.seat);
             yield return new WaitForSeconds(2.5f);
             // 推摇杆：起身退到走道上，然后自己走
@@ -293,6 +299,8 @@ public class InteractionTest
             yield return Wait("arrived", 12f, n0);
             Assert.IsNotNull(got, "推摇杆起身以后没有 arrived");
             Log($"推摇杆起身：停在离走道 {Flat(Me, lane):F2} 米");
+            // 起身那半秒多人还在从凳面滑回凳前：等滑完再挪人（测试里直接挪位置，会被拉回凳前）
+            yield return new WaitForSeconds(1f);
 
             // 身边没有空蒲团：sitFailed（reason none）
             Teleport(new Vector3(-4.5f, 0.06f, -1f), new Vector3(0, 0, 10));
@@ -849,9 +857,10 @@ public class InteractionTest
 
             // ── C：走到蒲团前、转身要坐的那一下起身：不该坐下去，MySeat 也不该乱 ──
             {
-                int S = 40;
+                int S = 6;
                 Vector3 ground = Call<Vector3>(gd, "SeatGround", S);
-                Vector3 side = ground + new Vector3(0.9f, 0, 0.3f);
+                // 凳前站的那一点的斜前方（石凳挡人，不能站在凳子里）
+                Vector3 side = Call<Vector3>(gd, "SeatStand", S) + new Vector3(0.9f, 0, 0.5f);
                 Teleport(side, side + Vector3.back * 3);
                 yield return new WaitForSeconds(0.6f);
                 int n0 = sent.Count;
@@ -891,7 +900,7 @@ public class InteractionTest
             // ── D：香客正走去 50 号的路上，服务器把他改到 51 号：坐到 51，50 号空着、没人坐在上面 ──
             {
                 var place8 = M(pil, "Place", 8);
-                place8.Invoke(pil, new object[] { "nX", 50, true, "测试香客", true, "ts", 1f, 900f });
+                place8.Invoke(pil, new object[] { "nX", 8, true, "测试香客", true, "ts", 1f, 900f });
                 yield return new WaitForSeconds(0.5f);
                 var people = Get<IDictionary>(pil, "people");
                 object p = people["nX"];
@@ -899,25 +908,27 @@ public class InteractionTest
                 Set(p, "arrive", Time.time - 200f);
                 yield return new WaitForSeconds(2.5f);
                 Log($"D 走去 50 号的路上：toSeat={Get<int>(p, "toSeat")}，在 {F(((Component)Get<object>(p, "folk")).transform.position)}");
-                Assert.AreEqual(50, Get<int>(p, "toSeat"), "香客没在去 50 号的路上");
-                place8.Invoke(pil, new object[] { "nX", 51, true, "测试香客", false, "ts", 200f, 900f });
+                Assert.AreEqual(8, Get<int>(p, "toSeat"), "香客没在去 8 号的路上");
+                place8.Invoke(pil, new object[] { "nX", 9, true, "测试香客", false, "ts", 200f, 900f });
                 float t0 = Time.time;
                 while (!Get<bool>(p, "seated") && Time.time - t0 < 60f) yield return null;
+                // 坐下那半秒多人从凳前滑上凳面：等滑完再量
+                yield return new WaitForSeconds(1f);
                 var pf = (Component)Get<object>(p, "folk");
-                Vector3 s50 = Call<Transform>(pil, "Seat", 50).position, s51 = Call<Transform>(pil, "Seat", 51).position;
-                bool t50 = Call<bool>(pil, "Taken", 50), t51 = Call<bool>(pil, "Taken", 51);
+                Vector3 s50 = Call<Transform>(pil, "Seat", 8).position, s51 = Call<Transform>(pil, "Seat", 9).position;
+                bool t50 = Call<bool>(pil, "Taken", 8), t51 = Call<bool>(pil, "Taken", 9);
                 Log($"D 走到一半改座位：坐下了={Get<bool>(p, "seated")}，p.seat={Get<int>(p, "seat")}，人离 50 号 {Flat(pf.transform.position, s50):F2} 米、离 51 号 {Flat(pf.transform.position, s51):F2} 米；Taken(50)={t50} Taken(51)={t51}，用了 {Time.time - t0:F0} 秒");
                 Assert.IsTrue(Get<bool>(p, "seated"));
-                Assert.AreEqual(51, Get<int>(p, "seat"));
-                Assert.Less(Flat(pf.transform.position, s51), 0.1f, "应该坐在 51 号上");
+                Assert.AreEqual(9, Get<int>(p, "seat"));
+                Assert.Less(Flat(pf.transform.position, s51), 0.1f, "应该坐在 9 号上");
                 Assert.IsFalse(t50);
                 Assert.IsTrue(t51);
-                Vector3 lane = Call<Vector3>(gd, "SeatLane", 51);
+                Vector3 lane = Call<Vector3>(gd, "SeatLane", 9);
                 Teleport(lane, lane + Vector3.forward * 3);
                 yield return new WaitForSeconds(0.4f);
                 int nearest = Call<int>(gd, "NearestSeat", Me, 1.2f);
                 Log($"D   玩家站在 51 号前：NearestSeat = {nearest}");
-                Assert.AreNotEqual(51, nearest, "有人坐着的蒲团不该给玩家坐");
+                Assert.AreNotEqual(9, nearest, "有人坐着的座位不该给玩家坐");
                 M(pil, "Sync", 1).Invoke(pil, new object[] { new HashSet<string>() });
                 yield return new WaitForSeconds(1f);
             }
@@ -925,12 +936,12 @@ public class InteractionTest
             // ── H：被香客记着、但他这会儿在树下的蒲团：看着是空的，走过去有「坐下」，坐了以后他换一个 ──
             {
                 var place8 = M(pil, "Place", 8);
-                place8.Invoke(pil, new object[] { "nR", 26, true, "记座的", true, "ts", 1f, 900f });
+                place8.Invoke(pil, new object[] { "nR", 2, true, "记座的", true, "ts", 1f, 900f });
                 yield return new WaitForSeconds(0.3f);
                 var people = Get<IDictionary>(pil, "people");
                 object p = people["nR"];
-                bool occ = Call<bool>(pil, "Occupied", 26), taken = Call<bool>(pil, "Taken", 26);
-                Vector3 lane = Call<Vector3>(gd, "SeatLane", 26);
+                bool occ = Call<bool>(pil, "Occupied", 2), taken = Call<bool>(pil, "Taken", 2);
+                Vector3 lane = Call<Vector3>(gd, "SeatLane", 2);
                 Teleport(lane, lane + Vector3.forward * 3);
                 yield return new WaitForSeconds(0.4f);
                 int near = LastNearSeat();
@@ -942,9 +953,9 @@ public class InteractionTest
                 Log($"H 26 号被树下的香客记着（Occupied={occ}，Taken={taken}）：站在它前面 near={near}，坐下 {sat}，那位香客改记 {theirs}");
                 Assert.IsTrue(occ);
                 Assert.IsFalse(taken);
-                Assert.AreEqual(26, near);
-                Assert.AreEqual(26, sat);
-                Assert.AreNotEqual(26, theirs);
+                Assert.AreEqual(2, near);
+                Assert.AreEqual(2, sat);
+                Assert.AreNotEqual(2, theirs);
                 yield return new WaitForSeconds(2.5f);
                 n0 = sent.Count;
                 Cmd("{\"cmd\":\"stand\"}");
@@ -958,26 +969,26 @@ public class InteractionTest
                 yield return new WaitForSeconds(0.5f);
                 // 先来一份空名单：之后新来的人从栈桥走进来（第一份名单上的人一进场就已经坐着）
                 Cmd("{\"cmd\":\"pilgrims\",\"list\":\"\"}");
-                Cmd("{\"cmd\":\"pilgrims\",\"list\":\"u99:26:0:路人\"}");
+                Cmd("{\"cmd\":\"pilgrims\",\"list\":\"u99:2:0:路人\"}");
                 yield return new WaitForSeconds(1.5f);
                 var people = Get<IDictionary>(pil, "people");
                 bool walking = people.Contains("u99") && !Get<bool>(people["u99"], "seated");
-                bool taken = Call<bool>(pil, "Taken", 26);
-                Vector3 lane = Call<Vector3>(gd, "SeatLane", 26);
+                bool taken = Call<bool>(pil, "Taken", 2);
+                Vector3 lane = Call<Vector3>(gd, "SeatLane", 2);
                 Teleport(lane, lane + Vector3.forward * 3);
                 yield return new WaitForSeconds(0.5f);
                 int near = LastNearSeat();
                 int n0 = sent.Count;
-                Cmd("{\"cmd\":\"sit\",\"seat\":26}");
+                Cmd("{\"cmd\":\"sit\",\"seat\":2}");
                 yield return Wait("seated", 12f, n0);
                 int sat = got != null ? got.seat : -1;
                 Log($"R 真人在路上去 26 号（还在走={walking}）：Taken(26)={taken}，站在 26 号前 near={near}，「坐下 26」坐到了 {sat}");
-                Assert.IsTrue(walking && taken, "真人在路上，26 号应该算有人");
-                Assert.AreNotEqual(26, near);
-                Assert.AreNotEqual(26, sat);
+                Assert.IsTrue(walking && taken, "真人在路上，2 号应该算有人");
+                Assert.AreNotEqual(2, near);
+                Assert.AreNotEqual(2, sat);
                 Assert.GreaterOrEqual(sat, 0);
                 // 另一位真人：已经在岛上，却记着玩家坐的这个座位，走过来
-                Cmd("{\"cmd\":\"pilgrims\",\"list\":\"u99:26:0:路人|u98:55:0:路人二\"}");
+                Cmd("{\"cmd\":\"pilgrims\",\"list\":\"u99:2:0:路人|u98:10:0:路人二\"}");
                 yield return new WaitForSeconds(1.0f);
                 object u98 = people.Contains("u98") ? people["u98"] : null;
                 Assert.IsNotNull(u98);
@@ -991,7 +1002,7 @@ public class InteractionTest
                 {
                     // 名单每 6 秒来一次（服务器上他还排在这个座位）
                     if ((int)((Time.time - t0) / 6f) != (int)((Time.time - t0 - Time.deltaTime) / 6f))
-                        Cmd($"{{\"cmd\":\"pilgrims\",\"list\":\"u99:26:0:路人|u98:{sat}:0:路人二\"}}");
+                        Cmd($"{{\"cmd\":\"pilgrims\",\"list\":\"u99:2:0:路人|u98:{sat}:0:路人二\"}}");
                     if (Flat(uf.position, stand) < 0.5f) dwell += Time.deltaTime;
                     yield return null;
                 }
@@ -1074,21 +1085,23 @@ public class InteractionTest
 
             // ── 蒲团之间（第 2 排两个圆蒲团中间）往外走：先顺着南北走到走道上，不沿着那一排穿过别的蒲团 ──
             {
-                Vector3 between = new Vector3(-3.18f, 0.07f, 4.8f);
-                var path = Call<List<Vector3>>(gd, "PlanPath", between, new Vector3(0, 0.06f, -4f));
+                // 从石凳后面去香炉：路线绕开石凳走，不从凳子上穿过去（石凳的座位两两一条：凳子中心是一对座位的中点，长 1.35、深 0.39）
+                Vector3 behind = new Vector3(-6.0f, 0.07f, 5.0f);
+                var path = Call<List<Vector3>>(gd, "PlanPath", behind, new Vector3(0, 0.06f, -4f));
                 var sb = new StringBuilder();
                 foreach (var q in path) sb.Append(F(q)).Append(' ');
-                Log($"蒲团之间出座位区的路线：{sb}");
-                Assert.Less(Mathf.Abs(path[0].x - between.x), 0.01f, "第一段应该顺着南北走到走道上");
-                // 每一段都不穿过圆蒲团（半径 0.2，人再宽 0.15）
-                Vector3 prev = between;
+                Log($"从石凳后面 {F(behind)} 去香炉：{sb}");
+                Vector3 prev = behind;
                 foreach (var q in path)
                 {
                     for (int i = 0; i < 60; i++)
                     {
                         Vector3 x = Vector3.Lerp(prev, q, (i + 0.5f) / 60f);
-                        for (int k = 0; k < 60; k++)
-                            Assert.Greater(Flat(x, Call<Vector3>(gd, "SeatGround", k)), 0.3f, $"路线踩到第 {k} 号圆蒲团（{F(x)}）");
+                        for (int k = 0; k + 1 < Od; k += 2)
+                        {
+                            Vector3 c = (Call<Vector3>(gd, "SeatGround", k) + Call<Vector3>(gd, "SeatGround", k + 1)) * 0.5f;
+                            Assert.IsFalse(Mathf.Abs(x.x - c.x) < 0.67f && Mathf.Abs(x.z - c.z) < 0.19f, $"路线从第 {k / 2} 条石凳上穿过去（{F(x)}）");
+                        }
                     }
                     prev = q;
                 }
@@ -1123,17 +1136,22 @@ public class InteractionTest
             Assert.IsNotNull(hallColliders, "场景里没有新大殿的碰撞（BuildHall）");
             Assert.IsNull(GameObject.Find("World/Structure/hall/Colliders/DoorShut"), "殿门口还拦着隔板");
             var hc = hallColliders.transform;
-            Cmd("{\"cmd\":\"view\",\"kind\":\"top\"}");
+            Cmd("{\"cmd\":\"view\",\"kind\":\"level\"}");
             yield return new WaitForSeconds(0.8f);
 
             // ── 路线：从院子去殿里的蒲团，经过门外、门里那两点；殿里那一段不撞柱子、门扇、陈设 ──
             {
-                Vector3 hallLane = Call<Vector3>(gd, "SeatLane", 60 + 6);
+                float hf = Get<float>(gd, "hallFloor");
+                Vector3 dOut = Get<Vector3>(gd, "hallDoorOut"), dIn = Get<Vector3>(gd, "hallDoorIn");
+                Vector3 hallLane = Call<Vector3>(gd, "SeatLane", Od + 6);
                 var path = Call<List<Vector3>>(gd, "PlanPath", new Vector3(-3f, 0.07f, 0f), hallLane);
                 var sb = new StringBuilder();
                 foreach (var q in path) sb.Append(F(q)).Append(' ');
                 Log($"院子 → 殿里 66 号蒲团前：{sb}");
-                bool door0 = path.Exists(q => Flat(q, new Vector3(0, 0, 14.0f)) < 0.01f), door1 = path.Exists(q => Flat(q, new Vector3(0, 0, 15.0f)) < 0.01f);
+                // 三间门都开着：从哪一间进都行（门外一点、门里一点都在路线上）
+                var outs = new List<Vector3> { dOut }; outs.AddRange(Get<Vector3[]>(gd, "hallSideDoorsOut"));
+                var ins = new List<Vector3> { dIn }; ins.AddRange(Get<Vector3[]>(gd, "hallSideDoorsIn"));
+                bool door0 = path.Exists(q => outs.Exists(o => Flat(q, o) < 0.01f)), door1 = path.Exists(q => ins.Exists(o => Flat(q, o) < 0.01f));
                 Assert.IsTrue(door0 && door1, "要经过殿门");
                 // 殿里的路：从门里、从中间拜垫后面、从西边拜垫旁，走到每块拜垫、供桌前、每个蒲团前的走道：
                 // 人（粗 0.2 米的胶囊）一路不碰真大殿的柱子、门扇、磬、木鱼、功德箱、经案、供桌、墙
@@ -1141,12 +1159,12 @@ public class InteractionTest
                 var hm = Get<Transform>(gd, "hallMats");
                 for (int i = 0; i < hm.childCount; i++) targets.Add(($"拜垫{i}", hm.GetChild(i).position));
                 targets.Add(("供桌前", Get<Vector3>(gd, "altarStand")));
-                for (int i = 60; i < Get<int>(gd, "SeatTotal"); i++) targets.Add(($"蒲团{i}", Call<Vector3>(gd, "SeatLane", i)));
+                for (int i = Od; i < Get<int>(gd, "SeatTotal"); i++) targets.Add(($"蒲团{i}", Call<Vector3>(gd, "SeatLane", i)));
                 int bad = 0;
                 var hits = new StringBuilder();
                 float longest = 0;
                 string longestLeg = "";
-                foreach (var from in new[] { new Vector3(0, 0.72f, 15.0f), new Vector3(0, 0.72f, 17.1f), new Vector3(-4.0f, 0.72f, 18.6f) })
+                foreach (var from in new[] { dIn, new Vector3(0, hf, 27.4f), new Vector3(-8.6f, hf, 28.2f), new Vector3(16.5f, hf, 38.5f) })
                     foreach (var (name, to) in targets)
                     {
                         var pp = Call<List<Vector3>>(gd, "PlanPath", from, to);
@@ -1161,7 +1179,7 @@ public class InteractionTest
                         {
                             for (float d = 0; d <= Flat(prev, q); d += 0.05f)
                             {
-                                Vector3 x = Vector3.MoveTowards(new Vector3(prev.x, 0.72f, prev.z), new Vector3(q.x, 0.72f, q.z), d);
+                                Vector3 x = Vector3.MoveTowards(new Vector3(prev.x, hf, prev.z), new Vector3(q.x, hf, q.z), d);
                                 foreach (var c in Physics.OverlapCapsule(x + Vector3.up * 0.3f, x + Vector3.up * 1.4f, 0.2f, ~0, QueryTriggerInteraction.Ignore))
                                     if (HallSolid(c, hc))
                                     {
@@ -1175,44 +1193,41 @@ public class InteractionTest
                         nextLeg:;
                     }
                 // 去西边、东边蒲团：两根金柱之间空出来了，直接从中间穿过去（不再绕到北边）
-                foreach (int s in new[] { 60 + 1, 60 + 5, 60 + 9, 60 + 13 })
+                // 从中门里去几个蒲团：路不绕远（比直线多不出 2 米）
+                foreach (int s in new[] { Od + 1, Od + 5, Od + 9, Od + 13 })
                 {
-                    var pw = Call<List<Vector3>>(gd, "PlanPath", new Vector3(0, 0.72f, 15.0f), Call<Vector3>(gd, "SeatLane", s));
-                    float maxZ = 0;
+                    Vector3 to = Call<Vector3>(gd, "SeatLane", s);
+                    var pw = Call<List<Vector3>>(gd, "PlanPath", dIn, to);
+                    float len = 0;
+                    Vector3 pv = dIn;
                     var wsb = new StringBuilder();
-                    foreach (var q in pw) { maxZ = Mathf.Max(maxZ, q.z); wsb.Append(F(q)).Append(' '); }
-                    Log($"门里 → 蒲团{s} 前：{wsb}（最北 z {maxZ:F2}）");
-                    Assert.Less(maxZ, 17.8f, $"去蒲团{s} 绕到金柱北边去了");
+                    foreach (var q in pw) { len += Flat(pv, q); pv = q; wsb.Append(F(q)).Append(' '); }
+                    Log($"从中门去蒲团{s}：{len:F1} 米（直线 {Flat(dIn, to):F1}）{wsb}");
+                    Assert.Less(len, Flat(dIn, to) + 2f, $"去蒲团{s} 绕远了");
                 }
-                // 两边拜垫的走法：从过道边 (±1.6, 18.6) 到拜垫（props.md §5 的通道）
-                var side = Call<List<Vector3>>(gd, "PlanPath", new Vector3(1.6f, 0.72f, 18.6f), hm.GetChild(4).position);
+                var side = Call<List<Vector3>>(gd, "PlanPath", new Vector3(2.4f, hf, 29.95f), hm.GetChild(4).position);
                 var ssb = new StringBuilder();
                 foreach (var q in side) ssb.Append(F(q)).Append(' ');
                 Log($"殿里的路：{targets.Count} 个去处 × 3 个起点，人碰到东西 {bad} 段 {hits}；绕得最远的一段多走 {longest:F2} 米（{longestLeg}）；过道边 → 东边拜垫：{ssb}");
                 Assert.AreEqual(0, bad, "殿里的路线碰到东西");
             }
             // ── 走进殿：用摇杆从廊下往北推（俯视进去），一进门就换成平视、锁住 ──
-            Teleport(new Vector3(0, 0.74f, 12.8f), new Vector3(0, 0.74f, 20f));
+            Teleport(new Vector3(0, 1.1f, 14.8f), new Vector3(0, 1.1f, 30f));
             yield return new WaitForSeconds(1.0f);
             Shot("porch_top");
             int n0 = sent.Count;
             float t0 = Time.time;
-            while (Me.z < 15.6f && Time.time - t0 < 8f) { Stick(Vector3.forward); yield return null; }
+            while (Me.z < 18.0f && Time.time - t0 < 10f) { Stick(Vector3.forward); yield return null; }
             Stick(Vector3.zero);
-            yield return Wait("view", 1f, n0, r => r.locked);
-            Assert.IsNotNull(got, "进殿没有发 view locked");
+            // 进殿不再锁平视（2026-11-19 起自由环绕）：发一条 view，inhall 是 true、locked 是 false；殿里照样能压到俯视
+            yield return Wait("view", 1f, n0, r => r.inhall);
+            Assert.IsNotNull(got, "进殿没有发 view inhall");
+            Assert.IsFalse(got.locked, "进殿不该再锁视角");
             Assert.AreEqual("level", got.mode);
-            Log($"摇杆走进殿：到了 {F(Me)}，view {got.mode} locked={got.locked}，Interior={Get<bool>(vs, "Interior")}，消息 {Types(n0)}");
             yield return Wait("arrived", 1f, n0, r => r.spot == "inhall");
             Assert.IsNotNull(got, "进殿以后 arrived 应该是 inhall");
             yield return new WaitForSeconds(1.5f);
             Shot("in_level");
-            // 俯视、仰视点不了；第一人称可以
-            n0 = sent.Count;
-            Cmd("{\"cmd\":\"view\",\"kind\":\"top\"}");
-            yield return Wait("view", 1f, n0);
-            Assert.AreEqual("level", got.mode, "殿里不该换成俯视");
-            Assert.IsTrue(got.locked);
             Cmd("{\"cmd\":\"view\",\"kind\":\"first\"}");
             yield return new WaitForSeconds(1.0f);
             Assert.AreEqual("first", Get<string>(vs, "Mode"));
@@ -1232,26 +1247,27 @@ public class InteractionTest
             for (int i = 0; i < 10; i++) { Cmd("{\"cmd\":\"look\",\"dx\":0,\"dy\":0.2}"); yield return null; }
             yield return new WaitForSeconds(1.0f);
             Log($"殿里镜头：压低看 {camY:F2} 米高，抬到最高 {cam.transform.position.y:F2} 米高（梁底 5.35）");
-            Assert.Less(Mathf.Max(camY, cam.transform.position.y), 5.1f, "镜头穿到天花板上面去了");
+            Assert.Less(Mathf.Max(camY, cam.transform.position.y), 12.75f, "镜头穿到天花板上面去了");
+            Assert.Greater(camY, 2.6f, "殿里拖屏往下看，镜头应该抬起来（能压到俯视）");
             // 放回平常的俯角（16 度上下）
             Cmd("{\"cmd\":\"look\",\"dx\":0,\"dy\":-0.23}");
             yield return new WaitForSeconds(0.6f);
             // 镜头躲墙：贴着西墙站、背对墙（西边外侧两排蒲团之间，墙里 0.27 米）
-            Teleport(new Vector3(-6.2f, 0.76f, 16.4f), new Vector3(0, 0.76f, 16.4f));
+            Teleport(HP(-20.0f, 24.0f), HP(0, 24.0f));
             yield return new WaitForSeconds(1.5f);
             Vector3 cp = cam.transform.position;
             Log($"贴着西墙：镜头在 {F(cp)}，离人 {Get<float>(follow, "CurrentDistance"):F2} 米");
-            Assert.Greater(cp.x, -6.47f, "镜头钻到墙外面去了");
+            Assert.Greater(cp.x, -20.44f, "镜头钻到墙外面去了");
             Shot("in_wall");
 
             // ── 拜垫：0.9 米以内才报，在那块拜垫上跪拜（站上去、面朝佛像、跪下叩首三次）。中间三块在 z 17.8，两边两块在 z 18.5 ──
-            Vector3 mat1 = new Vector3(0, 0.72f, 17.8f);
-            Teleport(new Vector3(0.3f, 0.74f, 16.8f), new Vector3(0, 0.74f, 21f));
+            Vector3 mat1 = Get<Transform>(gd, "hallMats").GetChild(1).position;
+            Teleport(HP(0.3f, mat1.z - 1.0f), HP(0, 40f));
             yield return new WaitForSeconds(0.6f);
             var nr = LastNear();
             Log($"离中间拜垫 {Flat(Me, mat1):F2} 米：near mat={nr.mat} altar={nr.altar}");
             Assert.AreEqual(-1, nr.mat, "1 米外不该报拜垫");
-            Teleport(new Vector3(0.3f, 0.74f, 17.15f), new Vector3(0, 0.74f, 21f));
+            Teleport(HP(0.3f, mat1.z - 0.65f), HP(0, 40f));
             yield return new WaitForSeconds(0.6f);
             nr = LastNear();
             Log($"离中间拜垫 {Flat(Me, mat1):F2} 米：near mat={nr.mat} altar={nr.altar}");
@@ -1264,7 +1280,7 @@ public class InteractionTest
             {
                 Vector3 mp = mats.GetChild(i).position;
                 Vector3 start = i < 3 ? mp + new Vector3(0.3f, 0.02f, -0.65f) : mp + new Vector3(mp.x < 0 ? 0.7f : -0.7f, 0.02f, 0.15f);
-                Teleport(start, new Vector3(mp.x, 0.74f, 21f));
+                Teleport(start, HP(mp.x, 40f));
                 yield return new WaitForSeconds(0.6f);
                 nr = LastNear();
                 Assert.AreEqual(i, nr.mat, $"站在拜垫{i} 跟前 {Flat(Me, mp):F2} 米，near 报的是 {nr.mat}");
@@ -1304,7 +1320,7 @@ public class InteractionTest
                 Assert.Less(Mathf.Abs(Mathf.DeltaAngle(yaw, 0)), 10f, $"拜垫{i} 没面朝佛像");
             }
             // 鞠躬、合掌也在拜垫上：从西边拜垫旁边的通道上点「鞠躬」
-            Teleport(new Vector3(-2.9f, 0.74f, 18.65f), new Vector3(0, 0.74f, 21f));
+            Teleport(HP(mats.GetChild(3).position.x + 0.7f, mats.GetChild(3).position.z + 0.15f), HP(0, 40f));
             yield return new WaitForSeconds(0.5f);
             nr = LastNear();
             n0 = sent.Count;
@@ -1312,10 +1328,10 @@ public class InteractionTest
             yield return Wait("actionDone", 12f, n0);
             Log($"西边拜垫 near mat={nr.mat}，鞠躬后人在 {F(Me)}");
             Assert.AreEqual(3, nr.mat);
-            Assert.Less(Flat(Me, new Vector3(-3.6f, 0, 18.5f)), 0.12f);
+            Assert.Less(Flat(Me, mats.GetChild(3).position), 0.12f);
             yield return ShotFrom("west_mat", Me + new Vector3(1.6f, 1.3f, -1.6f), Me + Vector3.up * 0.6f, 50f);
             // ── 上香：走到中间供桌前（z 18.52）、举香拜三拜、站着不动俯身插进香炉、合掌 ──
-            Teleport(new Vector3(0.6f, 0.74f, 17.4f), new Vector3(0, 0.74f, 21f));
+            Teleport(HP(0.6f, 28.6f), HP(0, 40f));
             yield return new WaitForSeconds(0.5f);
             n0 = sent.Count;
             Cmd("{\"cmd\":\"offer\",\"kind\":\"incense\"}");
@@ -1424,20 +1440,16 @@ public class InteractionTest
             Cmd("{\"cmd\":\"enter\",\"scene\":\"Islet\",\"time\":\"day\",\"weather\":\"clear\",\"seed\":0,\"name\":\"测试\"}");
             yield return null;
             yield return null;
-            yield return Wait("view", 1f, n0, r => !r.locked);
-            Log($"插香时重新进场：手里那把还在吗 {(flying != null)}，香炉里 {Get<int>(off, "HallSticks")} 把；视角放开了 {(got != null ? got.mode : "没有")}，现在 {Get<string>(vs, "Mode")}");
+            yield return new WaitForSeconds(0.5f);
             Assert.IsTrue(flying == null, "插到一半的香留在半空了");
             Assert.AreEqual(3, Get<int>(off, "HallSticks"));
-            // 在殿里重新进场：放开平视，换回进殿前的俯视（以前停在平视）
-            Assert.IsNotNull(got, "在殿里重新进场没有放开视角");
-            Assert.AreEqual("top", got.mode);
-            Assert.AreEqual("top", Get<string>(vs, "Mode"));
+            // 在殿里重新进场：视角不再来回换（一直是自由环绕的 level）
+            Assert.AreEqual("level", Get<string>(vs, "Mode"));
             yield return new WaitForSeconds(2.5f);
-
             // ── 殿里的蒲团：走近才报，坐下、起身退到它前面的走道上 ──
-            int H = 60 + 2;     // 西边里面那一列第 3 排（-4.55, 16.85），面朝东
+            int H = Od + 2;     // 第一排西边靠过道的那个（-2.4, 26.4），面朝北
             Vector3 hl = Call<Vector3>(gd, "SeatLane", H);
-            Teleport(hl + new Vector3(0.5f, 0, 0.3f), hl + Vector3.left);
+            Teleport(hl + new Vector3(0.3f, 0.02f, 0.4f), hl + Vector3.back);
             yield return new WaitForSeconds(0.5f);
             int hn = LastNearSeat();
             n0 = sent.Count;
@@ -1457,10 +1469,10 @@ public class InteractionTest
             Assert.Less(Flat(Me, hl), 0.3f);
             Assert.AreEqual("inhall", got.spot);
             // 站在殿中间的过道上（离蒲团都远）：「坐下」给远处的蒲团不坐，回 sitFailed
-            Teleport(new Vector3(0, 0.74f, 16.5f), new Vector3(0, 0.74f, 21f));
+            Teleport(HP(0, 20.0f), HP(0, 40f));
             yield return new WaitForSeconds(0.4f);
             n0 = sent.Count;
-            Cmd($"{{\"cmd\":\"sit\",\"seat\":{60 + 12}}}");
+            Cmd($"{{\"cmd\":\"sit\",\"seat\":{Od + 12}}}");
             yield return Wait("sitFailed", 1f, n0);
             Assert.IsNotNull(got, "远处的蒲团用「坐下」不该坐");
 
@@ -1471,29 +1483,27 @@ public class InteractionTest
             t0 = Time.time;
             got = null;
             Vector3 last = Me;
-            while (Time.time - t0 < 30f)
+            while (Time.time - t0 < 45f)
             {
                 yield return Wait("arrived", 0.02f, n0, r => r.spot == "hall");
                 if (got != null) break;
                 // 穿过门那条线（z 14.3）时离中线多远
-                if ((last.z - 14.3f) * (Me.z - 14.3f) <= 0) minAbsX = Mathf.Min(minAbsX, Mathf.Abs(Me.x));
+                if ((last.z - 16.5f) * (Me.z - 16.5f) <= 0) minAbsX = Mathf.Min(minAbsX, Mathf.Abs(Me.x));
                 last = Me;
             }
             Assert.IsNotNull(got, "出殿没走到大殿前");
-            yield return Wait("view", 0.1f, n0, r => !r.locked);
-            Log($"走出殿：过门时离中线 {minAbsX:F2} 米，view {(got != null ? got.mode + " locked=" + got.locked : "没有")}，现在 {Get<string>(vs, "Mode")}");
-            Assert.Less(minAbsX, 0.7f, "要从中间那扇门出去");
-            Assert.IsNotNull(got);
-            Assert.AreEqual("top", Get<string>(vs, "Mode"), "出殿换回进殿前的视角");
+            yield return Wait("view", 0.1f, n0, r => !r.inhall);
+            Assert.Less(minAbsX, 2.75f, "要从中间那间门出去（门扇之间净空 ±2.75）");
+            Assert.IsNotNull(got, "出殿没有发 view（inhall false）");
             yield return new WaitForSeconds(1f);
             Shot("out_top");
 
             // ── 走进殿（「进殿」按钮）：经过门，到中间拜垫后面 ──
             n0 = sent.Count;
             Cmd("{\"cmd\":\"goto\",\"spot\":\"inhall\"}");
-            yield return Wait("arrived", 30f, n0, r => r.spot == "inhall");
+            yield return Wait("arrived", 45f, n0, r => r.spot == "inhall");
             Assert.IsNotNull(got, "「进殿」没走进去");
-            yield return Wait("view", 0.1f, n0, r => r.locked);
+            yield return Wait("view", 0.1f, n0, r => r.inhall);
             Assert.IsNotNull(got);
             yield return new WaitForSeconds(1.2f);
             nr = LastNear();
@@ -1521,40 +1531,40 @@ public class InteractionTest
                 {
                     var r = JsonUtility.FromJson<Reply>(sent[i]);
                     Assert.IsFalse(r.type == "moving" && r.to == "hall", $"点{what} 被领出殿去了");
-                    Assert.IsFalse(r.type == "view" && !r.locked, $"点{what} 放开了平视（出殿了）");
+                    Assert.IsFalse(r.type == "view" && !r.inhall, $"点{what} 走出殿了");
                 }
                 Assert.IsTrue(inHall(Me), $"点{what} 以后人不在殿里：{F(Me)}");
             }
             Cmd("{\"cmd\":\"view\",\"kind\":\"level\"}");
-            Teleport(new Vector3(0.3f, 0.74f, 15.9f), new Vector3(0.3f, 0.74f, 21f));
+            Teleport(HP(0.3f, 26.6f), HP(0.3f, 40f));
             Run(Get<object>(gd, "cam"), "Snap", 0f);
             yield return new WaitForSeconds(1.5f);
-            Vector3 floorTap = new Vector3(-0.9f, 0.72f, 16.9f);
+            Vector3 floorTap = new Vector3(-0.9f, Get<float>(gd, "hallFloor"), 27.8f);
             yield return TapAt("地面（西边拜垫南边）", floorTap, "arrived");
             Assert.AreEqual("inhall", got.spot);
             Assert.Less(Flat(Me, floorTap), 0.35f, "点的地面没走到");
             // 点供桌桌面：走到桌前站得下人的地方（不钻进桌子）
-            Teleport(new Vector3(0.3f, 0.74f, 16.6f), new Vector3(0.3f, 0.74f, 21f));
+            Teleport(HP(0.3f, 28.0f), HP(0.3f, 40f));
             Run(Get<object>(gd, "cam"), "Snap", 0f);
             yield return new WaitForSeconds(1.5f);
-            Vector3 tableTap = new Vector3(0.6f, 1.504f, 19.3f);
+            Vector3 tableTap = new Vector3(0.6f, Get<float>(gd, "hallFloor") + 0.784f, 30.7f);
             yield return TapAt("供桌桌面", tableTap, "arrived");
-            Assert.Less(Me.z, 18.8f, "走进供桌里去了");
+            Assert.Less(Me.z, 30.2f, "走进供桌里去了");
             Assert.Less(Flat(Me, tableTap), 1.0f, "点供桌没走到桌前");
             // 第一人称点地面
-            Teleport(new Vector3(0, 0.73f, 15.2f), new Vector3(0, 0.73f, 21f));
+            Teleport(HP(0, 26.2f), HP(0, 40f));
             Cmd("{\"cmd\":\"view\",\"kind\":\"first\"}");
             yield return new WaitForSeconds(0.3f);
             // 低头看地（第一人称进殿时是抬头看佛像的）
             Set(Get<object>(vs, "first"), "pitchTarget", 25f);
             yield return new WaitForSeconds(1.5f);
-            yield return TapAt("地面（第一人称）", new Vector3(0.8f, 0.72f, 17.0f), "arrived");
+            yield return TapAt("地面（第一人称）", new Vector3(0.8f, Get<float>(gd, "hallFloor"), 28.0f), "arrived");
             Cmd("{\"cmd\":\"view\",\"kind\":\"level\"}");
             yield return new WaitForSeconds(1.0f);
             // 点西边的空蒲团：走过去坐下（以前点偏一点点就被「大殿」那一点抢走）
-            int tapSeat = 60 + 2;     // 西边里面那一列第 3 排（-4.55, 16.85）
+            int tapSeat = Od + 2;     // 第一排西边靠过道的那个（-2.4, 26.4）
             Vector3 zafu = Call<Vector3>(gd, "SeatGround", tapSeat);
-            Teleport(new Vector3(-1.2f, 0.74f, 16.4f), new Vector3(-5f, 0.74f, 16.4f));
+            Teleport(HP(-0.6f, 27.6f), HP(-5f, 25.6f));
             Run(Get<object>(gd, "cam"), "Snap", 270f);
             yield return new WaitForSeconds(1.5f);
             // 点在蒲团偏 0.25 米的地方（不正好点中）
@@ -1568,11 +1578,11 @@ public class InteractionTest
             // ── 殿里规划路线要多久（以前每次 70–230 毫秒，主线程上卡一下） ──
             var pairs = new (Vector3, Vector3)[]
             {
-                (new Vector3(0, 0.72f, 15.0f), new Vector3(-5.1f, 0.72f, 16.85f)),
-                (new Vector3(0, 0.72f, 15.0f), new Vector3(5.1f, 0.72f, 17.75f)),
-                (new Vector3(-5.1f, 0.72f, 15.05f), new Vector3(5.1f, 0.72f, 17.75f)),
-                (new Vector3(0, 0.72f, 15.0f), new Vector3(0, 0.72f, 18.52f)),
-                (new Vector3(-5.35f, 0.72f, 18.42f), new Vector3(5.8f, 0.72f, 18.45f)),
+                (HP(0, 17.34f), HP(-5.4f, 27.0f)),
+                (HP(0, 17.34f), HP(5.4f, 25.4f)),
+                (HP(-18f, 20f), HP(18f, 38.5f)),
+                (HP(0, 17.34f), HP(0, 29.92f)),
+                (HP(-12.0f, 29.75f), HP(12.5f, 29.75f)),
             };
             var times = new StringBuilder();
             double worst = 0;

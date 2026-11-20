@@ -18,6 +18,9 @@ namespace Yuanjing
         float flyT = -1, flyDur, next, hopT, peck, feedLeft;
         bool onGround = true;
 
+        /// 这会儿落在地上（没在飞）：人走到附近才显示「喂小鸟」
+        public bool Grounded => onGround && !(flyT > -900 && flyT < flyDur && flyDur > 0);
+
         void OnEnable() => All.Add(this);
         void OnDisable() => All.Remove(this);
 

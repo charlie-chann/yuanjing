@@ -8,8 +8,10 @@ import 'shop_art.dart';
 import 'shop_data.dart';
 import 'voice_page.dart';
 
-/// 宇宙商城：像游戏里的道具店，一张会员卡加一整格商品卡（图、名字、价格），不分类。
+/// 宇宙商城：像游戏里的道具店，一张会员卡加一整格商品卡（图、名字、价格）。
 /// 点卡片弹出购买确认；两张声音类的卡（肯定语音频、成品音频库）点进去是原来的功能页。
+/// 下面另有两组和湖心小寺连着的：「小寺」卖喂小动物的口粮（买的是数量，进背包）；
+/// 「小动物的礼物」不卖，是岛上的小动物送的、或者用它们叼来的收藏品换的头像框，没得到的灰着并写明怎么得到。
 class ShopPage extends StatefulWidget {
   const ShopPage({super.key});
 
@@ -31,9 +33,12 @@ class _Entry {
   final String name;
   final ShopItem? item;
 
+  /// 小寺的口粮（可叠加，买的是数量）
+  final FoodItem? food;
+
   /// 声音类：true 成品音频库，false 肯定语音频
   final bool library;
-  const _Entry(this.art, this.name, {this.item, this.library = false});
+  const _Entry(this.art, this.name, {this.item, this.food, this.library = false});
 }
 
 class _ShopPageState extends State<ShopPage> with SingleTickerProviderStateMixin {
@@ -67,16 +72,157 @@ class _ShopPageState extends State<ShopPage> with SingleTickerProviderStateMixin
     const _Entry('voice_library', '成品音频库', library: true),
     for (final i in shopItems) _Entry(i.id, i.name, item: i),
   ];
+  static final _foods = [for (final f in foodItems) _Entry(f.id, f.name, food: f)];
+  static final _keepsakes = [for (final i in keepsakes) _Entry(i.id, i.name, item: i)];
+
+  @override
+  void initState() {
+    super.initState();
+    // 兑换要看背包里有几个收藏品：进商城时取一遍新的（没网就用上次的）
+    if (store.online) store.loadBag().catchError((_) {});
+  }
 
   void _open(_Entry e) {
     YuanjingHaptics.play('tick');
     YuanjingAudio.sfx('tap');
     final item = e.item;
-    if (item == null) {
+    if (e.food != null) {
+      _confirmFood(e.food!);
+    } else if (item == null) {
       Navigator.of(context).push(MaterialPageRoute(builder: (_) => VoicePage(library: e.library)));
+    } else if (item.group == 'keepsake') {
+      _confirmKeepsake(item);
+    } else {
+      _confirm(item);
+    }
+  }
+
+  // ───────── 小寺的口粮：选数量再买 ─────────
+
+  void _confirmFood(FoodItem food) {
+    var n = 1;
+    showSkinSheet<void>(context, (sheet, s) {
+      return StatefulBuilder(builder: (sheet, setSheet) {
+        final total = food.price * n;
+        final short = total - store.coins;
+        Widget step(IconData icon, int d) => GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => setSheet(() => n = (n + d).clamp(1, 99)),
+              child: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: s.line)),
+                child: Icon(icon, size: 20, color: s.ink),
+              ),
+            );
+        return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(
+            height: (MediaQuery.sizeOf(sheet).height * 0.22).clamp(150.0, 200.0),
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(24), border: Border.all(color: _gold.withValues(alpha: 0.45))),
+            child: ShopArt(food.id, clock: _clock, radius: 23),
+          ),
+          const SizedBox(height: 16),
+          Text(food.name, style: s.title(23)),
+          const SizedBox(height: 2),
+          Text(food.about, style: s.hint(14)),
+          Text('买了放进背包。到湖心小寺走到小动物跟前喂它，亲密度 +${food.feed}；喂到它最爱的，涨得更多', style: s.hint(12)),
+          const SizedBox(height: 14),
+          Row(children: [
+            const CoinIcon(size: 24),
+            const SizedBox(width: 8),
+            Text('$total', style: TextStyle(fontFamily: 'Didot', fontSize: 28, fontWeight: FontWeight.w700, color: s.ink)),
+            const Spacer(),
+            step(Icons.remove_rounded, -1),
+            SizedBox(width: 48, child: Text('$n', textAlign: TextAlign.center, style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700, color: s.ink))),
+            step(Icons.add_rounded, 1),
+          ]),
+          const SizedBox(height: 4),
+          Text(short > 0 ? '还差 $short 个金币' : '背包里有 ${store.bagCount(food.id)} 个 · 我的金币 ${store.coins}', style: s.hint(12.5)),
+          const SizedBox(height: 16),
+          if (short > 0)
+            SButton('看看怎么赚金币', expand: true, ghost: true, onTap: () => showCoins(sheet))
+          else
+            SButton('买 $n 个', expand: true, onTap: () => _buyFood(sheet, food, n)),
+        ]);
+      });
+    });
+  }
+
+  Future<void> _buyFood(BuildContext sheet, FoodItem food, int n) async {
+    try {
+      await store.buyStack(food.id, n);
+    } on ApiError catch (e) {
+      if (sheet.mounted) toast(sheet, e.message);
       return;
     }
-    _confirm(item);
+    YuanjingAudio.sfx('sparkle', volume: 0.7);
+    if (sheet.mounted) Navigator.of(sheet).pop();
+    if (mounted) toast(context, '$n 个${food.name}已经放进背包');
+  }
+
+  // ───────── 小动物的礼物：不卖，写明怎么得到；收藏品够了可以兑换 ─────────
+
+  void _confirmKeepsake(ShopItem item) {
+    showSkinSheet<void>(context, (sheet, s) {
+      final owned = store.owned.contains(item.id);
+      final on = store.equipped.contains(item.id);
+      final enough = item.cost.isNotEmpty && item.cost.entries.every((e) => store.bagCount(e.key) >= e.value);
+      return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Container(
+          height: (MediaQuery.sizeOf(sheet).height * 0.27).clamp(170.0, 230.0),
+          decoration: BoxDecoration(borderRadius: BorderRadius.circular(24), border: Border.all(color: _gold.withValues(alpha: 0.45))),
+          child: _Dim(dim: !owned, child: ShopArt(item.id, clock: _clock, radius: 23)),
+        ),
+        const SizedBox(height: 16),
+        Text(item.name, style: s.title(23)),
+        const SizedBox(height: 2),
+        Text(item.about, style: s.hint(14)),
+        Text('戴上后在主页和广场的头像上能看到', style: s.hint(12)),
+        const SizedBox(height: 14),
+        if (owned)
+          Text(on ? '使用中' : '已拥有', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: s.deep))
+        else if (item.petName != null) ...[
+          Text('这件不卖，是${item.petName}的礼物', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: s.deep)),
+          const SizedBox(height: 2),
+          Text('去湖心小寺摸摸它、喂喂它。${keepsakeSource(item)}，它会亲自送给你。', style: s.hint(13)),
+        ] else ...[
+          Text('用小动物叼来的收藏品兑换', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: s.deep)),
+          const SizedBox(height: 6),
+          for (final e in item.cost.entries)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 3),
+              child: Row(children: [
+                Icon(store.bagCount(e.key) >= e.value ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded, size: 16, color: store.bagCount(e.key) >= e.value ? s.deep : s.sub),
+                const SizedBox(width: 6),
+                Text('${keepNames[e.key] ?? e.key} × ${e.value}', style: s.body(14)),
+                const Spacer(),
+                Text('你有 ${store.bagCount(e.key)} / ${e.value}', style: s.hint(13)),
+              ]),
+            ),
+          if (!enough) Text('和岛上的小动物熟了以后，它们每天会叼一件来', style: s.hint(12)),
+        ],
+        const SizedBox(height: 16),
+        if (owned)
+          SButton(on ? '取下' : '戴上', expand: true, ghost: on, onTap: () => _wear(sheet, item, !on))
+        else if (item.cost.isNotEmpty)
+          SButton(enough ? '兑换' : '收藏品还不够', expand: true, onTap: enough ? () => _redeem(sheet, item) : null)
+        else
+          SButton('知道了', expand: true, ghost: true, onTap: () => Navigator.of(sheet).pop()),
+      ]);
+    });
+  }
+
+  Future<void> _redeem(BuildContext sheet, ShopItem item) async {
+    try {
+      await store.redeem(item.id);
+    } on ApiError catch (e) {
+      if (sheet.mounted) toast(sheet, e.message);
+      return;
+    }
+    YuanjingAudio.sfx('sparkle', volume: 0.7);
+    YuanjingHaptics.play('tick');
+    if (sheet.mounted) Navigator.of(sheet).pop();
+    if (mounted) toast(context, '换到了，已戴上「${item.name}」');
   }
 
   // ───────── 购买确认 ─────────
@@ -104,7 +250,7 @@ class _ShopPageState extends State<ShopPage> with SingleTickerProviderStateMixin
         ]),
         const SizedBox(height: 2),
         Text(item.about, style: s.hint(14)),
-        Text(item.group == 'frame' ? '戴上后在主页和广场的头像上能看到' : '会出现在「我的 → 我的房间」里', style: s.hint(12)),
+        Text(item.isFrame ? '戴上后在主页和广场的头像上能看到' : '会出现在「我的 → 我的房间」里', style: s.hint(12)),
         const SizedBox(height: 14),
         Row(children: [
           if (owned)
@@ -133,8 +279,8 @@ class _ShopPageState extends State<ShopPage> with SingleTickerProviderStateMixin
     });
   }
 
-  static String _onLabel(ShopItem item) => item.group == 'frame' ? '戴上' : '摆出来';
-  static String _offLabel(ShopItem item) => item.group == 'frame' ? '取下' : '收起来';
+  static String _onLabel(ShopItem item) => item.isFrame ? '戴上' : '摆出来';
+  static String _offLabel(ShopItem item) => item.isFrame ? '取下' : '收起来';
 
   Future<void> _buy(BuildContext sheet, ShopItem item) async {
     try {
@@ -146,7 +292,7 @@ class _ShopPageState extends State<ShopPage> with SingleTickerProviderStateMixin
     YuanjingAudio.sfx('sparkle', volume: 0.7);
     YuanjingHaptics.play('tick');
     if (sheet.mounted) Navigator.of(sheet).pop();
-    if (mounted) toast(context, item.group == 'frame' ? '已戴上「${item.name}」' : '「${item.name}」已经摆进房间');
+    if (mounted) toast(context, item.isFrame ? '已戴上「${item.name}」' : '「${item.name}」已经摆进房间');
   }
 
   /// 戴上或取下。头像框同时只能戴一个，服务器会处理
@@ -160,6 +306,15 @@ class _ShopPageState extends State<ShopPage> with SingleTickerProviderStateMixin
 
   // ───────── 页面 ─────────
 
+  Widget _grid(List<_Entry> list) => SliverPadding(
+        padding: const EdgeInsets.fromLTRB(22, 0, 22, 0),
+        sliver: SliverGrid.builder(
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, mainAxisSpacing: 12, crossAxisSpacing: 12, childAspectRatio: 0.76),
+          itemCount: list.length,
+          itemBuilder: (context, i) => _Card(entry: list[i], clock: _clock, onTap: () => _open(list[i])),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
     return SkinPage(
@@ -171,14 +326,12 @@ class _ShopPageState extends State<ShopPage> with SingleTickerProviderStateMixin
             padding: const EdgeInsets.fromLTRB(22, 8, 22, 14),
             sliver: SliverToBoxAdapter(child: _MemberCard(onTap: () => showMember(context))),
           ),
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(22, 0, 22, 100),
-            sliver: SliverGrid.builder(
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, mainAxisSpacing: 12, crossAxisSpacing: 12, childAspectRatio: 0.76),
-              itemCount: _entries.length,
-              itemBuilder: (context, i) => _Card(entry: _entries[i], clock: _clock, onTap: () => _open(_entries[i])),
-            ),
-          ),
+          _grid(_entries),
+          SliverToBoxAdapter(child: _GroupTitle('小寺', '喂湖心小寺里小动物的口粮，买了放进背包', s)),
+          _grid(_foods),
+          SliverToBoxAdapter(child: _GroupTitle('小动物的礼物', '不卖。和岛上的小动物熟了，它们送的；或者用它们叼来的收藏品换', s)),
+          _grid(_keepsakes),
+          const SliverToBoxAdapter(child: SizedBox(height: 100)),
         ]);
       },
     );
@@ -198,6 +351,9 @@ class _Card extends StatelessWidget {
     final owned = item != null && store.owned.contains(item.id);
     final on = item != null && store.equipped.contains(item.id);
     final member = item?.member ?? entry.library;
+    // 小动物的礼物：还没得到的灰着
+    final locked = item != null && item.group == 'keepsake' && !owned;
+    final have = entry.food == null ? 0 : store.bagCount(entry.food!.id);
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -216,8 +372,10 @@ class _Card extends StatelessWidget {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Expanded(
             child: Stack(children: [
-              Positioned.fill(child: ShopArt(entry.art, clock: clock, radius: 17)),
+              Positioned.fill(child: _Dim(dim: locked, child: ShopArt(entry.art, clock: clock, radius: 17))),
               if (member) const Positioned(left: 8, top: 8, child: _Tag('会员', fill: true)),
+              if (locked) const Positioned(left: 8, top: 8, child: _Tag('未得到')),
+              if (have > 0) Positioned(right: 8, top: 8, child: _Tag('背包里 $have')),
               if (owned) Positioned(right: 8, top: 8, child: _Tag(on ? '使用中' : '已拥有', fill: on)),
             ]),
           ),
@@ -240,6 +398,26 @@ class _Card extends StatelessWidget {
   Widget _price(ShopItem? item, bool owned, bool on) {
     const strong = TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: _gold);
     const weak = TextStyle(fontSize: 12.5, color: _muted);
+    final food = entry.food;
+    if (food != null) {
+      return Row(children: [
+        const CoinIcon(size: 17),
+        const SizedBox(width: 6),
+        Text('${food.price}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: _gold, letterSpacing: 0.5)),
+        const Text(' / 个', style: weak),
+        const Spacer(),
+        Text('亲密度 +${food.feed}', style: weak),
+      ]);
+    }
+    if (item != null && item.group == 'keepsake' && !owned) {
+      // 怎么得到：动物送的写亲密度；收藏品换的写要什么，够了就提示可以换
+      final enough = item.cost.isNotEmpty && item.cost.entries.every((e) => store.bagCount(e.key) >= e.value);
+      return Row(children: [
+        Icon(enough ? Icons.redeem_rounded : (item.petName != null ? Icons.pets_rounded : Icons.lock_outline_rounded), size: 14, color: enough ? _gold : _muted),
+        const SizedBox(width: 4),
+        Expanded(child: Text(enough ? '收藏品够了 · 点开兑换' : keepsakeSource(item), maxLines: 1, overflow: TextOverflow.ellipsis, style: enough ? strong.copyWith(fontSize: 12.5) : weak.copyWith(fontSize: 11.5))),
+      ]);
+    }
     if (item == null) {
       return Row(children: [
         const Icon(Icons.graphic_eq_rounded, size: 16, color: _gold),
@@ -260,6 +438,45 @@ class _Card extends StatelessWidget {
       const SizedBox(width: 6),
       Text('${item.price}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: _gold, letterSpacing: 0.5)),
     ]);
+  }
+}
+
+/// 分组的小标题
+class _GroupTitle extends StatelessWidget {
+  final String title;
+  final String about;
+  final Skin skin;
+  const _GroupTitle(this.title, this.about, this.skin);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 26, 24, 12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(title, style: skin.title(19)),
+        const SizedBox(height: 2),
+        Text(about, style: skin.hint(12.5)),
+      ]),
+    );
+  }
+}
+
+/// 还没得到的东西：图变成灰的、暗一点
+class _Dim extends StatelessWidget {
+  final bool dim;
+  final Widget child;
+  const _Dim({required this.dim, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!dim) return child;
+    return Opacity(
+      opacity: 0.55,
+      child: ColorFiltered(
+        colorFilter: const ColorFilter.matrix([0.33, 0.5, 0.17, 0, 0, 0.33, 0.5, 0.17, 0, 0, 0.33, 0.5, 0.17, 0, 0, 0, 0, 0, 1, 0]),
+        child: child,
+      ),
+    );
   }
 }
 

@@ -32,8 +32,12 @@ public class Bridge : MonoBehaviour
         Received?.Invoke(json);
     }
 
+    /// 发给 Flutter 的每一条（测试里用来看发了什么）
+    public static event System.Action<string> Sent;
+
     public static void Send(string json)
     {
+        Sent?.Invoke(json);
         SendToFlutter.Send(json);
     }
 }

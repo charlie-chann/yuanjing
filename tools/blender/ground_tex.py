@@ -1,6 +1,8 @@
-"""给小岛的地面画一张细致的贴图（4096×4096，约 1.5 厘米一个像素）。
+"""给小岛的地面画一张细致的贴图（8192×8192，约 1 厘米一个像素；2026-11-19 岛往北长了一大块，从 4096 加大的）。
 顶点色只能半米一个颜色，草地、沙滩、土路的交界是糊的；贴图里可以画出清楚的边界、一根根草叶、卵石、沙纹。
-用法：python3 ground_tex.py   （先跑过 build_all.sh islet_ground，要用它导出的 islet_map.bytes）"""
+用法：python3 ground_tex.py   （先跑过 build_all.sh islet_ground，要用它导出的 islet_map.bytes）
+设了环境变量 YJ_OUT（导到暂存目录，不碰 Unity 工程）时：从 $YJ_OUT/islet_map.bytes 读，贴图写到 $YJ_OUT/textures/，
+预览图写到 $YJ_PREVIEW_DIR（没设就是 $YJ_OUT/preview）。要 6 GB 左右的内存，跑两三分钟。"""
 import math
 import os
 import struct
@@ -14,13 +16,22 @@ sys.path.insert(0, HERE)
 from palette import P  # noqa: E402
 
 ASSETS = os.path.join(HERE, '..', '..', 'unity', 'Sanctuary', 'Assets', 'Toon')
-N = 4096
+STAGE = os.environ.get('YJ_OUT')
+MAP_PATH = os.path.join(STAGE, 'islet_map.bytes') if STAGE else os.path.join(ASSETS, 'islet_map.bytes')
+TEX_DIR = os.path.join(STAGE, 'textures') if STAGE else os.path.join(ASSETS, 'Textures')
+PREVIEW = os.environ.get('YJ_PREVIEW_DIR') or (os.path.join(STAGE, 'preview') if STAGE else os.path.join(HERE, 'preview'))
+N = int(os.environ.get('YJ_GROUND_N', '8192'))      # 贴图边长（方的；岛的范围 74 × 88 米，横向 0.9 厘米、纵向 1.07 厘米一个像素）
+MAX_BYTES = 40 * 1024 * 1024                        # 文件别超过这么大：超了就把颜色并到每个通道 64 级再存（进 Unity 还要压成 ASTC，看不出）
+Image.MAX_IMAGE_PIXELS = None
 SS = 2                      # 画的时候放大一倍，最后缩回来，线条才不带锯齿
 WATER = -0.42
 PATH_W, PATH_Y0, PATH_Y1 = 1.35, -15.2, 1.8
 BURNER, PLAZA_R = (0.0, -2.0), 3.7
 TREE, TREE_BED = (-8.6, -3.0), 2.3
 TERRACE = (-11.3, 1.8, 11.3, 9.2)
+HALL_RECT = (-23.0, 10.9, 23.0, 43.3)               # 大殿台基（layout.py 的同一个数）：台基盖住的地方不画东西，涂一个平色（省文件）
+# 每平米画多少笔：按老贴图（4096、老岛）的数量折算，岛大了笔数跟着面积加
+DENS = {'blade': 250, 'root': 18, 'flower': 3.4, 'pebble': 55, 'crack': 15, 'tuft': 0.9, 'grain': 120, 'cobble': 10.5, 'stuft': 0.75, 'bed': 17, 'weed': 5.5}
 
 
 def col(name):
@@ -28,7 +39,7 @@ def col(name):
 
 
 def load_map():
-    d = open(os.path.join(ASSETS, 'islet_map.bytes'), 'rb').read()
+    d = open(MAP_PATH, 'rb').read()
     nx, ny, x0, y0, step = struct.unpack('<ii3f', d[:20])
     a = np.frombuffer(d[20:], dtype='<f4').reshape(3, ny, nx)
     return nx, ny, x0, y0, step, a
@@ -41,7 +52,8 @@ def up(a, size):
 
 
 def vnoise(size, cells, seed):
-    """平滑的随机起伏：cells 是横向有几个起伏"""
+    """平滑的随机起伏：cells 是横向有几个起伏（按老贴图 54 米宽说的，范围大了格数跟着加，起伏的大小不变）"""
+    cells = max(2, int(round(cells * SCALE)))
     r = np.random.default_rng(seed)
     g = r.random((cells + 3, cells + 3)).astype(np.float32)
     im = Image.fromarray(g, mode='F').resize((size + 3 * size // cells, size + 3 * size // cells), Image.BICUBIC)
@@ -84,9 +96,15 @@ def grain(path, n=512):
     Image.fromarray((g * 255).astype(np.uint8), mode='L').save(path)
 
 
+SCALE = 1.0
+
+
 def main():
+    global SCALE
     nx, ny, x0, y0, step, m = load_map()
     x1, y1 = x0 + (nx - 1) * step, y0 + (ny - 1) * step
+    SCALE = (x1 - x0) / 54.0
+    cell = (x1 - x0) / N * (y1 - y0) / N            # 一个像素多少平米
     # 贴图的行从上到下是 y 从小到大（v=0 在南边），Unity 里 uv = ((x-x0)/W, (z-z0)/H)
     H, S, Pd = up(m[0], N), up(m[1], N), up(m[2], N)
     xs = np.linspace(x0, x1, N, dtype=np.float32)[None, :].repeat(N, 0)
@@ -120,6 +138,13 @@ def main():
     dy = np.maximum(np.maximum(ty0 - ys, 0), ys - (ty1 + 2.2))
     worn = np.maximum(worn, 1 - smooth(0.15, 1.3, np.hypot(dx, dy)))
     worn = np.maximum(worn, 1 - smooth(TREE_BED + 0.3, TREE_BED + 1.3, np.hypot(xs - TREE[0], ys - TREE[1])))
+    # 大殿台基脚下一圈：绕殿走的人踩出来的土（比路淡，和 terrain.py 的顶点色一致）
+    hx0, hy0, hx1, hy1 = HALL_RECT
+    hdx = np.maximum(np.maximum(hx0 - xs, 0), xs - hx1)
+    hdy = np.maximum(np.maximum(hy0 - ys, 0), ys - hy1)
+    worn = np.maximum(worn, 0.8 * (1 - smooth(0.3, 1.5, np.hypot(hdx, hdy))))
+    del dx, dy, hdx, hdy
+    under_hall = (xs > hx0 + 0.45) & (xs < hx1 - 0.45) & (ys > hy0 + 0.45) & (ys < hy1 - 0.45)
     dirt_mask = smooth(0.47, 0.53, worn + (n_edge - 0.5) * 0.55)
     dirt = col('dirt') * (0.93 + 0.14 * n_mid)[..., None]
     dirt = dirt * (1 - smooth(0.5, 0.62, n_fine)[..., None] * 0.1)
@@ -146,8 +171,14 @@ def main():
     under = depth > 0.02
     img = np.where(under[..., None], img * (0.95 + 0.1 * n_mid)[..., None], img)
 
-    grass_mask = (1 - dirt_mask) * (1 - sand_mask) * (1 - pk) * (H > WATER + 0.1)
-    land_sand = sand_mask * (H > WATER + 0.1)
+    free = ~under_hall
+    grass_mask = (1 - dirt_mask) * (1 - sand_mask) * (1 - pk) * (H > WATER + 0.1) * free
+    land_sand = sand_mask * (H > WATER + 0.1) * free
+    # 台基底下：一个平的土色
+    img[under_hall] = col('dirt_dark') * 0.9
+
+    def count(mask, key, thr=0.5):
+        return int(float((mask > thr).sum()) * cell * DENS[key])
 
     # ── 细节：一笔一笔画上去（放大一倍画，再缩回来）
     base = Image.fromarray((np.clip(img, 0, 1) * 255).astype(np.uint8)).resize((N * SS, N * SS), Image.BILINEAR)
@@ -155,6 +186,10 @@ def main():
     r = np.random.default_rng(11)
     ppm = N * SS / (x1 - x0)          # 一米多少像素（横向）
     ppm_y = N * SS / (y1 - y0)
+
+    def wpx(w):
+        """线宽：按老贴图（一米 152 个像素）说的，像素密了线跟着加粗，画出来的草叶还是那么宽"""
+        return max(1, int(round(w * ppm / 151.7)))
 
     def px(x, y):
         return (x - x0) * ppm, (y - y0) * ppm_y
@@ -178,7 +213,7 @@ def main():
         return out[:n]
 
     # 草叶：成千上万根短短的弯线，亮的暗的都有；镜头在南边，叶尖朝北偏一点
-    blades = sample(grass_mask, 190000)
+    blades = sample(grass_mask, count(grass_mask, 'blade'))
     for i, (x, y) in enumerate(blades):
         cx, cy = px(x, y)
         ln = r.uniform(0.05, 0.13) * ppm
@@ -186,83 +221,97 @@ def main():
         ex, ey = cx + math.sin(ang) * ln, cy + math.cos(ang) * ln
         t = r.random()
         c = c255('grass_lit', 1.04, 150) if t < 0.42 else c255('grass_deep', 0.95, 120) if t < 0.8 else c255('grass_dark', 0.9, 140)
-        d.line([(cx, cy), ((cx + ex) / 2 + r.normal(0, 1.2), (cy + ey) / 2), (ex, ey)], fill=c, width=2 if t < 0.8 else 3)
+        d.line([(cx, cy), ((cx + ex) / 2 + r.normal(0, 1.2), (cy + ey) / 2), (ex, ey)], fill=c, width=wpx(2 if t < 0.8 else 3))
     # 草丛的暗根：一小团一小团
-    for (x, y) in sample(grass_mask, 14000):
+    for (x, y) in sample(grass_mask, count(grass_mask, 'root')):
         cx, cy = px(x, y)
         rr = r.uniform(0.04, 0.09) * ppm
         d.ellipse([cx - rr, cy - rr * 0.7, cx + rr, cy + rr * 0.7], fill=c255('grass_deep', 0.92, 60))
     # 草地上零星的小花点
     for name in ('flower_w', 'flower_y', 'flower_p', 'flower_v'):
-        for (x, y) in sample(grass_mask, 2600):
+        for (x, y) in sample(grass_mask, count(grass_mask, 'flower')):
             cx, cy = px(x, y)
             rr = r.uniform(0.012, 0.022) * ppm
             d.ellipse([cx - rr, cy - rr, cx + rr, cy + rr], fill=c255(name, 1.0, 235))
     # 土路：小石子（亮面加一圈暗影）、细裂纹
-    dirt_only = dirt_mask * (1 - sand_mask) * (H > WATER + 0.1)
-    for (x, y) in sample(dirt_only, 9000):
+    dirt_only = dirt_mask * (1 - sand_mask) * (H > WATER + 0.1) * free
+    for (x, y) in sample(dirt_only, count(dirt_only, 'pebble')):
         cx, cy = px(x, y)
         rr = r.uniform(0.012, 0.04) * ppm
         d.ellipse([cx - rr + 1.5, cy - rr * 0.75 - 1.5, cx + rr + 1.5, cy + rr * 0.75 - 1.5], fill=c255('dirt_dark', 0.8, 150))
         d.ellipse([cx - rr, cy - rr * 0.75, cx + rr, cy + rr * 0.75], fill=c255(r.choice(['stone_lit', 'stone', 'slab_b']), 1.0, 235))
-    for (x, y) in sample(dirt_only, 2500):
+    for (x, y) in sample(dirt_only, count(dirt_only, 'crack')):
         cx, cy = px(x, y)
         pts = [(cx, cy)]
         ang = r.uniform(0, 6.28)
         for k in range(4):
             ang += r.normal(0, 0.5)
             pts.append((pts[-1][0] + math.cos(ang) * 0.05 * ppm, pts[-1][1] + math.sin(ang) * 0.05 * ppm))
-        d.line(pts, fill=c255('dirt_dark', 0.86, 110), width=2)
+        d.line(pts, fill=c255('dirt_dark', 0.86, 110), width=wpx(2))
     # 土和草交界的地方长出一撮撮草尖，盖住土边
-    band = (np.abs(worn + (n_edge - 0.5) * 0.55 - 0.5) < 0.05) * (1 - sand_mask)
-    for (x, y) in sample(band, 16000):
+    band = (np.abs(worn + (n_edge - 0.5) * 0.55 - 0.5) < 0.05) * (1 - sand_mask) * free
+    for (x, y) in sample(band, int(16000 * count(grass_mask, 'blade') / 190000)):
         cx, cy = px(x, y)
         ln = r.uniform(0.06, 0.14) * ppm
         ang = r.normal(0.0, 0.6)
         d.line([(cx, cy), (cx + math.sin(ang) * ln, cy + math.cos(ang) * ln)],
-               fill=c255(r.choice(['grass', 'grass_dark', 'grass_lit', 'grass_deep']), r.uniform(0.92, 1.05), 190), width=2)
+               fill=c255(r.choice(['grass', 'grass_dark', 'grass_lit', 'grass_deep']), r.uniform(0.92, 1.05), 190), width=wpx(2))
     # 沙滩：细沙粒、小卵石、贝壳碎片
-    for (x, y) in sample(land_sand, 40000):
+    for (x, y) in sample(land_sand, count(land_sand, 'grain')):
         cx, cy = px(x, y)
         rr = r.uniform(0.006, 0.014) * ppm
         d.ellipse([cx - rr, cy - rr, cx + rr, cy + rr], fill=c255('sand_wet', r.uniform(0.86, 1.02), 170) if r.random() < 0.6 else c255('white', 1.0, 150))
-    for (x, y) in sample(land_sand, 3500):
+    for (x, y) in sample(land_sand, count(land_sand, 'cobble')):
         cx, cy = px(x, y)
         rr = r.uniform(0.02, 0.05) * ppm
         d.ellipse([cx - rr + 2, cy - rr * 0.7 - 2, cx + rr + 2, cy + rr * 0.7 - 2], fill=c255('sand_deep', 0.85, 130))
         d.ellipse([cx - rr, cy - rr * 0.7, cx + rr, cy + rr * 0.7], fill=c255(r.choice(['stone_lit', 'slab_c', 'stone', 'white']), 1.0, 240))
     # 沙和草交界：草尖探到沙上
     sband = (np.abs(edge - 2.9) < 0.12) * (H > WATER + 0.12)
-    for (x, y) in sample(sband, 26000):
+    for (x, y) in sample(sband, int(26000 * count(land_sand, 'grain') / 40000)):
         cx, cy = px(x, y)
         ln = r.uniform(0.07, 0.16) * ppm
         ang = r.normal(0.0, 0.6)
-        d.line([(cx, cy), (cx + math.sin(ang) * ln, cy + math.cos(ang) * ln)], fill=c255(r.choice(['grass', 'grass_dark', 'grass_lit']), 1.0, 220), width=3)
+        d.line([(cx, cy), (cx + math.sin(ang) * ln, cy + math.cos(ang) * ln)], fill=c255(r.choice(['grass', 'grass_dark', 'grass_lit']), 1.0, 220), width=wpx(3))
     # 水底：卵石和深色的水草斑
     shallow = (depth > 0.03) & (depth < 1.6)
-    for (x, y) in sample(shallow.astype(np.float32), 16000):
+    for (x, y) in sample(shallow.astype(np.float32), count(shallow, 'bed')):
         cx, cy = px(x, y)
         rr = r.uniform(0.03, 0.09) * ppm
         d.ellipse([cx - rr + 2, cy - rr * 0.7 - 2, cx + rr + 2, cy + rr * 0.7 - 2], fill=c255('lakebed_deep', 0.9, 110))
         d.ellipse([cx - rr, cy - rr * 0.7, cx + rr, cy + rr * 0.7], fill=c255(r.choice(['stone', 'sand_deep', 'slab_b', 'stone_dark']), 1.0, 200))
-    for (x, y) in sample(shallow.astype(np.float32), 5000):
+    for (x, y) in sample(shallow.astype(np.float32), count(shallow, 'weed')):
         cx, cy = px(x, y)
         for k in range(3):
             ang = r.uniform(-0.6, 0.6)
             ln = r.uniform(0.1, 0.22) * ppm
-            d.line([(cx + k * 3, cy), (cx + k * 3 + math.sin(ang) * ln, cy + math.cos(ang) * ln)], fill=c255('pad_dark', 0.9, 150), width=3)
+            d.line([(cx + k * 3, cy), (cx + k * 3 + math.sin(ang) * ln, cy + math.cos(ang) * ln)], fill=c255('pad_dark', 0.9, 150), width=wpx(3))
 
     out = base.resize((N, N), Image.LANCZOS)
     out = out.filter(ImageFilter.UnsharpMask(radius=1.2, percent=60, threshold=0))
-    path = os.path.join(ASSETS, 'Textures', 'islet_ground.png')
+    path = os.path.join(TEX_DIR, 'islet_ground.png')
     os.makedirs(os.path.dirname(path), exist_ok=True)
+    os.makedirs(PREVIEW, exist_ok=True)
     # Unity 的贴图 v=0 在图的最下面一行，而这里第 0 行是最南边（v=0），所以上下翻一下再存
-    out.transpose(Image.FLIP_TOP_BOTTOM).save(path)
-    grain(os.path.join(ASSETS, 'Textures', 'toon_grain.png'))
-    out.resize((1024, 1024), Image.LANCZOS).save(os.path.join(HERE, 'preview', 'islet_ground_tex.png'))
-    # 局部原始大小，看细节
-    out.crop((1700, 900, 2500, 1500)).save(os.path.join(HERE, 'preview', 'islet_ground_crop.png'))
-    print('地面贴图', out.size, path)
+    flipped = out.transpose(Image.FLIP_TOP_BOTTOM)
+    flipped.save(path)
+    note = ''
+    if os.path.getsize(path) > MAX_BYTES:
+        # 太大：每个通道并到 64 级（低两位换成高两位的重复，颜色不偏暗），再存一次
+        arr = np.asarray(flipped)
+        arr = (arr & 0xFC) | (arr >> 6)
+        Image.fromarray(arr).save(path, optimize=True)
+        note = '（颜色并到每通道 64 级）'
+    grain(os.path.join(TEX_DIR, 'toon_grain.png'))
+    # 预览：整张缩小（上北下南，和俯视的画面一个方向）、两处原始大小的局部（殿前石台边、殿后的草地和沙滩）
+    out.transpose(Image.FLIP_TOP_BOTTOM).resize((1024, 1024), Image.LANCZOS).save(os.path.join(PREVIEW, 'islet_ground_tex.png'))
+
+    def crop_at(x, y, name, w=900, h=640):
+        cx_, cy_ = int((x - x0) / (x1 - x0) * N), int((y - y0) / (y1 - y0) * N)
+        out.crop((cx_ - w // 2, cy_ - h // 2, cx_ + w // 2, cy_ + h // 2)).transpose(Image.FLIP_TOP_BOTTOM).save(os.path.join(PREVIEW, name))
+    crop_at(-9.0, -7.0, 'islet_ground_crop.png')
+    crop_at(25.0, 46.0, 'islet_ground_crop_north.png')
+    print('地面贴图', out.size, path, f'{os.path.getsize(path) / 1e6:.1f} MB', note, f'范围 x {x0}..{x1} y {y0}..{y1}，一个像素 {(x1 - x0) / N * 100:.2f} × {(y1 - y0) / N * 100:.2f} 厘米')
 
 
 main()

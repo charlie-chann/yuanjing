@@ -72,3 +72,7 @@ app.*.map.json
 
 # Unity 测试运行中断时留下的临时场景
 /unity/Sanctuary/Assets/InitTestScene*
+
+# Blender 暂存输出（模型、贴图、预览图）；只留交接说明
+/tools/blender/out_v2/*
+!/tools/blender/out_v2/HALL_V2.md

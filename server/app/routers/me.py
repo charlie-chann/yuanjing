@@ -8,9 +8,10 @@ from sqlalchemy.orm import Session
 
 from .. import coins as coinlib
 from ..auth import current_user, make_token
-from ..catalog import COIN_RULES, LOOK_MODES, POST_TYPES, SCENES, SHOP_ITEMS, SKINS
+from ..catalog import COIN_RULES, KEEPSAKE_AT, KEEPSAKES, LOOK_MODES, POST_TYPES, SCENES, SHOP_ITEMS, SKINS
 from ..config import settings
 from ..db import get_db
+from ..islet import FOODS, KEEPS, STACK_MAX, bag_view, give, have, take
 from ..models import Affirmation, Destiny, Owned, Pet, Post, User, VisionItem, Wish, now
 from ..moderation import check_public
 from ..views import me_view, ms, state
@@ -127,6 +128,8 @@ def buy(body: ItemIn, user: User = Depends(current_user), db: Session = Depends(
     name, price, group, member_only = item
     if db.get(Owned, (user.id, body.item_id)) is not None:
         raise HTTPException(409, "已经有了")
+    if body.item_id in KEEPSAKES:
+        raise HTTPException(403, f"「{name}」不卖，{keepsake_source(body.item_id)}")
     if member_only:
         if not user.member:
             raise HTTPException(403, f"「{name}」是会员限定")
@@ -149,6 +152,61 @@ def equip(body: ItemIn, user: User = Depends(current_user), db: Session = Depend
     _equip(db, user, body.item_id, body.on)
     db.commit()
     return _shop_state(db, user)
+
+
+def keepsake_source(item_id: str) -> str:
+    """一件小动物的礼物怎么得到，写成一句话"""
+    src = KEEPSAKES[item_id]
+    if "pet" in src:
+        from .pets import PETS  # 放在这里引，免得两个路由文件互相引
+
+        return f"和{PETS[src['pet']][0]}的亲密度到 {KEEPSAKE_AT} 时它会送给你"
+    return "要用" + " + ".join(f"{n} {KEEPS[k][0]}" for k, n in src["cost"].items()) + "兑换"
+
+
+class StackIn(BaseModel):
+    item_id: str
+    count: int = Field(default=1, ge=1, le=99)
+
+
+@router.post("/shop/buy_stack")
+def buy_stack(body: StackIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """买可以叠加的东西（小寺的口粮）：买的是数量，放进背包"""
+    food = FOODS.get(body.item_id)
+    if food is None:
+        raise HTTPException(404, "没有这件商品")
+    name, _, price, _ = food
+    if have(db, user, body.item_id) + body.count > STACK_MAX:
+        raise HTTPException(400, f"背包里的{name}放不下了")
+    total = price * body.count
+    if not coinlib.spend(db, user, total, f"购买{name} ×{body.count}"):
+        raise HTTPException(402, f"金币不够，还差 {total - user.coins} 个")
+    count = give(db, user, body.item_id, body.count)
+    db.commit()
+    return {"coins": user.coins, "item_id": body.item_id, "count": count, "items": bag_view(db, user)}
+
+
+@router.post("/shop/redeem")
+def redeem(body: ItemIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """用收藏品兑换一件小动物的礼物：扣收藏品，变成已拥有并戴上"""
+    src = KEEPSAKES.get(body.item_id)
+    if src is None:
+        raise HTTPException(404, "没有这件东西")
+    name = SHOP_ITEMS[body.item_id][0]
+    if db.get(Owned, (user.id, body.item_id)) is not None:
+        raise HTTPException(409, "已经有了")
+    if "cost" not in src:
+        raise HTTPException(403, f"「{name}」换不了，{keepsake_source(body.item_id)}")
+    short = [f"{KEEPS[k][0]}还差 {n - have(db, user, k)} 个" for k, n in src["cost"].items() if have(db, user, k) < n]
+    if short:
+        raise HTTPException(400, "材料不够：" + "，".join(short))
+    for k, n in src["cost"].items():
+        take(db, user, k, n)
+    db.add(Owned(user_id=user.id, item_id=body.item_id))
+    db.flush()
+    _equip(db, user, body.item_id, True)
+    db.commit()
+    return {**_shop_state(db, user), "items": bag_view(db, user)}
 
 
 def _equip(db: Session, user: User, item_id: str, on: bool) -> None:

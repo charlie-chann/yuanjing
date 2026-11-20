@@ -82,6 +82,16 @@ class AppStore extends ChangeNotifier {
   final Set<String> owned = {};
   final Set<String> equipped = {};
 
+  /// 湖心小寺的背包：钓的鱼、买的口粮、小动物送的收藏品
+  /// {id, kind: fish|food|gift, name, about, rarity, count, sell, feed: 喂它基础涨多少亲密度（0 不能喂）}
+  final List<Map<String, dynamic>> bag = [];
+
+  /// 小动物册（GET /pets/gifts 的结果）：上次取到的，没网时先看这份。没取过是 null
+  Map<String, dynamic>? petBookCache;
+
+  /// 钓鱼图鉴（GET /fishing 的结果）：上次取到的
+  Map<String, dynamic>? fishBookCache;
+
   /// 好友和收到的好友申请：{id, name, sign, avatar, title} / {id, user, ts}
   final List<Map<String, dynamic>> friends = [];
   final List<Map<String, dynamic>> requests = [];
@@ -192,6 +202,9 @@ class AppStore extends ChangeNotifier {
     equipped
       ..clear()
       ..addAll((s['equipped'] as List).cast<String>());
+    if (s['bag'] is List) _applyBag(s['bag'] as List);
+    if (s['pet_book'] is Map) petBookCache = Map<String, dynamic>.from(s['pet_book'] as Map);
+    if (s['fish_book'] is Map) fishBookCache = Map<String, dynamic>.from(s['fish_book'] as Map);
     friends
       ..clear()
       ..addAll(maps('friends'));
@@ -263,6 +276,9 @@ class AppStore extends ChangeNotifier {
         'pets': pets,
         'owned': owned.toList(),
         'equipped': equipped.toList(),
+        'bag': bag,
+        'pet_book': ?petBookCache,
+        'fish_book': ?fishBookCache,
         'friends': friends,
         'requests': requests,
         'daily': daily,
@@ -538,6 +554,159 @@ class AppStore extends ChangeNotifier {
       ..clear()
       ..addAll((r['equipped'] as List).cast<String>());
     touch();
+  }
+
+  // ───────── 湖心小寺：背包、钓鱼、喂食、礼物（都必须在线；没网时抛 ApiError，背包和图鉴先显示上次的） ─────────
+
+  /// 背包里这样东西有几个
+  int bagCount(String id) {
+    for (final i in bag) {
+      if (i['id'] == id) return (i['count'] as num).toInt();
+    }
+    return 0;
+  }
+
+  void _applyBag(List items) {
+    bag
+      ..clear()
+      ..addAll([for (final m in items) Map<String, dynamic>.from(m as Map)]);
+  }
+
+  /// 小寺的接口返回里常带着 coins（余额）和 items（背包现在的样子），调完用它一起同步
+  void _applyIslet(Map<String, dynamic> r) {
+    if (r['coins'] is int) coins = r['coins'] as int;
+    if (r['items'] is List) _applyBag(r['items'] as List);
+    touch();
+  }
+
+  /// 重新取一遍背包
+  Future<void> loadBag() async {
+    final r = await _online(() => api.get('/bag'));
+    _applyIslet(r as Map<String, dynamic>);
+  }
+
+  /// 提竿成功后调：服务器摇一条鱼放进背包。[spot] sea / pond，[time] dawn / day / dusk / night，[weather] clear / rain / storm / snow。
+  /// 返回 {fish: {id, name, rarity, about, size_cm, record, first}, count, left, got, coins}；今天钓满了抛 ApiError(409)。
+  Future<Map<String, dynamic>> catchFish(String spot, {String time = 'day', String weather = 'clear'}) async {
+    final r = (await _online(() => api.post('/fishing/catch', {'spot': spot, 'time': time, 'weather': weather}))) as Map<String, dynamic>;
+    final got = (r['got'] as num?)?.toInt() ?? 0;
+    if (got > 0) coinLog.insert(0, CoinEntry(got, '第一次钓到${r['fish']['name']}', DateTime.now().millisecondsSinceEpoch));
+    if (fishBookCache != null) {
+      fishBookCache!['left'] = r['left'];
+      final f = r['fish'] as Map;
+      for (final e in (fishBookCache!['fish'] as List).cast<Map>()) {
+        if (e['id'] != f['id']) continue;
+        if (e['caught'] != true) fishBookCache!['kinds'] = ((fishBookCache!['kinds'] as num?)?.toInt() ?? 0) + 1;
+        e['caught'] = true;
+        e['count'] = ((e['count'] as num?)?.toInt() ?? 0) + 1;
+        final size = (f['size_cm'] as num).toDouble();
+        if (e['best_cm'] == null || size > (e['best_cm'] as num)) e['best_cm'] = size;
+      }
+    }
+    _applyIslet(r);
+    return r;
+  }
+
+  /// 钓鱼图鉴：{fish: [{id, name, rarity, about, sell, min_cm, max_cm, spots, caught, count, best_cm}], left, daily, kinds, total}
+  Future<Map<String, dynamic>> loadFishBook() async {
+    final r = (await _online(() => api.get('/fishing'))) as Map<String, dynamic>;
+    fishBookCache = r;
+    touch();
+    return r;
+  }
+
+  /// 卖掉背包里的东西，返回换了多少金币
+  Future<int> sellItem(String itemId, [int count = 1]) async {
+    final r = (await _online(() => api.post('/bag/sell', {'item_id': itemId, 'count': count}))) as Map<String, dynamic>;
+    _applyIslet(r);
+    return (r['got'] as num).toInt();
+  }
+
+  /// 摸一下小动物。返回这只动物现在的样子，另有 counted、gain、level_up、milestone、milestones_new。
+  Future<Map<String, dynamic>> strokePet(String pet) async {
+    final r = (await _online(() => api.post('/pets/$pet/pet', {}))) as Map<String, dynamic>;
+    _afterPet(pet, r);
+    return r;
+  }
+
+  /// 喂小动物。[item] 是背包里的鱼或口粮的编号；不给就是花金币喂一把普通口粮。
+  /// 返回这只动物现在的样子，另有 counted、gain、level_up、favorite、reaction、milestone、milestones_new、coins。
+  Future<Map<String, dynamic>> feedPet(String pet, {String? item}) async {
+    final r = (await _online(() => api.post('/pets/$pet/feed', {'item': ?item}))) as Map<String, dynamic>;
+    _afterPet(pet, r);
+    return r;
+  }
+
+  /// 收下小动物叼来的每日礼物（一件收藏品，进背包）。今天没有礼物时返回里的 item 是 null。
+  /// 返回 {got: 0, coins, name, what, count, item: {id, name, about, rarity}}
+  Future<Map<String, dynamic>> takePetGift(String pet) async {
+    final r = (await _online(() => api.post('/pets/$pet/gift', {}))) as Map<String, dynamic>;
+    final item = r['item'];
+    if (item is Map) {
+      for (final p in _bookPets) {
+        if (p['id'] != pet) continue;
+        for (final d in (p['daily'] as List).cast<Map>()) {
+          if (d['id'] == item['id']) d['seen'] = true;
+        }
+      }
+    }
+    _applyIslet(r);
+    return r;
+  }
+
+  /// 小动物册：{pets: [{id, name, kind, affinity, level, level_name, next, favorites, favorites_known, frame,
+  /// milestones: [{at, kind, what, coins, items, item_id, done}], next_milestone, daily: [{id, name, rarity, seen}]}], names: {编号: 名字}}
+  Future<Map<String, dynamic>> loadPetBook() async {
+    final r = (await _online(() => api.get('/pets/gifts'))) as Map<String, dynamic>;
+    petBookCache = r;
+    touch();
+    return r;
+  }
+
+  List<Map> get _bookPets => ((petBookCache?['pets'] as List?) ?? const []).cast<Map>();
+
+  /// 这只小动物已经喂出来的最爱（没取过小动物册时是空的）
+  List<String> knownFavorites(String pet) {
+    for (final p in _bookPets) {
+      if (p['id'] == pet) return (p['favorites_known'] as List).cast<String>();
+    }
+    return const [];
+  }
+
+  /// 摸完、喂完：同步余额和背包；里程碑送的专属头像框记进「已拥有」；把小动物册里这一只更新一下
+  void _afterPet(String pet, Map<String, dynamic> r) {
+    final news = ((r['milestones_new'] as List?) ?? const []).cast<Map>();
+    for (final m in news) {
+      if (m['item_id'] is String) owned.add(m['item_id'] as String);
+      final c = (m['coins'] as num?)?.toInt() ?? 0;
+      if (c > 0) coinLog.insert(0, CoinEntry(c, '${r['name']}送的一包金币', DateTime.now().millisecondsSinceEpoch));
+    }
+    for (final p in _bookPets) {
+      if (p['id'] != pet) continue;
+      for (final k in const ['affinity', 'level', 'level_name', 'next', 'favorites_known']) {
+        p[k] = r[k];
+      }
+      final got = ((r['milestones'] as Map?)?['got'] as num?)?.toInt() ?? 0;
+      final list = (p['milestones'] as List).cast<Map>();
+      for (var i = 0; i < list.length; i++) {
+        list[i]['done'] = i < got;
+      }
+      p['next_milestone'] = (r['milestones'] as Map?)?['next'];
+    }
+    _applyIslet(r);
+  }
+
+  /// 买可以叠加的东西（小寺的口粮），放进背包
+  Future<void> buyStack(String itemId, int count) async {
+    final r = (await _online(() => api.post('/shop/buy_stack', {'item_id': itemId, 'count': count}))) as Map<String, dynamic>;
+    _applyIslet(r);
+  }
+
+  /// 用收藏品兑换一件「小动物的礼物」：扣收藏品，变成已拥有并戴上
+  Future<void> redeem(String itemId) async {
+    final r = (await _online(() => api.post('/shop/redeem', {'item_id': itemId}))) as Map<String, dynamic>;
+    if (r['items'] is List) _applyBag(r['items'] as List);
+    _applyShop(r);
   }
 
   /// 任何返回里带着 coins 的接口，调完用它同步余额

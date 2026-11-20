@@ -311,12 +311,12 @@ public class PerfTest
             yield return Stat("俯视院子");
             Teleport(new Vector3(0, 0.08f, 4.6f), 0);
             yield return Stat("俯视石台");
-            Teleport(new Vector3(0, 0.74f, 12.4f), 0);
+            Teleport(new Vector3(0, 1.1f, 13.0f), 0);
             yield return Stat("俯视殿前");
             Cmd("{\"cmd\":\"view\",\"kind\":\"level\"}");
             Teleport(new Vector3(0, 0.08f, 1.6f), 0);
             yield return Stat("石台南头平视大殿");
-            Teleport(new Vector3(0, 0.74f, 12.2f), 0);
+            Teleport(new Vector3(0, 1.1f, 13.4f), 0);
             yield return Stat("廊下平视进门");
 
             // ── 进殿（游戏自己的「进殿」：殿里的平视锁住） ──
@@ -324,9 +324,9 @@ public class PerfTest
             Cmd("{\"cmd\":\"goto\",\"spot\":\"inhall\"}");
             yield return Wait("arrived", 45f, n0, r => r.spot == "inhall");
             yield return Stat("进殿后平视");
-            Teleport(new Vector3(0, 0.73f, 16.2f), 0);
+            Teleport(new Vector3(0, 1.09f, 22.5f), 0);
             yield return Stat("过道看佛像");
-            Teleport(new Vector3(0, 0.73f, 17.1f), 180);
+            Teleport(new Vector3(0, 1.09f, 28.2f), 180);
             yield return Stat("供桌前回头看门");
             // 对照：离自己 22 米外的人也投影子（Folk.ShadowFar 关掉，以前的做法）——看省了多少
             var far = folkType.GetField("ShadowFar");
@@ -336,12 +336,12 @@ public class PerfTest
             yield return Stat("供桌前回头看门（远处的人也投影子）");
             far.SetValue(null, farWas);
             yield return new WaitForSeconds(1.2f);
-            Teleport(new Vector3(-4.0f, 0.73f, 16.4f), 60);
+            Teleport(new Vector3(-6.6f, 1.09f, 25.6f), 40);
             yield return Stat("西边静坐区看佛像");
             Cmd("{\"cmd\":\"sky\",\"time\":\"night\",\"weather\":\"clear\",\"instant\":true}");
-            Teleport(new Vector3(0, 0.73f, 17.1f), 180);
+            Teleport(new Vector3(0, 1.09f, 28.2f), 180);
             yield return Stat("夜里供桌前回头看门");
-            Teleport(new Vector3(0, 0.73f, 16.2f), 0);
+            Teleport(new Vector3(0, 1.09f, 22.5f), 0);
             yield return Stat("夜里过道看佛像");
         }
         finally

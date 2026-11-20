@@ -13,7 +13,8 @@ import kit  # noqa: E402
 
 # trees 排在 plants 后面：同名的树用新做法的那棵
 MODULES = ['props', 'props_hd', 'plants', 'trees', 'flowers', 'buildings', 'terrain', 'animals', 'critters_hd',
-           'hall_props', 'statues']  # 大殿里的陈设、佛像（2026-11-17）
+           'hall_props', 'statues',  # 大殿里的陈设、佛像（2026-11-17）
+           'bodhisattva', 'bell_props', 'fishing_props', 'gifts']  # 观音、石凳和钟、钓具和鱼、小动物的礼物（2026-11-19）
 
 
 def main():

@@ -30,6 +30,42 @@ SHOP_ITEMS: dict[str, tuple[str, int, str, bool]] = {
     "pet_bed": ("云朵软垫窝", 0, "pet", True),
     # 用金币解锁的冥想（会员不用解锁）
     "med_clear": ("冥想「潜意识清理」", 30, "meditation", False),
+    # ── 小动物的礼物：不卖。来路写在下面的 KEEPSAKES 里。都是头像框，和别的头像框一样同时只能戴一个 ──
+    "frame_teddy": ("栗子的爪印头像框", 0, "frame", False),
+    "frame_shiba": ("年糕的树枝头像框", 0, "frame", False),
+    "frame_cotton": ("棉花的云朵头像框", 0, "frame", False),
+    "frame_tangerine": ("橘子同款小鱼头像框", 0, "frame", False),
+    "frame_tangyuan": ("汤圆的蓝眼睛头像框", 0, "frame", False),
+    "frame_huajuan": ("花卷的三花头像框", 0, "frame", False),
+    "frame_zhima": ("芝麻的骨头头像框", 0, "frame", False),
+    "frame_tuanzi": ("团子的铃铛头像框", 0, "frame", False),
+    "frame_momo": ("墨墨的月夜头像框", 0, "frame", False),
+    "frame_doubao": ("豆包的毛线球头像框", 0, "frame", False),
+    "frame_shell": ("贝壳风铃头像框", 0, "frame", False),
+    "frame_autumn": ("秋叶标本头像框", 0, "frame", False),
+    "frame_meadow": ("野花草环头像框", 0, "frame", False),
+    "frame_pearl": ("珍珠平安扣头像框", 0, "frame", False),
+}
+
+# 小动物的礼物从哪儿来。两种：
+# - {"pet": 动物编号}：这只动物的专属物品，和它的亲密度到 KEEPSAKE_AT 时它送给你（见 routers/pets.py 的里程碑）
+# - {"cost": {收藏品编号: 几个}}：用收藏品在商城兑换（POST /shop/redeem）
+KEEPSAKE_AT = 50
+KEEPSAKES: dict[str, dict] = {
+    "frame_teddy": {"pet": "teddy"},
+    "frame_shiba": {"pet": "shiba"},
+    "frame_cotton": {"pet": "cotton"},
+    "frame_tangerine": {"pet": "tangerine"},
+    "frame_tangyuan": {"pet": "tangyuan"},
+    "frame_huajuan": {"pet": "huajuan"},
+    "frame_zhima": {"pet": "zhima"},
+    "frame_tuanzi": {"pet": "tuanzi"},
+    "frame_momo": {"pet": "momo"},
+    "frame_doubao": {"pet": "doubao"},
+    "frame_shell": {"cost": {"shell": 5, "shell_conch": 2}},
+    "frame_autumn": {"cost": {"maple": 3, "ginkgo": 3}},
+    "frame_meadow": {"cost": {"flower": 4, "clover": 2, "feather": 2}},
+    "frame_pearl": {"cost": {"pearl": 1, "knot": 1}},
 }
 
 SKINS = {"gold": False, "dream": False, "witch": True, "angel": True, "mermaid": True}

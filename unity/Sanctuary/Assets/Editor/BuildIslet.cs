@@ -22,22 +22,26 @@ public static partial class SanctuaryBuild
     static readonly Vector2 IsleC = new Vector2(0f, 4.5f);
     const float PathW = 1.35f, GateZ = -12.5f, PlazaR = 3.7f, TreeBed = 2.3f, PondR = 3.1f, TerraceH = 0.07f;
     static readonly Vector3 BurnerAt = new Vector3(0, 0, -2f), TreeAt = new Vector3(-8.6f, 0, -3f), PondAt = new Vector3(8.8f, 0, -4.2f);
-    // 大殿模型的原点（2026-11-17 加深以后从 15.8 挪到 17.3；台基前沿还在 z 10.9，后沿 23.7）
-    static readonly Vector3 HallAt = new Vector3(0, 0, 17.3f), PavilionAt = new Vector3(14.4f, 0, 6.6f), DockAt = new Vector3(0, 0, -15.4f);
+    // 大殿模型的原点（2026-11-19 扩建成九间的大殿：台基 x ±23.1、z 10.8..43.4，连最外一圈台座 ±23.15、10.75..43.45）
+    static readonly Rect HallPod = Rect.MinMaxRect(-23.15f, 10.75f, 23.15f, 43.45f);
+    // 北边新长出来的地块（圆角方形，同 layout.py 的 LOBE_C / LOBE_R）
+    static readonly Vector2 LobeC = new Vector2(0f, 29.0f), LobeR = new Vector2(33.2f, 24.6f);
+    static readonly Vector3 HallAt = new Vector3(0, 0, 27.1f), PavilionAt = new Vector3(14.4f, 0, 6.6f), DockAt = new Vector3(0, 0, -15.4f);
     static readonly Rect Terrace = Rect.MinMaxRect(-11.3f, 1.8f, 11.3f, 9.2f);
     const float DockLen = 6.2f, DockPlat = 3.0f;
-    // 石台上的蒲团：5 排 × 每边 6 个 = 60 个，z = 2.5 + 排×1.15，|x| = 1.3 + 列×1.25；走道在蒲团前 0.70 米（草垫前沿和下一排之间）
-    const int SeatRows = 5, SeatCols = 6;
-    const float SeatZ0 = 2.5f, SeatDZ = 1.15f, SeatX0 = 1.3f, SeatDX = 1.25f, SeatLane = 0.70f;
+    // 石台上的石凳：左右各三条（一条坐两个人），面朝大殿，中间留十米宽的过道。模型 stone_bench 长 1.5、高 0.475，缩到 0.9（人只有 1.25 米高）。
+    // 座位点比凳面低 2 厘米（BenchSeatUp）：量过，座位点高 0.505 时坐着的人脚尖离地 12.5 厘米，降到 0.41 脚正好踩在石台上
+    const float BenchScale = 0.9f, BenchSeatUp = -0.02f, BenchTop = 0.475f * BenchScale + BenchSeatUp, BenchX = 6.0f, BenchSeatDX = 0.31f, BenchStep = 0.46f;
+    static readonly float[] BenchRows = { 3.6f, 5.6f, 7.6f };
     // 许愿树的绳圈（同 plants.py 的 tree_wish）
     // 新做法（一根根的真草、按花瓣建模的花）铺的范围：整座岛（2026-11-15 样板角验收后铺开）
-    static readonly Rect SampleCorner = Rect.MinMaxRect(-20f, -16f, 20f, 28f);
+    static readonly Rect SampleCorner = Rect.MinMaxRect(-36f, -16f, 36f, 56f);
     const int RopePosts = 8;
     // 绳子降到 1.2 米：1.25 米高的人站在绳外，抬手在胸口、肩膀的高度就能系（同 trees.py 的 tree_wish：H = 1.2）
     const float RopeR = 2.95f, RopeH = 1.2f;
-    // 新大殿（spec A）：殿里地面高 0.72。HallOpen：大殿能不能走进去（新大殿模型、殿里的东西、墙和天花板的碰撞都在了，开着）。
+    // 大殿：殿里金砖地面高 1.07（台面 1.08）。HallOpen：大殿能不能走进去（新大殿模型、殿里的东西、墙和天花板的碰撞都在了，开着）。
     // 改成 false：三个门洞拦一道只挡人的隔板（BuildHall），「进殿」不显示，院子里的路线也不进殿
-    const float HallFloor = 0.72f;
+    const float HallFloor = 1.07f;
     const bool HallOpen = true;
 
     /// 卡通材质。名字就是模型部件的名字（toon、leaf、glow），另外可以自己起名字做变体
@@ -78,6 +82,10 @@ public static partial class SanctuaryBuild
     {
         ToonMat("toon", m => { m.SetFloat("_Cull", 2f); m.SetFloat("_Sway", 1f); });
         ToonMat("leaf", m => { m.SetFloat("_Cull", 0f); m.SetFloat("_Sway", 1f); m.SetFloat("_SnowAmount", 0.5f); m.SetColor("_RimColor", new Color(1, 1, 1, 0.04f)); m.SetFloat("_Detail", 0f); });
+        // 地面那张大贴图的导入设置在 BuildCore 的 OnPreprocessTexture 里（8192、ASTC 8×8）：设置改过而贴图还是按旧的导入的，重新导一遍
+        const string groundTex = "Assets/Toon/Textures/islet_ground.png";
+        if (AssetImporter.GetAtPath(groundTex) is TextureImporter gti && gti.maxTextureSize != 8192)
+            AssetDatabase.ImportAsset(groundTex, ImportAssetOptions.ForceUpdate);
         // 地面：颜色来自画好的那张大贴图（tools/blender/ground_tex.py）
         ToonMat("ground", m =>
         {
@@ -160,6 +168,15 @@ public static partial class SanctuaryBuild
             m.SetFloat("_WetAmount", 0f); m.SetFloat("_SnowAmount", 0f);
             m.SetColor("_EmissionColor", new Color(1f, 0.62f, 0.26f) * 1.3f);
         });
+        // 鱼、礼物上常亮的部件（月光鱼、珍珠；YjmImporter 给接上）：颜色在顶点色里，加一层淡淡的自发光，不跟着天色开关
+        ToonMat("shine", m =>
+        {
+            m.SetFloat("_Cull", 2f); m.SetFloat("_Sway", 0f); m.SetFloat("_Detail", 0f);
+            m.SetFloat("_WetAmount", 0f); m.SetFloat("_SnowAmount", 0f);
+            m.SetColor("_EmissionColor", new Color(0.85f, 0.95f, 1f) * 0.7f);
+        });
+        // 鱼鳍、礼物上的叶子：双面，不积雪、不随风摆
+        ToonMat("leaf_dry", m => { m.SetFloat("_Cull", 0f); m.SetFloat("_Sway", 0f); m.SetFloat("_SnowAmount", 0f); m.SetFloat("_WetAmount", 0f); m.SetColor("_RimColor", new Color(1, 1, 1, 0.04f)); m.SetFloat("_Detail", 0f); });
         // 鎏金（佛像、背光、供桌、宫灯、幡头……，handoff/statues.md §4）：明暗、旧色都烘在顶点色里（殿里照不到太阳，不然只剩一块平的颜料）。
         // 不用 _YJ_TEX：铜的贴图是锈斑，鎏金上会花。_Gilt 是固定方向的假高光和边缘亮光（不受影子影响），金面会随镜头闪一点
         ToonMat("gold", m =>
@@ -357,6 +374,76 @@ public static partial class SanctuaryBuild
         return go;
     }
 
+    /// Toon/Models 里名字以 prefix 开头的模型（gift_、fish_）
+    static GameObject[] ModelsNamed(string prefix) =>
+        AssetDatabase.FindAssets(prefix, new[] { ToonModels }).Select(AssetDatabase.GUIDToAssetPath)
+            .Where(q => q.EndsWith(".yjm") && Path.GetFileName(q).StartsWith(prefix))
+            .Select(AssetDatabase.LoadAssetAtPath<GameObject>).Where(g => g != null).OrderBy(g => g.name).ToArray();
+
+    /// 钟亭里挂上单独做的钟（temple_bell）和撞木（bell_striker），接到敲钟的脚本上。两个模型都有才做。
+    /// 钟亭模型（buildings.py 的 pavilion）里本来带着一口简单的钟、一根撞木和吊绳：从它的网格里把这几样的三角形去掉（存一份新网格，
+    /// 不改 Blender 那边的脚本），不然就是两口钟叠在一起。坐标都是钟亭自己的（y 向上；钟亭在场景里转了 -90 度，自己的 +x 朝北）：
+    /// 梁底 2.43，钟挂在正中（钟顶的挂钮高 0.085），撞木的吊点比钟的吊点高 0.18、在 +x 那边 1.42 米（撞头离钟还有一拳），
+    /// 再加一根顺着 x 的横梁给撞木的两根吊绳挂
+    static void HangBell(GameObject pavilion, BellRing ring)
+    {
+        if (pavilion == null || !HasModel("temple_bell") || !HasModel("bell_striker")) return;
+        foreach (var mf in pavilion.GetComponentsInChildren<MeshFilter>())
+        {
+            var src = mf.sharedMesh;
+            if (src == null || mf.name != "toon") continue;
+            var v = src.vertices;
+            bool Old(Vector3 p)
+            {
+                // 钟身、钟钮上的绳子（轴线 0.42 米以内、梁底以下）
+                if (p.x * p.x + p.z * p.z < 0.42f * 0.42f && p.y > 1.2f && p.y < 2.44f) return true;
+                // 撞木（顺着 x，中心 (0.95, 1.62, 0)，长 1.1）和两根吊绳（x 0.6、z ±0.3，1.66..2.52）
+                if (p.x > 0.35f && p.x < 1.55f && p.y > 1.5f && p.y < 1.75f && Mathf.Abs(p.z) < 0.1f) return true;
+                return p.x > 0.55f && p.x < 0.65f && Mathf.Abs(Mathf.Abs(p.z) - 0.3f) < 0.03f && p.y > 1.6f && p.y < 2.56f;
+            }
+            var tris = src.triangles;
+            var keep = new List<int>(tris.Length);
+            for (int i = 0; i < tris.Length; i += 3)
+                if (!(Old(v[tris[i]]) && Old(v[tris[i + 1]]) && Old(v[tris[i + 2]]))) { keep.Add(tris[i]); keep.Add(tris[i + 1]); keep.Add(tris[i + 2]); }
+            if (keep.Count == tris.Length) continue;
+            var mesh = UnityEngine.Object.Instantiate(src);
+            mesh.name = "pavilion_toon_nobell";
+            mesh.triangles = keep.ToArray();
+            const string path = "Assets/Toon/Textures/gen_pavilion_nobell.asset";
+            AssetDatabase.DeleteAsset(path);
+            AssetDatabase.CreateAsset(mesh, path);
+            mf.sharedMesh = mesh;
+            Debug.Log($"[yuanjing] 钟亭：去掉自带的钟和撞木 {(tris.Length - keep.Count) / 3} 个三角形");
+        }
+        var pt = pavilion.transform;
+        var bell = Put("temple_bell", pt, pt.TransformPoint(new Vector3(0, 2.345f, 0)), pt.eulerAngles.y, 1f, null, false);
+        var striker = Put("bell_striker", pt, pt.TransformPoint(new Vector3(1.42f, 2.525f, 0)), pt.eulerAngles.y, 1f, null, false);
+        MeshLodGroup(bell, 0.2f, 0.08f);
+        // 撞木的横梁（深色的木头方料，和挂钟的那根十字相交）
+        var beam = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        UnityEngine.Object.DestroyImmediate(beam.GetComponent<Collider>());
+        beam.name = "StrikerBeam";
+        beam.transform.SetParent(pt, false);
+        beam.transform.localPosition = new Vector3(1.05f, 2.5f, 0);
+        beam.transform.localScale = new Vector3(2.5f, 0.14f, 0.14f);
+        beam.GetComponent<MeshRenderer>().sharedMaterial = ToonMat("beam_plain", m =>
+        {
+            m.SetFloat("_Legacy", 1f); m.SetFloat("_Sway", 0f); m.SetFloat("_Detail", 0.1f);
+            m.SetColor("_BaseColor", new Color(0.30f, 0.20f, 0.14f));
+        });
+        beam.isStatic = true;
+        ring.bell = bell.transform;
+        ring.striker = striker.transform;
+        // 撞木顺着自己的 x、钟在 -x 那边：绕 z 轴荡，正的角度撞向钟。撞头静止时离钟 0.21 米，吊绳长 0.9：荡过去 13.5 度碰上
+        ring.swingAxis = new Vector3(0, 0, -1);
+        ring.strike = 13.5f;
+        ring.pullBack = 26f;
+        // 人站在撞木尾巴旁边（钟亭北边的台基外），面朝钟
+        ring.stand = pt.TransformPoint(new Vector3(2.9f, 0, -0.35f));
+        ring.stand.y = 0;
+        ring.face = pt.TransformPoint(new Vector3(0, 1.4f, 0));
+    }
+
     // ── 地形数据（Blender 导出的 islet_map.bytes）──
     class IsletMap
     {
@@ -454,7 +541,7 @@ public static partial class SanctuaryBuild
             Solid(post, 0.42f, 3f);
             isletObs.Add(new Obstacle { center = post.transform.position, radius = 0.75f });
         }
-        Solid(Put("pavilion", structure, PavilionAt, -90), 2.3f, 3f, 3.0f);
+        var pavilion = Solid(Put("pavilion", structure, PavilionAt, -90), 2.3f, 3f, 2.7f);
         var dock = Put("dock", structure, DockAt);
         foreach (var mf in dock.GetComponentsInChildren<MeshFilter>())
             // 桥面、桩子都要能踩（部件名是材质名：换了贴图材质以后不叫 toon 了，按「不是叶子、不是发光」来判断）
@@ -502,81 +589,77 @@ public static partial class SanctuaryBuild
             block.layer = 2;
         }
 
+        // 石台上的石凳（用户：门口不放垫子，放石凳休息，不要太多）：六条，每条坐两个人，一共 12 个座位。
+        // 座位点在凳面上（坐姿的原点，Folk.SitBench），坐下前站在凳前 BenchStep 米；序号：凳 × 2 + (西 0、东 1)
         var seats = Group("Seats", structure);
-        int seatN = 0;
-        // 五排、每排左右各六个，中间留一条过道：60 个座位。排与排之间留出一条走道（草垫前面），人从走道走到自己的蒲团前
-        // 序号：row*12 + col*2 + (东边 1、西边 0)
-        for (int row = 0; row < SeatRows; row++)
-            for (int col = 0; col < SeatCols; col++)
-                foreach (float sx in new[] { -1f, 1f })
+        string benchModel = HasModel("stone_bench") ? "stone_bench" : "bench";
+        foreach (float bz in BenchRows)
+            foreach (float sx in new[] { -1f, 1f })
+            {
+                var bp = new Vector3(sx * BenchX, TerraceH, bz);
+                var bench = Put(benchModel, structure, bp, (Hash((int)(bz * 10) + (sx > 0 ? 1 : 0), 7) - 0.5f) * 3f, BenchScale);
+                if (bench != null)
                 {
-                    float z = SeatZ0 + row * SeatDZ, ax = SeatX0 + col * SeatDX;
-                    var p = new Vector3(sx * ax, TerraceH, z);
-                    // 蒲团朝着大殿摆（方草垫在前，圆蒲团在后）；座位点是圆蒲团正下方的地面（坐的动作以这里为原点，高度是动作里做好的）
-                    // 模型略转一点（±3 度）：六十个摆得一丝不差的方阵像棋盘（座位点不动）
-                    var cu = Put("cushion", structure, p, (Hash(row * 12 + col * 2 + (sx > 0 ? 1 : 0), 5) - 0.5f) * 6f);
-                    // 方草垫 5 厘米厚：走过去脚踩在垫子上，不陷进去（碰撞只要一块薄板）
-                    var mat = cu.AddComponent<BoxCollider>();
-                    mat.center = new Vector3(0, 0.025f, 0.12f);
-                    mat.size = new Vector3(0.8f, 0.05f, 0.8f);
-                    var seat = new GameObject($"Seat{seatN++}");
+                    MeshLodGroup(bench, 0.06f, 0.03f);
+                    // 挡人（只挡人，不挡镜头）：坐下、起身的人原点直接滑上凳面（那时没有碰撞胶囊），不会被顶开
+                    var bb = bench.AddComponent<BoxCollider>();
+                    bb.center = new Vector3(0, 0.2375f, 0);
+                    bb.size = new Vector3(1.5f, 0.475f, 0.43f);
+                    bench.layer = NoCameraLayer;
+                }
+                isletObs.Add(new Obstacle { center = bp, radius = 0.3f, half = new Vector2(0.75f * BenchScale, 0.215f * BenchScale) });
+                foreach (float dx in new[] { -BenchSeatDX, BenchSeatDX })
+                {
+                    var seat = new GameObject($"Seat{seats.childCount}");
                     seat.transform.SetParent(seats, false);
-                    seat.transform.position = p;
+                    seat.transform.position = bp + new Vector3(dx, BenchTop, 0.03f);
                 }
-        // 殿里静坐的蒲团：子物体的位置是圆蒲团下的地面（殿里地面 0.72）、朝向是坐下以后面朝的方向。
-        // 和院子里的用同一套「走近才显示坐下、坐最近的」，序号接在院子的后面（60 起），不报给服务器、香客不坐。
-        // 每侧两列（x ±4.55、±5.65）× 四排（z 15.05..17.75）：西边一组面朝东，东边一组面朝西。
-        // 方草垫一块薄碰撞（同院子里的蒲团、cushion_hall 模型的方垫：前后 -0.28..+0.52、面高 0.05），在不挡镜头的那一层。BuildHall 把 cushion_hall 模型摆在同样的位置、同样的朝向
+            }
+        // 殿里静坐的蒲团 15 个（cushion_hall）：子物体的位置是圆蒲团下的地面、朝向是坐下以后面朝的方向（都朝北，对着佛像）。
+        // 和石凳用同一套「走近才显示坐下、坐最近的」，序号接在石凳的后面（12 起），不报给服务器。
+        // 在前排金柱（z 21.42）以北、拜垫以南，离门 6 米以上；左右各两排三个（x ±2.4、±3.9、±5.4；z 26.4、24.8），中间留 3.9 米宽的过道；
+        // 最后一排三个（x 0、±3.9；z 23.2）。方草垫一块薄碰撞（前后 -0.28..+0.52、面高 0.05），在不挡镜头的那一层。BuildHall 把模型摆在同样的位置
         var hallSeats = Group("HallSeats", structure);
-        foreach (float sx in new[] { -1f, 1f })
-            foreach (float hx in new[] { 4.55f, 5.65f })
-                foreach (float hz in new[] { 15.05f, 15.95f, 16.85f, 17.75f })
-                {
-                    var hs = new GameObject($"HallSeat{hallSeats.childCount}");
-                    hs.transform.SetParent(hallSeats, false);
-                    hs.transform.SetPositionAndRotation(new Vector3(sx * hx, HallFloor, hz), Quaternion.Euler(0, sx < 0 ? 90f : 270f, 0));
-                    var hm = hs.AddComponent<BoxCollider>();
-                    hm.center = new Vector3(0, 0.025f, 0.12f);
-                    hm.size = new Vector3(0.8f, 0.05f, 0.8f);
-                    hs.layer = NoCameraLayer;
-                }
-        // 殿里的拜垫（kneel_mat，props.md §4 第二轮的摆法）：位置是拜垫中心下面的地面。圆角长方 0.62（左右）× 0.75（前后）、面高 0.124（殿里地面上 0.844）：
-        // 一块薄碰撞，人走上去就站在垫子面上，跪拜时膝盖、手、脚尖都在垫子上。中间三块 z 17.8（供桌前留出上香那一条），两边两块 z 18.5。
-        // BuildHall 把 kneel_mat 模型摆在同样的位置
+        var hallSeatAt = new List<Vector2>();
+        foreach (float hz in new[] { 26.4f, 24.8f })
+            foreach (float hx in new[] { -5.4f, -3.9f, -2.4f, 2.4f, 3.9f, 5.4f }) hallSeatAt.Add(new Vector2(hx, hz));
+        foreach (float hx in new[] { -3.9f, 0f, 3.9f }) hallSeatAt.Add(new Vector2(hx, 23.2f));
+        foreach (var sp in hallSeatAt)
+        {
+            var hs = new GameObject($"HallSeat{hallSeats.childCount}");
+            hs.transform.SetParent(hallSeats, false);
+            hs.transform.SetPositionAndRotation(new Vector3(sp.x, HallFloor, sp.y), Quaternion.identity);
+            var hm = hs.AddComponent<BoxCollider>();
+            hm.center = new Vector3(0, 0.025f, 0.12f);
+            hm.size = new Vector3(0.8f, 0.05f, 0.8f);
+            hs.layer = NoCameraLayer;
+        }
+        // 殿里的拜垫 5 块（kneel_mat）：位置是拜垫中心下面的地面。圆角长方 0.62（左右）× 0.75（前后）、面高 0.124：
+        // 一块薄碰撞，人走上去就站在垫子面上，跪拜时膝盖、手、脚尖都在垫子上。释迦像前三块（x 0、±1.5），左右两尊前各一块（x ±7），都在 z 29.2
+        // （正在藻井下面；中间那块和供桌之间留出上香站的那一条）。序号：0 中间偏西、1 正中、2 中间偏东、3 西、4 东。BuildHall 把 kneel_mat 模型摆在同样的位置
         var hallMats = Group("HallMats", structure);
-        foreach (var mp in new[] { new Vector3(-1f, HallFloor, 17.8f), new Vector3(0, HallFloor, 17.8f), new Vector3(1f, HallFloor, 17.8f), new Vector3(-3.6f, HallFloor, 18.5f), new Vector3(3.6f, HallFloor, 18.5f) })
+        foreach (float mx in new[] { -1.5f, 0f, 1.5f, -StatueDX, StatueDX })
         {
             var km = new GameObject($"KneelMat{hallMats.childCount}");
             km.transform.SetParent(hallMats, false);
-            km.transform.position = mp;
+            km.transform.position = new Vector3(mx, HallFloor, 29.2f);
             var kb = km.AddComponent<BoxCollider>();
             kb.center = new Vector3(0, 0.062f, 0);
             kb.size = new Vector3(0.62f, 0.124f, 0.75f);
             km.layer = NoCameraLayer;
         }
-        // 殿里自动走路要绕开的（坐标见 handoff/hall.md §6、props.md §4/§5 最后一轮）：金柱、开着的门扇、磬、木鱼、功德箱、经案、供桌。
-        // 金柱按圆（柱身 r 0.24、覆盆柱础 r 0.33，绕开 0.55：柱础加上人的半个身子 0.22，自动走过去脚不会踩进柱础）；别的按东西本身的长方（props.md §5 建议的碰撞盒，和 BuildHall 里挡人的盒子一样），再往外让 0.25（人的半个身子 0.22 加一点空）。
-        // 磬、木鱼、经案挪到了静坐区北边那一条（z 18.95）以后，两根金柱之间（z 15.73..17.67）空了：去两边蒲团直接从金柱中间走，不再绕到北边。
-        // 要空着的几条（props.md §5）：过道 x ±1.7、供桌前那一条 z 18.18..18.81、两边拜垫的通道、两根金柱之间、静坐区北边敲磬读经站的地方
+        // 殿里自动走路要绕开的（GameDirector.HallPlan 的网格）：金柱按圆（柱身 r 0.42、覆盆柱础 r 0.67，绕开 0.9：柱础加上人的半个身子）；
+        // 壁柱、门柱按圆；开着的门扇、佛坛、扇面墙、供桌、陈设按东西本身的长方（和 BuildHall 里挡人的盒子同一份 HallSolids），再往外让 0.25
         const float body = 0.25f;
-        foreach (var (c, half, r) in new[]
+        foreach (var g in HallGoldColumns) isletObs.Add(new Obstacle { center = new Vector3(g.x, HallFloor, g.y), radius = 0.9f });
+        foreach (var p in HallPilasters()) isletObs.Add(new Obstacle { center = new Vector3(p.x, HallFloor, p.y), radius = 0.58f });
+        foreach (float x in new[] { -10.5f, -3.5f, 3.5f, 10.5f }) isletObs.Add(new Obstacle { center = new Vector3(x, HallFloor, HallDoorZ), radius = 0.8f });
+        foreach (float lx in HallLeafX) isletObs.Add(new Obstacle { center = new Vector3(lx, HallFloor, 17.17f), radius = body, half = new Vector2(0.155f, 0.51f) });
+        foreach (var s in HallSolids())
         {
-            (new Vector3(-2.8f, HallFloor, 15.4f), Vector2.zero, 0.55f), (new Vector3(2.8f, HallFloor, 15.4f), Vector2.zero, 0.55f),
-            (new Vector3(-2.8f, HallFloor, 18.0f), Vector2.zero, 0.55f), (new Vector3(2.8f, HallFloor, 18.0f), Vector2.zero, 0.55f),
-            // 开着的门扇（叠在门两边，z 14.45..14.99）
-            (new Vector3(-3.576f, HallFloor, 14.72f), new Vector2(0.11f, 0.27f), body), (new Vector3(-1.705f, HallFloor, 14.72f), new Vector2(0.11f, 0.27f), body),
-            (new Vector3(-0.936f, HallFloor, 14.72f), new Vector2(0.11f, 0.27f), body), (new Vector3(0.936f, HallFloor, 14.72f), new Vector2(0.11f, 0.27f), body),
-            (new Vector3(1.705f, HallFloor, 14.72f), new Vector2(0.11f, 0.27f), body), (new Vector3(3.576f, HallFloor, 14.72f), new Vector2(0.11f, 0.27f), body),
-            // 磬、木鱼在东边静坐区北边、东边供桌旁（面朝南，敲的人站在 z 18.45），功德箱在门里东边、贴着过道（转了 90 度：南北长）
-            (new Vector3(5.0f, HallFloor, 18.95f), new Vector2(0.25f, 0.25f), body), (new Vector3(5.8f, HallFloor, 18.95f), new Vector2(0.27f, 0.25f), body),
-            (new Vector3(1.45f, HallFloor, 15.5f), new Vector2(0.26f, 0.38f), body),
-            // 经案在西边静坐区北边（面朝南，东西长 1.28，读经的人站在 z 18.42）
-            (new Vector3(-5.35f, HallFloor, 18.95f), new Vector2(0.64f, 0.26f), body),
-            // 中间供桌（桌围前沿 z 18.817）、两边的供桌
-            (new Vector3(0, HallFloor, 19.2f), new Vector2(1.22f, 0.4f), body),
-            (new Vector3(-3.6f, HallFloor, 19.35f), new Vector2(0.77f, 0.325f), body), (new Vector3(3.6f, HallFloor, 19.35f), new Vector2(0.77f, 0.325f), body),
-        })
-            isletObs.Add(new Obstacle { center = c, radius = r, half = half });
+            if ((s.name == "GuanyinBase" || s.name == "GuanyinTable") && !HasModel("guanyin")) continue;
+            isletObs.Add(new Obstacle { center = new Vector3(s.x, HallFloor, s.z), radius = body, half = new Vector2(s.hx, s.hz) });
+        }
         // 石台两侧的太平缸（water_vat，BuildHall 摆模型）：缸沿直径 1.16，加石座，绕开 0.9 米。第二排走道外侧那一头正对着它，那一排不从外侧进出
         foreach (float sx in new[] { -1f, 1f })
             isletObs.Add(new Obstacle { center = new Vector3(sx * 9.2f, TerraceH, 5.5f), radius = 0.9f });
@@ -590,19 +673,24 @@ public static partial class SanctuaryBuild
             new Vector3(-2.2f, 0, -10.2f), new Vector3(2.2f, 0, -10.2f), new Vector3(-2.3f, 0, -6.4f), new Vector3(2.3f, 0, -6.4f),
             new Vector3(-10.4f, 0, 10.0f), new Vector3(10.4f, 0, 10.0f), new Vector3(-5.6f, 0, 0.9f), new Vector3(5.6f, 0, 0.9f),
             new Vector3(-12.4f, 0, 1.0f), new Vector3(13.2f, 0, 0.6f),
+            // 北边新地块：殿两侧的甬道外沿各三盏、殿后三盏（只是灯室发亮，不带点光）
+            new Vector3(-28.4f, 0, 17.0f), new Vector3(-28.6f, 0, 27.0f), new Vector3(-28.4f, 0, 37.0f),
+            new Vector3(28.4f, 0, 17.0f), new Vector3(28.6f, 0, 27.0f), new Vector3(28.4f, 0, 37.0f),
+            new Vector3(-11.0f, 0, 46.6f), new Vector3(0f, 0, 47.2f), new Vector3(11.0f, 0, 46.6f),
         };
         for (int i = 0; i < lanternSpots.Length; i++)
         {
             var p = lanternSpots[i];
+            p.y = Mathf.Max(0f, map.H(p.x, p.z));
             var lantern = Put("lantern", structure, p, R(-8, 8), 1.25f);
             MeshLodGroup(lantern, 0.08f, 0.04f);
             Solid(lantern, 0.38f, 2f, 0.8f);
             if (i < 6) lampLights.Add(PointLamp(structure, p + Vector3.up * 1.9f, 7f, 6.5f));
         }
-        // 殿前廊下的两盏（z 11.2）：照廊下、台阶和石台北头。范围 6 米（原来 9 米一直照进殿里，夜里殿里的大块墙面、地面
-        // 一个物体吃的灯超过 8 盏的上限）
-        lampLights.Add(PointLamp(structure, HallAt + new Vector3(-3.4f, 3.4f, -6.1f), 6f, 5f));
-        lampLights.Add(PointLamp(structure, HallAt + new Vector3(3.4f, 3.4f, -6.1f), 6f, 5f));
+        // 殿前廊下的两盏（台阶两头、檐柱前）：照廊下、台阶和石台北头。范围只有 4 米，够不着殿里的金砖地（z 16.64 起）——
+        // 殿里一块东西吃的灯不能超过 8 盏的上限
+        lampLights.Add(PointLamp(structure, new Vector3(-8.7f, 4.3f, 12.3f), 4f, 5f));
+        lampLights.Add(PointLamp(structure, new Vector3(8.7f, 4.3f, 12.3f), 4f, 5f));
 
         // ── 树 ──
         var fallenAt = new List<(string kind, Vector3 at)>();
@@ -613,20 +701,40 @@ public static partial class SanctuaryBuild
             string kind = model.Contains("maple") ? "fallen_maple" : model.Contains("ginkgo") ? "fallen_ginkgo" : model.Contains("blossom") ? "fallen_petal" : model.Contains("round") ? "fallen_green" : null;
             if (kind != null) fallenAt.Add((kind, new Vector3(x, y, z)));
         }
-        // 大殿两侧的松（大殿加深以后殿后已经没有能种松的地方，见 handoff/hall.md §7：每个位置按 12 个朝向、缩放上下限都和殿不碰）
-        Tree("tree_pine_b", -14.0f, 19.0f, 1.1f);
-        Tree("tree_pine_b", -13.6f, 12.5f, 1.1f); Tree("tree_pine_b", 14.2f, 13.4f, 1.1f);
-        // 东边这棵松往东挪了 1.2 米、小一点（原来在 (12.5, 16.9)，人走到殿东北角外面时平视镜头整个埋在松针里；新位置照样 24/24 不碰殿，离岸 2.7 米）
-        Tree("tree_pine_b", 13.6f, 16.4f, 0.95f); Tree("tree_round_a", -14.6f, 16.6f, 1.2f); Tree("tree_round_a", 15.0f, 17.2f, 1.15f);
+        // 这一点能不能种树：离岸够远、不在台基和屋檐底下（下檐伸到 x ±24、z 10.1..44.3）
+        bool TreeOk(float x, float z, float crown) => map.Shore(x, z) > 2.9f && !(Mathf.Abs(x) < 24f + crown && z > 10.1f - crown && z < 44.3f + crown);
+        void TreeIf(string model, float x, float z, float scale = 1f, float trunk = 0.3f, float crown = 1.6f)
+        {
+            if (TreeOk(x, z, crown)) Tree(model, x, z, scale, trunk);
+            else Debug.LogWarning($"[yuanjing] 树 {model} ({x}, {z}) 种不下（离岸 {map.Shore(x, z):F1}），没种");
+        }
+        // 北边新地块（2026-11-19）：殿两侧的甬道（台基外 5 米宽）外沿各一排树，松、枫、银杏、杂树、花树错开；殿后一排松，两个角的土丘上各一棵老松。
+        // 人能贴着台基绕殿走一圈（树干都在 x ±28 以外、z 48 以北）
+        TreeIf("tree_pine_b", -28.6f, 13.6f, 1.15f); TreeIf("tree_maple_a", -29.2f, 20.4f, 1.15f, 0.25f); TreeIf("tree_round_a", -28.8f, 24.2f, 1.2f);
+        TreeIf("tree_ginkgo", -29.0f, 31.0f, 1.15f); TreeIf("tree_pine_b", -28.6f, 34.4f, 1.1f); TreeIf("tree_maple_b", -29.0f, 40.4f, 1.15f, 0.2f);
+        TreeIf("tree_round_b", -28.4f, 44.6f, 1.1f);
+        TreeIf("tree_pine_b", 28.6f, 13.8f, 1.1f); TreeIf("tree_blossom", 29.0f, 20.6f, 1.2f, 0.25f); TreeIf("tree_round_a", 28.8f, 24.0f, 1.15f);
+        TreeIf("tree_maple_a", 29.2f, 30.8f, 1.1f, 0.25f); TreeIf("tree_pine_b", 28.6f, 34.6f, 1.15f); TreeIf("tree_ginkgo", 29.0f, 40.6f, 1.1f);
+        TreeIf("tree_blossom", 28.4f, 44.8f, 1.05f, 0.25f);
+        TreeIf("tree_pine_c", -26.6f, 48.6f, 1.25f); TreeIf("tree_pine_c", 26.4f, 48.9f, 1.2f);
+        TreeIf("tree_pine_b", -20.0f, 49.6f, 1.2f); TreeIf("tree_pine_a", -14.6f, 50.2f, 1.15f); TreeIf("tree_pine_b", -8.0f, 49.8f, 1.1f);
+        TreeIf("tree_pine_b", 8.4f, 50.0f, 1.15f); TreeIf("tree_pine_a", 14.8f, 50.2f, 1.1f); TreeIf("tree_pine_b", 20.4f, 49.4f, 1.2f);
+        TreeIf("tree_maple_b", -17.4f, 46.6f, 1.0f, 0.2f); TreeIf("tree_ginkgo", 17.6f, 46.8f, 1.0f);
+        // 台基前两角外的空地（钟亭北边、石碑北边）
+        TreeIf("tree_round_a", -26.8f, 8.6f, 1.15f); TreeIf("tree_maple_a", -21.0f, 7.4f, 1.05f, 0.25f);
+        TreeIf("tree_round_b", 26.6f, 8.4f, 1.1f); TreeIf("tree_maple_b", 21.6f, 7.2f, 1.0f, 0.2f);
         // 西边：红枫、银杏
-        Tree("tree_maple_a", -13.4f, 6.6f, 1.15f, 0.25f); Tree("tree_maple_b", -13.0f, 10.6f, 1.1f, 0.2f); Tree("tree_ginkgo", -14.4f, 1.6f, 1.05f); Tree("tree_maple_b", -13.6f, -6.4f, 1.1f, 0.2f);
+        Tree("tree_maple_a", -13.4f, 6.6f, 1.15f, 0.25f); Tree("tree_maple_b", -16.2f, 8.6f, 1.1f, 0.2f); Tree("tree_ginkgo", -14.4f, 1.6f, 1.05f); Tree("tree_maple_b", -13.6f, -6.4f, 1.1f, 0.2f);
         Tree("tree_round_b", -12.6f, -10.2f); Tree("tree_maple_a", -10.6f, -12.0f, 0.95f, 0.25f);
         // 东边：池塘旁的花树
         Tree("tree_blossom", 12.6f, -2.6f, 1.2f, 0.25f); Tree("tree_blossom", 10.4f, -8.2f, 1.0f, 0.25f); Tree("tree_ginkgo", 14.6f, 2.8f, 1.1f); Tree("tree_round_b", 13.6f, -9.6f);
-        Tree("tree_maple_b", 7.0f, -11.8f, 1.0f, 0.2f); Tree("tree_round_a", 14.8f, 11.6f, 1.1f);
-        // 竹林：大殿两边各一丛（离殿的屋檐够远，hall.md §7）
-        foreach (var (x, z, m) in new[] { (-11.2f, 13.0f, "bamboo_a"), (-11.5f, 14.4f, "bamboo_a"), (-10.6f, 16.0f, "bamboo_b"), (-12.1f, 15.6f, "bamboo_b"), (11.0f, 13.6f, "bamboo_a"), (11.1f, 15.3f, "bamboo_b") })
-            Solid(Put(m, structure, new Vector3(x, map.H(x, z) - 0.02f, z), R(0, 360), R(0.95f, 1.15f)), 0.5f, 3f, 1.0f);
+        Tree("tree_maple_b", 7.0f, -11.8f, 1.0f, 0.2f);
+        // 竹林：殿后正中一大丛（后檐外、石灯笼后面），殿后两个角、两侧甬道外各一小丛
+        foreach (var (x, z, m) in new[] { (-4.6f, 49.4f, "bamboo_a"), (-3.0f, 50.4f, "bamboo_b"), (-1.4f, 49.2f, "bamboo_a"), (0.4f, 50.6f, "bamboo_a"), (2.0f, 49.4f, "bamboo_b"), (3.6f, 50.4f, "bamboo_a"), (5.0f, 49.2f, "bamboo_b"),
+                                          (-23.4f, 47.4f, "bamboo_b"), (-22.2f, 48.6f, "bamboo_a"), (23.2f, 47.6f, "bamboo_a"), (22.0f, 48.8f, "bamboo_b"),
+                                          (-29.6f, 27.4f, "bamboo_a"), (-30.0f, 28.8f, "bamboo_b"), (29.8f, 27.2f, "bamboo_b"), (30.0f, 28.6f, "bamboo_a"),
+                                          (-30.0f, 16.8f, "bamboo_b"), (30.0f, 17.2f, "bamboo_a"), (-29.8f, 37.6f, "bamboo_a"), (29.8f, 37.4f, "bamboo_b") })
+            if (map.Shore(x, z) > 2.7f) Solid(Put(m, structure, new Vector3(x, map.H(x, z) - 0.02f, z), R(0, 360), R(0.95f, 1.15f)), 0.5f, 3f, 1.0f);
         Solid(Put("stele", structure, new Vector3(-11.6f, 0, 3.6f), 100), 0.6f, 2f, 1.0f);
 
         // ── 石头：岸边一圈大大小小的，水里几块 ──
@@ -640,27 +748,34 @@ public static partial class SanctuaryBuild
                 foreach (var mf in go.GetComponentsInChildren<MeshFilter>())
                     mf.gameObject.AddComponent<MeshCollider>().sharedMesh = mf.sharedMesh;
         }
-        for (int i = 0; i < 44; i++)
+        // 岸边一圈：老岛（南半边）绕 IsleC 一圈，北边新地块绕 LobeC 一圈；各自从里往外找到「离岸多远」等于 want 的那一点（islet_map）。
+        // 两块地接缝以北（z 5 以上）的归北边那一圈
+        void ShoreRocks(Vector2 c, int count, float r0, bool north)
         {
-            float ang = i / 44f * Mathf.PI * 2f + R(-0.05f, 0.05f);
-            Vector2 dir = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang));
-            // 码头正面的沙滩留空
-            if (dir.y < -0.92f) continue;
-            float want = R(-1.2f, 0.9f);
-            float rr = 14f;
-            for (int k = 0; k < 40; k++)
+            for (int i = 0; i < count; i++)
             {
-                Vector2 p = IsleC + dir * rr;
-                if (map.Shore(p.x, p.y) < want) break;
-                rr += 0.3f;
+                float ang = i / (float)count * Mathf.PI * 2f + R(-0.05f, 0.05f);
+                Vector2 dir = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang));
+                // 码头正面的沙滩留空
+                if (!north && dir.y < -0.92f) continue;
+                float want = R(-1.2f, 0.9f);
+                float rr = r0;
+                for (int k = 0; k < 120; k++)
+                {
+                    Vector2 p = c + dir * rr;
+                    if (map.Shore(p.x, p.y) < want) break;
+                    rr += 0.3f;
+                }
+                Vector2 q = c + dir * rr;
+                if ((q.y > 5f) != north) continue;
+                Rock(rocks[rng.Next(rocks.Length)], q.x, q.y, R(0.7f, 1.5f), want > -0.3f);
             }
-            Vector2 q = IsleC + dir * rr;
-            // 大殿台基（连最外一圈台座：x ±8.75、z 10.75..23.85）四周 1.2 米以内不放：殿后两个角离岸很近，石头会摆到台基、栏杆里
-            if (Mathf.Abs(q.x) < 8.75f + 1.2f && q.y > 10.75f - 1.2f && q.y < 23.85f + 1.2f) continue;
-            Rock(rocks[rng.Next(rocks.Length)], q.x, q.y, R(0.7f, 1.5f), want > -0.3f);
         }
-        foreach (var (x, z, s, m) in new[] { (-21f, -8f, 1.6f, "rock_d"), (21.5f, 3f, 1.5f, "rock_d"), (-19.5f, 16f, 1.3f, "rock_a"), (19f, -14f, 1.2f, "rock_a"), (7f, -21f, 1.1f, "rock_moss"),
-                     (-8.5f, -20.5f, 1.2f, "rock_moss"), (-11.2f, 20.2f, 1.5f, "rock_d"), (12.6f, 21.4f, 1.4f, "rock_d"), (-2.4f, 25.6f, 1.2f, "rock_a"), (3.2f, 26.2f, 1.0f, "rock_moss"),
+        ShoreRocks(IsleC, 44, 14f, false);
+        ShoreRocks(LobeC, 78, 22f, true);
+        foreach (var (x, z, s, m) in new[] { (-21f, -8f, 1.6f, "rock_d"), (21.5f, 3f, 1.5f, "rock_d"), (-36.4f, 22f, 1.3f, "rock_a"), (19f, -14f, 1.2f, "rock_a"), (7f, -21f, 1.1f, "rock_moss"),
+                     (-8.5f, -20.5f, 1.2f, "rock_moss"), (-30.6f, 33.2f, 1.5f, "rock_d"), (30.8f, 23.4f, 1.4f, "rock_d"), (-6.4f, 52.0f, 1.2f, "rock_a"), (7.2f, 52.2f, 1.0f, "rock_moss"),
+                     (36.2f, 40f, 1.5f, "rock_d"), (-12f, 57f, 1.4f, "rock_d"), (16f, 56.6f, 1.2f, "rock_a"), (-27.6f, 46.0f, 1.0f, "rock_moss"), (27.4f, 46.4f, 1.1f, "rock_b"),
                      (-15.2f, 8.4f, 1.0f, "rock_b"), (15.6f, 6.2f, 1.1f, "rock_b"), (-10.4f, 1.6f, 0.9f, "rock_c"), (11.2f, 1.6f, 0.9f, "rock_moss") })
             Rock(m, x, z, s, map.Shore(x, z) > 0);
 
@@ -673,7 +788,8 @@ public static partial class SanctuaryBuild
             if (new Vector2(x - BurnerAt.x, z - BurnerAt.z).magnitude < PlazaR + pad) return false;
             if (new Vector2(x - TreeAt.x, z - TreeAt.z).magnitude < RopeR + 0.3f + pad) return false;
             if (x > Terrace.xMin - pad && x < Terrace.xMax + pad && z > Terrace.yMin - pad && z < Terrace.yMax + 1.2f) return false;
-            if (Mathf.Abs(x - HallAt.x) < 9.2f + pad && Mathf.Abs(z - HallAt.z) < 6.9f + pad) return false;
+            // 大殿的台座，连脚下那一圈踩出来的土色（0.8 米）
+            if (x > HallPod.xMin - 0.8f - pad && x < HallPod.xMax + 0.8f + pad && z > HallPod.yMin - 0.3f - pad && z < HallPod.yMax + 0.8f + pad) return false;
             if (new Vector2(x - PavilionAt.x, z - PavilionAt.z).magnitude < 2.9f + pad) return false;
             return true;
         }
@@ -683,7 +799,7 @@ public static partial class SanctuaryBuild
         int grassCount = 0;
         for (int i = 0; i < 12000 && grassCount < 2700; i++)
         {
-            float x = R(-19f, 19f), z = R(-15f, 27f);
+            float x = R(-34f, 34f), z = R(-15f, 54f);
             if (!Open(x, z, 0.1f) || InSample(x, z)) continue;
             // 一丛一丛地长：用噪声决定哪里密
             float n = Mathf.PerlinNoise(x * 0.22f + 31f, z * 0.22f + 7f);
@@ -695,7 +811,7 @@ public static partial class SanctuaryBuild
         int sprouts = 0;
         for (int i = 0; i < 20000 && sprouts < 4200; i++)
         {
-            float x = R(-19.5f, 19.5f), z = R(-15.5f, 27.5f);
+            float x = R(-34f, 34f), z = R(-15.5f, 54f);
             if (!Open(x, z, 0.04f) || InSample(x, z)) continue;
             Put(rng.Next(2) == 0 ? "sprout_a" : "sprout_b", greens, new Vector3(x, map.H(x, z), z), R(0, 360), R(0.8f, 1.5f));
             sprouts++;
@@ -705,7 +821,7 @@ public static partial class SanctuaryBuild
         int covers = 0;
         for (int c = 0; c < 400 && covers < 520; c++)
         {
-            float cx = R(-17.5f, 17.5f), cz = R(-14.5f, 26f);
+            float cx = R(-33f, 33f), cz = R(-14.5f, 53f);
             if (!Open(cx, cz, 0.3f) || InSample(cx, cz)) continue;
             string kind = coverKinds[rng.Next(coverKinds.Length)];
             int n = rng.Next(2, 6);
@@ -721,7 +837,7 @@ public static partial class SanctuaryBuild
         int blades = GrassField(greens, map, Open, SampleCorner, 200);
         string[] newFlowers = { "fl_daisy", "fl_daisy", "fl_daisy_pink", "fl_buttercup", "fl_buttercup", "fl_violet", "fl_violet", "fl_clover", "fl_clover", "fl_cosmos", "fl_cosmos_white" };
         int flowers = 0;
-        for (int c = 0; c < 2400 && flowers < 520; c++)
+        for (int c = 0; c < 5200 && flowers < 980; c++)
         {
             float cx = R(SampleCorner.xMin, SampleCorner.xMax), cz = R(SampleCorner.yMin, SampleCorner.yMax);
             if (!Open(cx, cz, 0.25f)) continue;
@@ -746,9 +862,9 @@ public static partial class SanctuaryBuild
         Debug.Log($"[yuanjing] 样板角：草 {blades} 根，花 {flowers} 丛，按实例画 {MergeFlowers(greens)} 种");
         // 蕨和带穗的长草：长在外圈、树脚、石头边
         int tall = 0;
-        for (int i = 0; i < 1500 && tall < 230; i++)
+        for (int i = 0; i < 4000 && tall < 430; i++)
         {
-            float x = R(-18.5f, 18.5f), z = R(-14.5f, 27f);
+            float x = R(-33f, 33f), z = R(-14.5f, 53.5f);
             float sd0 = map.Shore(x, z);
             if (sd0 < 3.4f || sd0 > 8.5f || !Open(x, z, 0.5f)) continue;
             if (Mathf.Abs(x) < 4f && z < -9f) continue;
@@ -770,12 +886,12 @@ public static partial class SanctuaryBuild
                      (0.6f, -9.6f, "fallen_maple"), (-0.8f, -6.2f, "fallen_petal"), (0.4f, -12.2f, "fallen_ginkgo") })
             Put(kind, greens, new Vector3(x, (z > 3f ? TerraceH : 0.06f) + 0.012f, z), R(0, 360), 1.2f);
         // 蘑菇：树脚边几簇
-        foreach (var (x, z) in new[] { (-9.6f, -5.6f), (-12.8f, 7.4f), (12.2f, -3.4f), (14.0f, 3.6f), (-11.8f, -9.6f), (9.4f, 13.6f), (-9.0f, 12.6f), (13.0f, -8.8f) })
+        foreach (var (x, z) in new[] { (-9.6f, -5.6f), (-12.8f, 7.4f), (12.2f, -3.4f), (14.0f, 3.6f), (-11.8f, -9.6f), (28.0f, 24.8f), (-28.2f, 31.6f), (13.0f, -8.8f), (-19.4f, 49.0f), (9.0f, 49.2f), (27.4f, 35.2f), (-27.8f, 14.4f) })
             Put("mushrooms", greens, new Vector3(x, map.H(x, z), z), R(0, 360), R(1.2f, 1.8f));
         // 漂在水面上的花瓣和落叶
-        for (int i = 0, n = 0; i < 400 && n < 26; i++)
+        for (int i = 0, n = 0; i < 900 && n < 44; i++)
         {
-            float x = R(-23f, 23f), z = R(-20f, 29f);
+            float x = R(-36f, 36f), z = R(-20f, 57f);
             float sd0 = map.Shore(x, z);
             if (sd0 < -4.5f || sd0 > -0.5f) continue;
             Put(rng.Next(2) == 0 ? "fallen_petal" : "fallen_maple", greens, new Vector3(x, WaterY + 0.004f, z), R(0, 360), R(1.0f, 1.6f));
@@ -796,7 +912,7 @@ public static partial class SanctuaryBuild
         int flowerCount = 0;
         for (int c = 0; c < 70; c++)
         {
-            float cx = R(-17f, 17f), cz = R(-14f, 25f);
+            float cx = R(-32f, 32f), cz = R(-14f, 53f);
             if (!Open(cx, cz, 0.6f) || InSample(cx, cz)) continue;     // 新做法的花铺到的地方，旧花不摆
             string kind = flowerKinds[rng.Next(flowerKinds.Length)];
             int n = rng.Next(4, 9);
@@ -810,23 +926,25 @@ public static partial class SanctuaryBuild
         }
         string[] bushKinds = { "bush_a", "bush_b", "bush_c", "bush_flower_p", "bush_flower_w", "bush_a", "bush_b" };
         int bushCount = 0;
-        for (int i = 0; i < 400 && bushCount < 46; i++)
+        for (int i = 0; i < 1400 && bushCount < 96; i++)
         {
-            float x = R(-18f, 18f), z = R(-14f, 26f);
+            float x = R(-33f, 33f), z = R(-14f, 53.5f);
             float sd = map.Shore(x, z);
             // 灌木长在岛的外圈，中间留给人走
+            // 北边：殿两侧的甬道（台基外 4.5 米）留给人走，灌木只长在甬道外沿和殿后
             if (sd < 3.6f || sd > 7.5f || !Open(x, z, 1.0f)) continue;
+            if (z > 10f && Mathf.Abs(x) < HallPod.xMax + 4.5f && z < HallPod.yMax + 2.5f) continue;
             if (Mathf.Abs(x) < 4.5f && z < -9f) continue;
             Put(bushKinds[rng.Next(bushKinds.Length)], greens, new Vector3(x, map.H(x, z) - 0.02f, z), R(0, 360), R(0.9f, 1.4f));
             bushCount++;
         }
-        foreach (var (x, z) in new[] { (-8.6f, 9.6f), (8.6f, 9.8f), (-9.4f, 11.0f), (9.4f, 11.2f), (-3.2f, -12.8f), (3.4f, -13.0f), (-5.0f, 0.6f), (5.2f, 2.0f) })
+        foreach (var (x, z) in new[] { (-12.6f, 10.0f), (12.6f, 10.0f), (-15.4f, 10.1f), (15.4f, 10.1f), (-19.0f, 10.0f), (19.0f, 10.0f), (-3.2f, -12.8f), (3.4f, -13.0f), (-5.0f, 0.6f), (5.2f, 2.0f) })
             Put(bushKinds[rng.Next(bushKinds.Length)], greens, new Vector3(x, map.H(x, z) - 0.02f, z), R(0, 360), R(0.9f, 1.2f));
         // 芦苇：长在岸边的浅水里
         int reedCount = 0;
-        for (int i = 0; i < 600 && reedCount < 34; i++)
+        for (int i = 0; i < 1600 && reedCount < 64; i++)
         {
-            float x = R(-24f, 24f), z = R(-20f, 30f);
+            float x = R(-37f, 37f), z = R(-20f, 58f);
             float sd = map.Shore(x, z);
             if (sd < -0.9f || sd > 0.5f) continue;
             if (Mathf.Abs(x) < 6f && z < -12f) continue;
@@ -838,9 +956,9 @@ public static partial class SanctuaryBuild
         foreach (var (dx, dz) in new[] { (-1.1f, 0.6f), (1.2f, -0.5f), (0.2f, 1.3f), (-0.3f, -1.2f) })
             Put(lotusKinds[rng.Next(3)], greens, PondAt + new Vector3(dx, WaterY + 0.012f, dz), R(0, 360), R(0.8f, 1.0f));
         int lotusCount = 0;
-        for (int i = 0; i < 500 && lotusCount < 16; i++)
+        for (int i = 0; i < 1400 && lotusCount < 28; i++)
         {
-            float x = R(-25f, 25f), z = R(-21f, 30f);
+            float x = R(-37f, 37f), z = R(-21f, 58f);
             float sd = map.Shore(x, z);
             if (sd < -3.2f || sd > -1.0f) continue;
             if (Mathf.Abs(x) < 7f && z < -12f) continue;
@@ -849,9 +967,9 @@ public static partial class SanctuaryBuild
         }
         // 沙滩和路边的小东西：卵石、贝壳
         int bits = 0;
-        for (int i = 0; i < 900 && bits < 46; i++)
+        for (int i = 0; i < 2400 && bits < 90; i++)
         {
-            float x = R(-21f, 21f), z = R(-19f, 28f);
+            float x = R(-35f, 35f), z = R(-19f, 56f);
             float sd = map.Shore(x, z);
             if (sd < 0.5f || sd > 3.0f) continue;
             if (Mathf.Abs(x) < 1.8f && z < -13f) continue;
@@ -901,9 +1019,9 @@ public static partial class SanctuaryBuild
         Fish(new Vector3(4.6f, WaterY - 0.3f, DockAt.z - 4.5f), new Vector2(2.0f, 2.6f), 4, 1.6f);
 
         // 一群群小鱼：在岸边浅水里
-        for (int i = 0, n = 0; i < 300 && n < 4; i++)
+        for (int i = 0, n = 0; i < 600 && n < 6; i++)
         {
-            float x = R(-22f, 22f), z = R(-19f, 28f);
+            float x = R(-36f, 36f), z = R(-19f, 56f);
             float sd1 = map.Shore(x, z);
             if (sd1 < -3.0f || sd1 > -1.4f || (Mathf.Abs(x) < 5f && z < -12f)) continue;
             n++;
@@ -988,14 +1106,22 @@ public static partial class SanctuaryBuild
         Pet("dog_shiba", "shiba", "年糕", false, new Vector3(-6.2f, 0, -7.6f), 3.2f, 1.25f, "gift_stick");
         Pet("dog_white", "cotton", "棉花", false, new Vector3(9.6f, 0, 1.4f), 3.2f, 1.2f, "gift_flower");
         Pet("cat_orange", "tangerine", "橘子", true, new Vector3(-5.6f, 0, -0.4f), 3.2f, 1.25f, "gift_fish");
-        Pet("cat_white", "tangyuan", "汤圆", true, new Vector3(9.2f, 0, 9.8f), 2.6f, 1.2f, "gift_shell");
+        Pet("cat_white", "tangyuan", "汤圆", true, new Vector3(13.0f, 0, 9.6f), 2.2f, 1.2f, "gift_shell");
         Pet("cat_calico", "huajuan", "花卷", true, new Vector3(-10.6f, 0, -8.0f), 3f, 1.25f, "gift_flower");
         // 后加的四只，分散在岛上别的地方（10 只固定，不来不走）
         Pet("dog_shiba", "zhima", "芝麻", false, new Vector3(6.4f, 0, -12.2f), 3.4f, 1.25f, "gift_stick");
-        Pet("dog_white", "tuanzi", "团子", false, new Vector3(-13.6f, 0, 12.0f), 3.6f, 1.2f, "gift_bone");
-        Pet("cat_white", "momo", "墨墨", true, new Vector3(13.4f, 0, 11.0f), 2.6f, 1.2f, "gift_fish");
-        // 豆包原来的家 (-2.6, 12.2) 在大殿台基上（台基里面，一开始就埋在台基里）：挪到台基前面、台阶西边那一条空地上
-        Pet("cat_orange", "doubao", "豆包", true, new Vector3(-4.6f, 0, 9.9f), 2.8f, 1.2f, "gift_shell");
+        // 团子、墨墨、豆包原来的家现在在大殿的台基底下：团子挪到殿西边的甬道上，墨墨挪到殿后的竹林前，豆包挪到台基西南角外
+        Pet("dog_white", "tuanzi", "团子", false, new Vector3(-26.2f, 0, 30.0f), 2.4f, 1.2f, "gift_bone");
+        Pet("cat_white", "momo", "墨墨", true, new Vector3(9.0f, 0, 46.6f), 2.6f, 1.2f, "gift_fish");
+        Pet("cat_orange", "doubao", "豆包", true, new Vector3(-15.0f, 0, 9.0f), 2.0f, 1.2f, "gift_shell");
+        // 礼物、鱼的模型都给每一只（今天的礼物是哪一件叼哪一件；喂的是鱼就在嘴边放那条鱼，见 Critter）
+        var giftPrefabs = ModelsNamed("gift_");
+        var fishPrefabs = ModelsNamed("fish_").Where(g => g.name != "fish_basket").ToArray();
+        foreach (var cr in critters.GetComponentsInChildren<Critter>())
+        {
+            cr.giftPrefabs = giftPrefabs;
+            cr.fishPrefabs = fishPrefabs;
+        }
 
         // 小鸟的落脚点：地上的（w=1）和高处的（w=0）
         var perches = new List<Vector4>();
@@ -1057,22 +1183,22 @@ public static partial class SanctuaryBuild
             // 许愿树：绳圈外一周都算「树下」（挂布条时挑离自己最近的那一格）
             new Spot { name = "tree", floor = new Vector3(-5.2f, 0, -5.6f), look = TreeAt + Vector3.up * 1.5f, pick = 3.2f, zone = TreeAt, zoneRadius = RopeR + 1.75f },
             new Spot { name = "burner", floor = new Vector3(0, gy, -4.0f), look = BurnerAt + Vector3.up * 1.2f, pick = 1.4f },
-            new Spot { name = "hall", floor = new Vector3(0, TerraceH, 9.05f), look = HallAt + Vector3.up * 3f, pick = 5f },
-            // 大殿里面：中间拜垫后面、面朝释迦牟尼像（大殿能进去以后才去得了；点画面不会点中它，进殿走「进殿」按钮或者自己走进去）
-            new Spot { name = "inhall", floor = new Vector3(0, HallFloor, 17.1f), look = new Vector3(0, 2.6f, 21.05f), pick = 0 },
+            new Spot { name = "hall", floor = new Vector3(0, TerraceH, 8.6f), look = new Vector3(0, 6f, HallDoorZ), pick = 5f },
+            // 大殿里面：中厅、中间拜垫后面两米，面朝释迦牟尼像（点画面不会点中它，进殿走「进殿」按钮或者自己走进去）
+            new Spot { name = "inhall", floor = new Vector3(0, HallFloor, 27.4f), look = new Vector3(0, 7.5f, StatueZ), pick = 0 },
         };
         isletObs.Add(new Obstacle { center = PondAt, radius = PondR + 0.9f });
         game.obstacles = isletObs.ToArray();
         game.hub = new Vector3(0, gy, 1.3f);
         game.courtMinZ = GateZ - 0.5f;
-        // 座位区：中间一条南北向的过道（两边蒲团离中线 1.3 米），每排蒲团前面（草垫和下一排之间的空当）是横着走的小道
+        // 石台上的石凳：左右各三条，中间十米宽都是过道。玩家这边不再有「一排排蒲团前的走道」（laneOffset 留零：走到凳前直接绕开凳子走）；
+        // 香客那边（Pilgrims）还按「中间过道 → 这一排凳前 0.75 米的一条 → 凳前」走，进出石台走南头
         game.aislePoint = new Vector3(0, TerraceH, 5f);
         game.aisleDir = Vector3.forward;
-        game.laneOffset = new Vector3(0, 0, SeatLane);
-        game.seatBlock = Rect.MinMaxRect(-(SeatX0 + (SeatCols - 1) * SeatDX + 0.75f), SeatZ0 - 0.5f, SeatX0 + (SeatCols - 1) * SeatDX + 0.75f, SeatZ0 + (SeatRows - 1) * SeatDZ + SeatLane + 0.15f);
-        // 过道两头的进出口：南头（香炉那边）、北头（大殿台阶前）
-        game.seatEntries = new[] { new Vector3(0, TerraceH, SeatZ0 - 0.9f), new Vector3(0, TerraceH, game.seatBlock.yMax + 0.35f) };
-        game.seatGap = SeatDX / 2f;
+        game.laneOffset = Vector3.zero;
+        game.benchStep = BenchStep;
+        game.seatBlock = Rect.MinMaxRect(-(BenchX + 1.2f), BenchRows[0] - 0.6f, BenchX + 1.2f, BenchRows[BenchRows.Length - 1] + 1.2f);
+        game.seatEntries = new[] { new Vector3(0, TerraceH, BenchRows[0] - 1.2f), new Vector3(0, TerraceH, BenchRows[BenchRows.Length - 1] + 1.3f) };
         game.sitRadius = 1.2f;
         // 铺好的路（自动走路顺着走，GameDirector.Road）：码头 → 山门 → 主路 → 香炉外一圈（离香炉中心 2.9 米，在圆形铺地上，
         // 香客进出石台的那几点 seatExitNeg/Pos 也在这一圈上下）→ 石台中间过道 → 殿前 → 台阶 → 殿门外；香炉一圈往西是去许愿树的踏脚石，往东是去池塘的；
@@ -1093,90 +1219,133 @@ public static partial class SanctuaryBuild
                 float a = -Mathf.PI / 2 + k * Mathf.PI / 4;
                 ring[k] = N(BurnerAt.x + Mathf.Cos(a) * ringR, gy, BurnerAt.z + Mathf.Sin(a) * ringR);
             }
-            int aisleS = N(0, TerraceH, SeatZ0 - 0.9f), aisleN = N(0, TerraceH, game.seatBlock.yMax + 0.35f), front = N(0, TerraceH, 9.05f), door = N(0, HallFloor, 14.0f);
+            // 石台中线 → 殿前 → 台阶顶 → 三间门外（廊下，门墙南边 0.4 米）
+            int aisleS = N(0, TerraceH, 1.6f), aisleN = N(0, TerraceH, 7.4f), front = N(0, TerraceH, 8.6f), stairTop = N(0, HallDeck, 11.6f), door = N(0, HallDeck, HallDoorZ - 0.4f);
+            int doorW = N(-StatueDX, HallDeck, HallDoorZ - 0.4f), doorE = N(StatueDX, HallDeck, HallDoorZ - 0.4f);
             int treeA = N(-4.1f, 0, -2.4f), treeB = N(-5.0f, 0, -3.5f), pond = N(4.3f, 0, -2.5f);
-            // 石台外圈：南沿在第一排蒲团前（座位区南边 z 2.0 以外），东西两头 x ±10.5（太平缸外侧、石碑里侧），北沿和殿前那一点齐
-            const float rimX = 10.5f, rimS = 1.75f, rimN = 8.8f;
+            // 石台外圈：南沿、东西两头 x ±10.5（太平缸外侧、石碑里侧）、北沿
+            const float rimX = 10.5f, rimS = 1.75f, rimN = 8.6f;
             int rimSE = N(rimX, TerraceH, rimS), rimNE = N(rimX, TerraceH, rimN), rimSW = N(-rimX, TerraceH, rimS), rimNW = N(-rimX, TerraceH, rimN);
-            // 北沿走到殿前那一段：台阶两边的垂带（x ±2.35..2.75）往南伸到 z 9.2，北沿直着连到殿前那一点只离垂带的端头 0.2 米，
-            // 人一被挤就蹭上去、顺着垂带的侧面滑进垂带和台基之间那个角里出不来。在垂带端头南边加一点，绕开它
-            int cheekE = N(3.2f, TerraceH, 8.7f), cheekW = N(-3.2f, TerraceH, 8.7f);
             L(dockEnd, dockRoot, gateS, gateN, ring[0]);
             for (int k = 0; k < 8; k++) L(ring[k], ring[(k + 1) % 8]);
-            L(ring[4], aisleS, aisleN, front, door);
-            L(aisleS, rimSE, rimNE, cheekE, front);
-            L(aisleS, rimSW, rimNW, cheekW, front);
-            // 殿前廊下的两头（台基上、殿墙外）：从殿两侧的台基上回到殿门、走台阶
-            int porchE = N(7.6f, HallFloor, 13.5f), porchW = N(-7.6f, HallFloor, 13.5f);
-            L(porchW, door, porchE);
+            L(ring[4], aisleS, aisleN, front, stairTop, door);
+            L(aisleS, rimSE, rimNE, front);
+            L(aisleS, rimSW, rimNW, front);
+            // 台阶宽 16 米：上了台阶可以直奔左右次间的门；三间门外沿着前廊相通
+            L(stairTop, doorW); L(stairTop, doorE); L(doorW, door, doorE);
+            // 台基上绕殿一圈的廊：前廊两头 → 两山墙外 → 殿后（墙和栏杆之间 1.7 米宽，中线 x ±21.94、z 42.24）
+            const float sideX = 21.94f, porchZ = 14.8f, backZ = 42.24f;
+            int porchW = N(-19.5f, HallDeck, porchZ), porchE = N(19.5f, HallDeck, porchZ);
+            int cornerSW = N(-sideX, HallDeck, porchZ), cornerSE = N(sideX, HallDeck, porchZ), cornerNW = N(-sideX, HallDeck, backZ), cornerNE = N(sideX, HallDeck, backZ);
+            L(doorW, porchW, cornerSW, cornerNW, cornerNE, cornerSE, porchE, doorE);
+            // 地面上绕殿一圈的甬道（台基外 2.5 米）：石台北沿两头 → 台基前两角外 → 两侧 → 殿后
+            const float loopX = 25.7f, loopS = 9.5f, loopN = 46.0f;
+            int outSW = N(-12.4f, 0, 9.7f), outSE = N(12.4f, 0, 9.7f), outW = N(-17.5f, 0, 9.8f), outE = N(17.5f, 0, 9.8f);
+            int loopSW = N(-loopX, 0, loopS), loopSE = N(loopX, 0, loopS), loopNW = N(-loopX, 0, loopN), loopNE = N(loopX, 0, loopN), loopNM = N(0, 0, 45.6f);
+            L(rimNW, outSW, outW, loopSW, loopNW, loopNM, loopNE, loopSE, outE, outSE, rimNE);
             L(ring[6], treeA, treeB);
             L(ring[2], pond);
             game.roadNodes = rn.ToArray();
             game.roadLinks = rl.ToArray();
             game.offRoadCost = 1.7f;
             // 自动走路不穿过的线：山门两边（门柱外侧到岸边：从码头上岛、回码头都过山门，门柱中间净宽 3.5 米，主路宽 2.7 米）；
-            // 大殿台基的四边（台基高 0.7，前面只有中间的台阶 x ±2.35、两边是栏杆：上殿下殿都走台阶）；
-            // 殿的两山墙、后墙和前面两边的槛窗（只有中间三间的门开着）：从殿两侧的台基上进殿先绕到廊下
-            const float podX = 8.8f, podZ0 = 10.9f, podZ1 = 23.85f, stairX = 2.3f, wallX = 6.6f, wallZ0 = 14.4f, wallZ1 = 22.2f, doorX = 3.7f;
+            // 大殿台基的四边（台基高 1.08，只有正面的台阶 x ±8.2 能上，别处是栏杆）；
+            // 殿的两山墙、后墙和前面两边的槛窗、门之间的柱子（只有中间三间的门开着）：从殿两侧的台基上进殿先绕到前廊
+            const float podX = 23.15f, podZ0 = 10.8f, podZ1 = 43.45f, stairX = 8.2f, wallX = 20.74f, wallZ0 = HallDoorZ, wallZ1 = 41.04f;
             game.planWalls = new[]
             {
                 new Vector4(-16f, GateZ, -1.4f, GateZ), new Vector4(1.4f, GateZ, 16f, GateZ),
                 new Vector4(-podX, podZ0, -stairX, podZ0), new Vector4(stairX, podZ0, podX, podZ0),
                 new Vector4(-podX, podZ0, -podX, podZ1), new Vector4(podX, podZ0, podX, podZ1), new Vector4(-podX, podZ1, podX, podZ1),
                 new Vector4(-wallX, wallZ0, -wallX, wallZ1), new Vector4(wallX, wallZ0, wallX, wallZ1), new Vector4(-wallX, wallZ1, wallX, wallZ1),
-                new Vector4(-wallX, wallZ0, -doorX, wallZ0), new Vector4(doorX, wallZ0, wallX, wallZ0),
-                // 台阶两边的垂带（从台基往南伸出来 1.7 米）：不从它上面、端头上斜着穿过去
-                new Vector4(-2.55f, 9.05f, -2.55f, podZ0), new Vector4(2.55f, 9.05f, 2.55f, podZ0),
+                new Vector4(-wallX, wallZ0, -10.04f, wallZ0), new Vector4(-3.96f, wallZ0, -3.04f, wallZ0), new Vector4(3.04f, wallZ0, 3.96f, wallZ0), new Vector4(10.04f, wallZ0, wallX, wallZ0),
+                // 台阶两边的垂带石（从台基往南伸出来 1.9 米）：不从它上面、端头上斜着穿过去
+                new Vector4(-8.44f, 8.8f, -8.44f, podZ0), new Vector4(8.44f, 8.8f, 8.44f, podZ0),
             };
         }
         game.hallSeats = hallSeats;
         // 许愿树的绳圈：点了绳圈里面的地，走到绳外就停（绳子挡人，走进去就出不来了）
         game.ropeCenter = TreeAt;
         game.ropeRadius = RopeR;
-        // 大殿里面（spec E）：进殿锁平视、拜垫、供桌前上香、殿里的蒲团
+        // 大殿里面：三间门都开着；拜垫、供桌前上香、殿里的蒲团
         game.hallOpen = HallOpen;
-        game.hallRect = Rect.MinMaxRect(-6.5f, 14.4f, 6.5f, 22.0f);
+        game.hallRect = Rect.MinMaxRect(-HallInX, HallInZ0, HallInX, HallInZ1);
         game.hallFloor = HallFloor;
-        game.hallDoorOut = new Vector3(0, HallFloor, 14.0f);
-        game.hallDoorIn = new Vector3(0, HallFloor, 15.0f);
+        game.hallDoorOut = new Vector3(0, HallDeck, HallDoorZ - 0.4f);
+        game.hallDoorIn = new Vector3(0, HallFloor, HallInZ0 + 0.7f);
+        game.hallSideDoorsOut = new[] { new Vector3(-StatueDX, HallDeck, HallDoorZ - 0.4f), new Vector3(StatueDX, HallDeck, HallDoorZ - 0.4f) };
+        game.hallSideDoorsIn = new[] { new Vector3(-StatueDX, HallFloor, HallInZ0 + 0.7f), new Vector3(StatueDX, HallFloor, HallInZ0 + 0.7f) };
         game.hallMats = hallMats;
-        // 殿里三只香炉上的细烟（中间那只在香灰面上方 4 厘米；两边供桌上的小香炉：模型 0.75 倍，灰面约在桌面上 0.13 米）
+        // 殿里香炉 censer_hall 放在中间供桌上 (0, 桌面, 30.4)，灰面中心比桌面高 0.178
+        game.hallIncense = new Vector3(0, HallTableY + 0.178f, 30.4f);
+        // 殿里三只香炉上的细烟（中间那只在香灰面上方 4 厘米；左右两尊前供桌上的小香炉：模型 0.75 倍，灰面约在桌面上 0.13 米）
         game.offerings.hallSmoke = BuildHallSmoke(game.transform, game.hallIncense + Vector3.up * 0.04f, 1f, "HallSmoke");
-        game.offerings.hallSideSmoke = new[] { -1f, 1f }.Select(sx => BuildHallSmoke(game.transform, new Vector3(sx * 3.6f, 1.504f + 0.14f, 19.22f), 0.55f, "HallSmokeSide")).ToArray();
+        game.offerings.hallSideSmoke = new[] { -1f, 1f }.Select(sx => BuildHallSmoke(game.transform, new Vector3(sx * StatueDX, HallTableY + 0.14f, 30.52f), 0.55f, "HallSmokeSide")).ToArray();
         // 殿里人身下的接触影子（Folk 自己在脚下摆一块）
         game.contactShadow = ContactMat(true);
         game.matRadius = 0.9f;
         game.hallFacing = Vector3.forward;
-        // 上香站的那一点：中间拜垫（到 z 18.175）和供桌桌围（z 18.817）之间那一条里。整个上香都站在这里不挪：
+        // 上香站的那一点：中间拜垫（到 z 29.575）和供桌桌围（z 30.217）之间那一条里。整个上香都站在这里不挪：
         // Incense_Plant 脚不动、俯身，手正好伸到灰面中心上方（人前方 0.48 米）
-        game.altarStand = new Vector3(0, HallFloor, 18.52f);
+        game.altarStand = new Vector3(0, HallFloor, 29.92f);
         game.altarRadius = 1.6f;
-        // 殿里香炉 censer_hall 放在 (0, 1.504, 19.0)，灰面中心世界 (0, 1.682, 19.0)
-        game.hallIncense = new Vector3(0, 1.682f, 19.0f);
-        game.hallCeiling = 5.35f;
+        // 殿里净高 12.5：镜头不高过天花梁底（12.75），自由环绕能一直压到俯视、拉远到十米
+        game.hallCeiling = 12.75f;
+        // 殿里自动走路能走到哪：整座殿（扇面墙后面的后廊也能绕）
+        game.hallWalkMaxZ = HallInZ1;
         // 殿里平视镜头：放低（比人的腰高一点），画面往上抬着把正前方那尊佛像（肉髻顶）整个放进来（ThirdPersonCamera.FrameTilt）
         game.hallCamPitch = -2f;
-        game.hallLookAts = new[] { new Vector3(0, 4.45f, 21.0f), new Vector3(-3.6f, 4.0f, 21.0f), new Vector3(3.6f, 4.0f, 21.0f) };
+        game.hallLookAts = new[] { new Vector3(0, DaisTop + 2.9f * StatueS, StatueZ), new Vector3(-StatueDX, DaisTop + 2.47f * StatueS, StatueZ), new Vector3(StatueDX, DaisTop + 2.47f * StatueS, StatueZ) };
+        // 镜头不钻进去的几块：坛前五张供桌，到桌上香炉、烛台的顶
+        var keepOut = new List<Bounds> { new Bounds(new Vector3(0, HallFloor + 0.88f, 30.85f), new Vector3(2.8f, 1.9f, 1.5f)) };
+        foreach (float kx in new[] { -StatueDX, -3.5f, 3.5f, StatueDX }) keepOut.Add(new Bounds(new Vector3(kx, HallFloor + 0.88f, 30.9f), new Vector3(1.9f, 1.9f, 1.3f)));
+        game.hallCamKeepOut = keepOut.ToArray();
         game.seatExitNeg = new[] { new Vector3(-0.2f, TerraceH, 1.6f) };
         game.seatExitPos = new[] { new Vector3(0.2f, TerraceH, 1.6f) };
-        game.seatLook = HallAt + Vector3.up * 3f;
-        game.seatDrop = 0f;      // 座位点就是地面（蒲团下面）
-        game.seatStraight = 0.85f;
+        game.seatLook = new Vector3(0, 6f, HallDoorZ);
+        game.seatDrop = BenchTop;      // 座位点在凳面上
+        game.seatStraight = 1f;        // 石凳都朝正北摆，坐下面朝正北
         game.nearRadius = 2.2f;
+        // 钓鱼：竿、浮漂、鱼的模型有就用（tools/blender 里做的 fishing_rod、fishing_bobber、fish_*），没有时 Fishing 自己拼个简单的顶着
+        game.waterY = WaterY;
+        game.pondCenter = PondAt;
+        game.pondRadius = PondR + 1.6f;
+        var fishingGo = new GameObject("Fishing");
+        fishingGo.transform.SetParent(game.transform, false);
+        game.fishing = fishingGo.AddComponent<Fishing>();
+        game.fishing.game = game;
+        game.fishing.waterY = WaterY;
+        game.fishing.rodPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Toon/Models/fishing_rod.yjm");
+        game.fishing.bobberPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Toon/Models/fishing_bobber.yjm");
+        game.fishing.fishPrefabs = AssetDatabase.FindAssets("fish_", new[] { "Assets/Toon/Models" }).Select(AssetDatabase.GUIDToAssetPath)
+            .Where(q => q.EndsWith(".yjm") && System.IO.Path.GetFileName(q).StartsWith("fish_") && !q.Contains("fish_basket"))
+            .Select(AssetDatabase.LoadAssetAtPath<GameObject>).Where(g => g != null).ToArray();
+        // 敲钟：站到钟亭边才显示
+        var bellGo = new GameObject("BellRing");
+        bellGo.transform.SetParent(game.transform, false);
+        bellGo.transform.position = PavilionAt;
+        game.bellRing = bellGo.AddComponent<BellRing>();
+        game.bellRing.face = PavilionAt + Vector3.up * 1.4f;
+        HangBell(pavilion, game.bellRing);
+        game.bellAt = PavilionAt;
+        game.bellRadius = 3.0f;
         // 大殿前那两处（4、5）：站在台阶两边、离中线 1.65 米（以前在台阶正下方 ±0.45 米，你点「进殿」时从他们肩膀边上 0.45 米挤过去）
         ConfigureCrowd(game, new Vector3(0, 0.07f, DockAt.z - DockLen - DockPlat + 0.6f), new Vector3(0, gy, -13.4f),
-            new[] { new Vector3(-5.0f, 0, -5.9f), new Vector3(0.7f, gy, -4.1f), new Vector3(-0.9f, gy, -4.0f), new Vector3(5.6f, 0, -2.6f), new Vector3(-1.65f, TerraceH, 8.85f),
-                    new Vector3(1.65f, TerraceH, 8.85f), new Vector3(12.8f, 0, 2.6f), new Vector3(-12.6f, 0, 3.0f), new Vector3(-3.6f, 0, -14.3f) },
-            new[] { TreeAt + Vector3.up, BurnerAt + Vector3.up, BurnerAt + Vector3.up, PondAt, HallAt + Vector3.up * 2f, HallAt + Vector3.up * 2f, PavilionAt + Vector3.up,
+            new[] { new Vector3(-5.0f, 0, -5.9f), new Vector3(0.7f, gy, -4.1f), new Vector3(-0.9f, gy, -4.0f), new Vector3(5.6f, 0, -2.6f), new Vector3(-2.4f, TerraceH, 8.3f),
+                    new Vector3(2.4f, TerraceH, 8.3f), new Vector3(12.8f, 0, 2.6f), new Vector3(-12.6f, 0, 3.0f), new Vector3(-3.6f, 0, -14.3f) },
+            new[] { TreeAt + Vector3.up, BurnerAt + Vector3.up, BurnerAt + Vector3.up, PondAt, new Vector3(0, 5f, HallDoorZ), new Vector3(0, 5f, HallDoorZ), PavilionAt + Vector3.up,
                     new Vector3(-11.6f, 1f, 3.6f), new Vector3(-3.4f, 0, -20f) },
-            false);
+            true);
+        game.pilgrims.benchStep = BenchStep;
         // 其他人进出座位区：从山门到石台，中间要绕开香炉（两边各走一侧）
         game.pilgrims.seatExitNeg = new[] { new Vector3(-0.2f, TerraceH, 1.6f), new Vector3(-2.4f, gy, 0.6f), new Vector3(-2.6f, gy, -3.6f), new Vector3(-0.8f, gy, -6.6f) };
         game.pilgrims.seatExitPos = new[] { new Vector3(0.2f, TerraceH, 1.6f), new Vector3(2.4f, gy, 0.6f), new Vector3(2.6f, gy, -3.6f), new Vector3(0.8f, gy, -6.6f) };
-        game.pilgrims.keepClear = new[] { Rect.MinMaxRect(-1.2f, 7.95f, 1.2f, 9.45f), Rect.MinMaxRect(-2.8f, 9.45f, 2.8f, 11.0f) };
+        // 不站人的地方：殿前中线那一条、整段台阶、石凳前后
+        game.pilgrims.keepClear = new[] { Rect.MinMaxRect(-1.2f, 7.6f, 1.2f, 9.2f), Rect.MinMaxRect(-8.7f, 9.0f, 8.7f, 11.4f),
+            Rect.MinMaxRect(-BenchX - 1.1f, BenchRows[0] - 0.5f, -BenchX + 1.1f, BenchRows[2] + 1.0f), Rect.MinMaxRect(BenchX - 1.1f, BenchRows[0] - 0.5f, BenchX + 1.1f, BenchRows[2] + 1.0f) };
         game.pilgrims.aislePoint = game.aislePoint;
         game.pilgrims.aisleDir = game.aisleDir;
-        game.pilgrims.laneOffset = game.laneOffset;
+        game.pilgrims.laneOffset = new Vector3(0, 0, 0.75f);
         game.pilgrims.strollers = 5;
 
         // 香烟、光点按俯视的远近放大
@@ -1299,40 +1468,42 @@ public static partial class SanctuaryBuild
     static void IsletBounds(Transform world, IsletMap map)
     {
         var root = Group("Bounds", world);
-        const int N = 180;
-        Vector3 Edge(int i)
-        {
-            float ang = i / (float)N * Mathf.PI * 2f;
-            Vector2 dir = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang));
-            float lo = 4f, hi = 30f;
-            for (int k = 0; k < 22; k++)
+        // 岸线：islet_map「离岸多远」等于 0.9 的那条线（岛现在是「北大南小」的葫芦形，不是绕一个中心的一圈了）。
+        // 一格一格地找（0.5 米一格）：这一格四个角有的在线里、有的在线外，就在格子的边上按比例找出线穿过的两点，连一段矮墙
+        const float level = 0.9f, dx = 1.2f;
+        int walls = 0;
+        for (int iz = 0; iz < map.ny - 1; iz++)
+            for (int ix = 0; ix < map.nx - 1; ix++)
             {
-                float mid = (lo + hi) * 0.5f;
-                Vector2 p = IsleC + dir * mid;
-                if (map.Shore(p.x, p.y) > 0.9f) lo = mid; else hi = mid;
-            }
-            Vector2 q = IsleC + dir * lo;
-            return new Vector3(q.x, 0, q.y);
-        }
-        const float dx = 1.2f;
-        for (int i = 0; i < N; i++)
-        {
-            Vector3 a = Edge(i), b = Edge((i + 1) % N);
-            // 栈桥接岸的地方留一个口
-            if (a.z < -13f && b.z < -13f)
-            {
-                bool ain = Mathf.Abs(a.x) < dx, bin = Mathf.Abs(b.x) < dx;
-                if (ain && bin) continue;
-                if (ain != bin)
+                float x0 = map.x0 + ix * map.step, z0c = map.z0 + iz * map.step, x1 = x0 + map.step, z1c = z0c + map.step;
+                float a = map.shore[iz * map.nx + ix] - level, b = map.shore[iz * map.nx + ix + 1] - level;
+                float c = map.shore[(iz + 1) * map.nx + ix + 1] - level, d = map.shore[(iz + 1) * map.nx + ix] - level;
+                var pts = new List<Vector3>();
+                void Cross(float u, float v, Vector3 p, Vector3 q) { if ((u > 0) != (v > 0)) pts.Add(Vector3.Lerp(p, q, u / (u - v))); }
+                Cross(a, b, new Vector3(x0, 0, z0c), new Vector3(x1, 0, z0c));
+                Cross(b, c, new Vector3(x1, 0, z0c), new Vector3(x1, 0, z1c));
+                Cross(c, d, new Vector3(x1, 0, z1c), new Vector3(x0, 0, z1c));
+                Cross(d, a, new Vector3(x0, 0, z1c), new Vector3(x0, 0, z0c));
+                for (int k = 0; k + 1 < pts.Count; k += 2)
                 {
-                    float sx = Mathf.Sign(ain ? b.x : a.x);
-                    float t = (sx * dx - a.x) / (b.x - a.x);
-                    Vector3 c = Vector3.Lerp(a, b, t);
-                    if (ain) a = c; else b = c;
+                    Vector3 p = pts[k], q = pts[k + 1];
+                    // 栈桥接岸的地方留一个口
+                    if (p.z < -13f && q.z < -13f)
+                    {
+                        bool pin = Mathf.Abs(p.x) < dx, qin = Mathf.Abs(q.x) < dx;
+                        if (pin && qin) continue;
+                        if (pin != qin)
+                        {
+                            float sx = Mathf.Sign(pin ? q.x : p.x);
+                            Vector3 m = Vector3.Lerp(p, q, (sx * dx - p.x) / (q.x - p.x));
+                            if (pin) p = m; else q = m;
+                        }
+                    }
+                    Wall(root, p, q);
+                    walls++;
                 }
             }
-            Wall(root, a, b);
-        }
+        Debug.Log($"[yuanjing] 岸边的矮墙 {walls} 段");
         // 栈桥两侧和尽头的平台
         float z0 = DockAt.z + 1.6f, z1 = DockAt.z - DockLen, z2 = z1 - DockPlat + 0.15f;
         foreach (float sx in new[] { -1f, 1f })

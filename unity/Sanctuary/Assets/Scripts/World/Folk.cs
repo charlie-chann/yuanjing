@@ -806,15 +806,19 @@ namespace Yuanjing
             else
             {
                 // 没有碰撞胶囊（香客，或者自己在自动走路线）：水平移动，高度贴着脚下的地面、台阶、蒲团
-                Vector3 pos = moverT.position + new Vector3(h.x, 0, h.z);
-                if (pose == Pose.None) pos += Separation(pos);
+                // 在凳前和凳面之间滑的那半秒多，位置全由 GlideBench 定（不走、不让人、不被凳子的碰撞往外推）
+                bool glide = BenchGliding;
+                Vector3 pos = moverT.position + (glide ? Vector3.zero : new Vector3(h.x, 0, h.z));
+                if (pose == Pose.None && !glide) pos += Separation(pos);
                 // 不穿墙、不穿栏杆（没有碰撞胶囊的人以前只按路线走，被别人挤一下、拐弯切一下就能从石台的栏杆、门柱里穿过去）
-                if (pose == Pose.None) pos = KeepOutOfSolids(moverT.position, pos);
+                if (pose == Pose.None && !glide) pos = KeepOutOfSolids(moverT.position, pos);
                 // 坐着、跪着的时候不跟着地面走（坐下时原点就放在蒲团下面的地上，草垫的碰撞会把人顶高）
-                var ramp = groundFollow && pose == Pose.None ? RampAt(pos) : null;
+                // 从石凳上起身、原点还在往凳前滑的时候也不跟（脚下是凳面，一跟就被顶回凳面上，和滑的那一下来回抢，身子一帧一跳）
+                bool follow = groundFollow && pose == Pose.None && !BenchGliding;
+                var ramp = follow ? RampAt(pos) : null;
                 // 台阶：贴着斜坡走（一级一级的高低由 GroundIK 让脚去踩）
                 if (ramp != null) pos.y = Mathf.MoveTowards(pos.y, ramp.HeightAt(pos), 3f * dt);
-                else if (groundFollow && pose == Pose.None && Physics.Raycast(pos + Vector3.up * 0.8f, Vector3.down, out var hit, 2.5f, ~(1 << 2), QueryTriggerInteraction.Ignore))
+                else if (follow && Physics.Raycast(pos + Vector3.up * 0.8f, Vector3.down, out var hit, 2.5f, ~(1 << 2), QueryTriggerInteraction.Ignore))
                 {
                     // 拜垫、蒲团前的草垫这些（StepZones）：慢慢抬上去、慢慢落下来，脚由 GroundIK 踩到垫子面上（以前一帧蹿上去 12 厘米，先落下的那只脚插进垫子里）。
                     // 别处：上台阶一下就上去，下台阶慢一点落下
@@ -1394,6 +1398,17 @@ namespace Yuanjing
             if (p == pose) return;
             var old = pose;
             pose = p;
+            // 从石凳上起身：原点从凳面滑回凳前站的地方
+            if (old == Pose.Bench && p == Pose.None && benchHas && (benchFrom - transform.position).sqrMagnitude < 4f)
+            {
+                benchA = (controller != null ? controller.transform : transform).position;
+                benchB = benchFrom;
+                benchT = 0f;
+                benchUp = true;
+                benchHold = 0f;
+                benchLift = 0f;
+            }
+            if (old == Pose.Bench) benchHas = false;
             if (p != Pose.None) shown = p;
             if (p != Pose.None && !instant) { desired = Vector3.zero; if (loco == Loco.Move) EnterStop(); }
             if (UseActions) QueueFor(old, p, instant);
@@ -1494,6 +1509,83 @@ namespace Yuanjing
             sitTo = seatGround;
             sitFrom = new Vector3(standPoint.x, seatGround.y, standPoint.z);
             sitGlide = true;
+            // 一进场就坐在石凳上的：起身时滑回凳前
+            benchFrom = standPoint;
+            benchHas = true;
+        }
+
+        // ── 石凳、长椅（Pose.Bench）：人站在凳前，坐下时原点滑到凳面上的座位点，起身时滑回凳前站的地方 ──
+        Vector3 benchFrom, benchA, benchB;
+        bool benchHas, benchCtrl, benchUp;
+        float benchT = 1f, benchHold, benchLift;
+
+        /// 坐到凳上：人已经站在凳前、背对着凳子（面朝 yaw）。seatTop 是凳面上的座位点（坐姿的原点在凳面上，Pose.Bench 把髋放到它上面 7 厘米）
+        public void SitBench(Vector3 seatTop, float yaw)
+        {
+            path.Clear();
+            velocity = Vector3.zero;
+            desired = Vector3.zero;
+            var mover = controller != null ? controller.transform : transform;
+            if (controller != null) controller.enabled = false;
+            benchFrom = mover.position;
+            benchA = benchFrom;
+            benchB = seatTop;
+            benchT = 0f;
+            benchUp = false;
+            benchHas = true;
+            transform.rotation = Quaternion.Euler(0, yaw, 0);
+            faceYaw = yaw;
+            hasFace = true;
+            SetPose(Pose.Bench);
+        }
+
+        /// 从石凳上起身：这一帧的姿势摆好了，脚尖（骨头，平常离地两三厘米）要是低过地面 2 厘米，当场把人往上托（不等下一帧，脚不会插进地里）
+        void BenchFeet()
+        {
+            if (!benchUp || lToe == null || rToe == null) return;
+            float d = benchB.y + 0.02f - Mathf.Min(lToe.position.y, rToe.position.y);
+            if (d <= 0f) return;
+            d = Mathf.Min(d, 0.3f);
+            var mover = controller != null ? controller.transform : transform;
+            mover.position += Vector3.up * d;
+            benchLift = Mathf.Max(benchLift, mover.position.y - benchB.y);
+        }
+
+        /// 正在凳前和凳面之间滑（坐下、起身的那半秒多）：这时别开碰撞胶囊（胶囊还在凳子里，一开就被顶出去，人一跳）
+        public bool BenchGliding => benchT < 1f || benchUp;
+
+        /// 坐下、起身的那半秒多把原点在凳前和凳面之间挪过去（每帧在走路之后，盖过走路挪的那一点）
+        void GlideBench(float dt)
+        {
+            if (benchT >= 1f && !benchUp) return;
+            var mover = controller != null ? controller.transform : transform;
+            // 起身的路上碰撞胶囊先不开（胶囊在凳子里会被顶出去），滑到凳前再开
+            if (controller != null && controller.enabled) { controller.enabled = false; benchCtrl = true; }
+            // 坐下 0.6 秒；起身慢一点（0.9 秒）：腿是慢慢伸直的，原点落得太快脚就插进地里
+            benchT = Mathf.Min(1f, benchT + dt / (benchUp ? 0.9f : 0.6f));
+            Vector3 p = Vector3.Lerp(benchA, benchB, Mathf.SmoothStep(0, 1, benchT));
+            if (benchUp)
+            {
+                // 起身：坐姿把身子往下沉的那一截（model 的下沉，负的）要七八分之一秒才收完，原点先落到地上的话腿就插进地里二三十厘米——
+                // 原点最低只落到「地面 + 还没收完的下沉」，下沉收完了才算起完身
+                float sunk = float.IsNaN(sink) ? 0f : -sink;
+                p.y = Mathf.Max(p.y, Mathf.Min(benchB.y + Mathf.Max(0f, sunk), benchA.y));
+                // 腿伸直得比身子落得快的那零点几秒，脚还是会低过地面：按上一帧两只脚的高度往上托（脚高了再慢慢放下来）
+                // 腿伸直得比身子落得快的那零点几秒，脚还是会低过地面：这一帧的姿势摆好以后（LateUpdate 的 BenchFeet）量脚尖，低了当场把人托起来，
+                // 托了多少记在 benchLift 里；这里每帧慢慢放下来
+                benchLift = Mathf.Max(0f, benchLift - 0.5f * dt);
+                p.y = Mathf.Min(Mathf.Max(p.y, benchB.y + benchLift), Mathf.Max(benchA.y, benchB.y));
+                // 收完了、又摆了别的姿势、或者拖了两秒多（保险）：放开
+                benchHold += dt;
+                if ((benchT >= 1f && sunk < 0.01f && benchLift < 0.004f) || pose != Pose.None || benchHold > 2.6f) { benchUp = false; if (pose == Pose.None) p.y = benchB.y; }
+            }
+            mover.position = p;
+            lastPos = transform.position;
+            if (benchT >= 1f && !benchUp && benchCtrl)
+            {
+                benchCtrl = false;
+                if (controller != null) controller.enabled = true;
+            }
         }
 
         /// 坐下、起身时把人在草垫和蒲团之间挪过去（动作里臀往后找蒲团的那 1.5 秒）
@@ -1592,6 +1684,7 @@ namespace Yuanjing
                 if (stepDist > 0.42f) { stepDist = 0; Step?.Invoke(); }
             }
             weight = Mathf.MoveTowards(weight, pose == Pose.None ? 0 : 1, dt / 0.7f);
+            GlideBench(dt);
         }
 
         float debugT;
@@ -2168,6 +2261,7 @@ namespace Yuanjing
         {
             FootLock(Time.deltaTime);
             ApplyPose(Time.deltaTime);
+            BenchFeet();
             // FootLock 下一帧比的是动画给的脚（IK 之前），不然 IK 钉住的脚会被当成「脚滑了」去挪人
             if (lFoot != null) { prevL = lFoot.position; prevR = rFoot.position; }
             StanceTwist(Time.deltaTime);
@@ -2250,6 +2344,8 @@ namespace Yuanjing
         }
 
         float kneeExtra;
+        /// 坐在凳上弯腰时大腿往前收多少（人形骨骼的关节值，负的是往前；乘弯腰的程度）。BenchProbeTest 量着调的
+        public static float BenchBowLegs = -0.42f;
 
         /// 走路时往弯里倾（整个人绕脚底转一点），头先往要转去的方向看
         void ApplyLean()
@@ -2276,6 +2372,25 @@ namespace Yuanjing
             {
                 ApplyProportions();
                 ApplySink(0, dt);
+                // 老办法摆的姿势（石凳的坐姿、敲钟的推）收完、不再经过 HumanPoseHandler 的那一帧，髋的高低会弹一下（人形骨骼取出来再放回去并不完全一样，
+                // 这些人物差十几厘米）：把这一下记下来，零点几秒里慢慢放掉
+                if (hips != null)
+                {
+                    float hy = model.InverseTransformPoint(hips.position).y;
+                    if (legacyOn)
+                    {
+                        legacyOn = false;
+                        float pop = hy - legacyHipY;
+                        // 量的是模型自己坐标里的高度，挪的是模型在上一级里的位置：差一个模型自己的缩放
+                        pop *= model.localScale.y;
+                        legacyPop = Mathf.Abs(pop) > 0.02f && Mathf.Abs(pop) < 0.4f ? -pop : 0f;
+                    }
+                    if (Mathf.Abs(legacyPop) > 0.0005f)
+                    {
+                        legacyPop = Mathf.MoveTowards(legacyPop, 0f, 0.45f * dt);
+                        model.localPosition += Vector3.up * legacyPop;
+                    }
+                }
                 return;
             }
             handler.GetHumanPose(ref hp);
@@ -2343,7 +2458,11 @@ namespace Yuanjing
                     if (bowPhase > 0.001f)
                     {
                         Gassho(w);
-                        Spine(0.2f + 0.7f * bow, w);
+                        float bend = 0.2f + 0.7f * bow;
+                        Spine(bend, w);
+                        // 腰一弯，人形骨骼的骨盆跟着往后仰，两条腿往下甩（坐在石凳上合掌、鞠躬时脚尖插进地里十厘米）：大腿往前收一点补回来
+                        foreach (string side in new[] { "Left Upper Leg Front-Back", "Right Upper Leg Front-Back" })
+                            if (muscleByName.TryGetValue(side, out int mi)) hp.muscles[mi] += BenchBowLegs * bend * w;
                     }
                     else HandsOnLap(w);
                     sinkTarget = 3;
@@ -2356,7 +2475,15 @@ namespace Yuanjing
             BendKnees(kneeExtra * w);
             ApplyProportions();
             ApplySink(sinkTarget, dt);
+            if (hips != null)
+            {
+                legacyOn = true;
+                legacyPop = 0f;
+                legacyHipY = model.InverseTransformPoint(hips.position).y;
+            }
         }
+        bool legacyOn;
+        float legacyHipY, legacyPop;
 
         /// 膝盖关节默认最多弯 80 度，盘坐、跪坐要弯得更多：在动画之后直接把小腿再往里转一截
         void BendKnees(float extra)

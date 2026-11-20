@@ -8,6 +8,7 @@ import '../../app/skin.dart';
 import '../../app/store.dart';
 import '../plaza/plaza_data.dart';
 import '../room/room_page.dart';
+import '../shop/frame_art.dart';
 import 'vision_pages.dart';
 
 /// 头像：名字的第一个字，底色由名字决定。商城里买的头像框戴上后会显示在外圈。
@@ -27,11 +28,15 @@ class Avatar extends StatelessWidget {
     final b = HSLColor.fromAHSL(1, (hue + 40) % 360, 0.55, 0.62).toColor();
     final gold = mine && store.equipped.contains('frame_gold');
     final star = mine && store.equipped.contains('frame_star');
+    // 小动物送的、收藏品换的头像框：自己画的一圈，头像缩进去一点给它让位
+    final keepsake = mine && !gold && !star ? store.equipped.where(keepsakeFrameIds.contains).firstOrNull : null;
+    final inner = keepsake != null ? size * keepsakeHole / 50 : size - (gold || star ? 6 : 0);
     final image = store.photo(mine ? (photo ?? store.avatar) : photo);
     return SizedBox(
       width: size,
       height: size,
-      child: Stack(alignment: Alignment.center, children: [
+      // 小动物送的头像框上有探出去一点的小装饰（铃铛、穗子），不裁
+      child: Stack(alignment: Alignment.center, clipBehavior: Clip.none, children: [
         if (gold || star)
           Container(
             width: size,
@@ -45,8 +50,8 @@ class Avatar extends StatelessWidget {
             ),
           ),
         Container(
-          width: size - (gold || star ? 6 : 0),
-          height: size - (gold || star ? 6 : 0),
+          width: inner,
+          height: inner,
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
@@ -57,8 +62,9 @@ class Avatar extends StatelessWidget {
           child: image != null
               ? Image(image: image, width: size, height: size, fit: BoxFit.cover, errorBuilder: (_, _, _) => const SizedBox.shrink())
               : Text(name.isEmpty ? '愿' : name.characters.first,
-                  style: TextStyle(fontFamily: displayFont, fontSize: size * 0.42, fontWeight: FontWeight.w700, color: Colors.white)),
+                  style: TextStyle(fontFamily: displayFont, fontSize: inner * 0.42, fontWeight: FontWeight.w700, color: Colors.white)),
         ),
+        if (keepsake != null) KeepsakeFrame(keepsake, size: size),
       ]),
     );
   }

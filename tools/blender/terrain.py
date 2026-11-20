@@ -31,6 +31,11 @@ def ground_color(x, y, h):
     dy = max(ty0 - y, 0, y - (ty1 + 2.2))
     worn = max(worn, 1 - L.smooth(0.2, 1.5, math.hypot(dx, dy)))
     worn = max(worn, 1 - L.smooth(L.TREE_BED + 0.3, L.TREE_BED + 1.4, math.hypot(x - L.TREE[0], y - L.TREE[1])))
+    # 大殿台基脚下一圈：绕殿走的人踩出来的土（比路淡）
+    hx0, hy0, hx1, hy1 = L.HALL_RECT
+    hdx = max(hx0 - x, 0, x - hx1)
+    hdy = max(hy0 - y, 0, y - hy1)
+    worn = max(worn, 0.8 * (1 - L.smooth(0.3, 1.5, math.hypot(hdx, hdy))))
     worn *= L.smooth(-0.6, 0.1, _n(x, y, 0.7, 5.0) + worn * 1.2 - 0.6)
     g = mix(g, mix(C('dirt'), C('dirt_dark'), 0.5 + 0.5 * _n(x, y, 0.5, 2.0)), worn * 0.9)
     # 土丘上草更深
@@ -63,7 +68,7 @@ def export_map():
     import struct
     from kit import OUT
     step = 0.5
-    x0, y0, x1, y1 = -27.0, -29.0, 27.0, 33.0
+    x0, y0, x1, y1 = L.EXTENT
     nx, ny = int((x1 - x0) / step) + 1, int((y1 - y0) / step) + 1
     hs, sd, pd = [], [], []
     for j in range(ny):
@@ -72,7 +77,9 @@ def export_map():
             hs.append(L.height(x, y))
             sd.append(L.shore_dist(x, y))
             pd.append(L.pond_dist(x, y))
-    path = os.path.join(OUT, '..', 'islet_map.bytes')
+    # 平时放在 Assets/Toon/（模型目录的上一层）；设了 YJ_OUT（导到暂存目录）就放在那个目录里，不碰 Unity 工程
+    path = os.path.join(OUT, 'islet_map.bytes') if os.environ.get('YJ_OUT') else os.path.join(OUT, '..', 'islet_map.bytes')
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'wb') as f:
         f.write(struct.pack('<ii3f', nx, ny, x0, y0, step))
         for arr in (hs, sd, pd):
@@ -84,7 +91,7 @@ def ground(name):
     t = new_bm()
     col = t.loops.layers.float_color['col']
     step = 0.5
-    x0, x1, y0, y1 = -27.0, 27.0, -29.0, 33.0
+    x0, y0, x1, y1 = L.EXTENT
     nx, ny = int((x1 - x0) / step), int((y1 - y0) / step)
     grid = []
     colors = {}
@@ -97,9 +104,21 @@ def ground(name):
             colors[v] = ground_color(x, y, h)
             row.append(v)
         grid.append(row)
+    # 大殿台基底下的地面看不见，不做（台基最下一层台座比 HALL_RECT 每边宽 0.15、往地下埋 0.9 米，这里往里收 0.6 米留搭头）
+    hx0, hy0, hx1, hy1 = L.HALL_RECT
+    cut = 0
     for j in range(ny):
         for i in range(nx):
+            xa, ya = x0 + i * step, y0 + j * step
+            if xa >= hx0 + 0.6 and xa + step <= hx1 - 0.6 and ya >= hy0 + 0.6 and ya + step <= hy1 - 0.6:
+                cut += 1
+                continue
             t.faces.new((grid[j][i], grid[j][i + 1], grid[j + 1][i + 1], grid[j + 1][i]))
+    loose = [v for v in t.verts if not v.link_faces]
+    for v in loose:
+        colors.pop(v, None)
+    bmesh.ops.delete(t, geom=loose, context='VERTS')
+    print(f'[yjm] {name}: 台基底下不做的格子 {cut} 个')
     # 远处的湖底：一圈大的
     far = 170.0
     ring_in = [grid[0][i] for i in range(nx + 1)] + [grid[j][nx] for j in range(1, ny + 1)] + \
@@ -127,7 +146,7 @@ def ground(name):
     a.merge(t, 'ground')
     a.opts['ground'] = {'sharp': 180}
     export_map()
-    return a.finish(ao=False, view=(0, 62, 0.42), floor=False)
+    return a.finish(ao=False, view=(0, 62, 0.5), floor=False)
 
 
 def _slab(a, rng, cx, cy, w, d, z=0.0, h=0.06, rot=0.0, color=None, jitter=0.05, bevel=0.025):

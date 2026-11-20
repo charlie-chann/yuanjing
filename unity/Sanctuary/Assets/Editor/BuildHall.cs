@@ -7,8 +7,8 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using Yuanjing;
 
-/// 湖心小寺的新大殿（spec A–C）：殿本身、三世佛和背光、殿里的陈设、石台两边的太平缸，墙和地面的碰撞，殿里的灯。
-/// 模型都是 tools/blender 里做的（buildings.py 的 hall、statues.py、hall_props.py），坐标见 handoff/hall.md、statues.md、props.md。
+/// 湖心小寺的大殿（2026-11-19 扩建成面阔九间的重檐庑殿）：殿本身、三世佛和背光、观音、殿里的陈设、石台两边的太平缸，墙和地面的碰撞，殿里的灯。
+/// 模型都是 tools/blender 里做的（buildings.py 的 hall、statues.py、bodhisattva.py、hall_props.py），殿的尺寸见 tools/blender/out_v2/HALL_V2.md。
 /// 殿里的玩法数据（拜垫、蒲团的点，自动走路要绕开的东西，能不能进殿 HallOpen）在 BuildIslet 里，这里只摆看得见的东西和挡人的墙。
 public static partial class SanctuaryBuild
 {
@@ -73,7 +73,65 @@ public static partial class SanctuaryBuild
         go.isStatic = true;
     }
 
-    /// 殿里地上的接触影子：拜垫、蒲团的方草垫、四根金柱的柱础、供桌、佛坛前沿、功德箱、经案、磬、木鱼
+    // ── 新大殿（面阔九间，2026-11-19 扩建；数字见 tools/blender/out_v2/HALL_V2.md）──
+    // 殿里的墙内皮 x ±20.44、z 16.64..40.74；台面 1.08、金砖地 1.07；三间门的门洞（门框之间）x -10.04..-3.96、-3.04..3.04、3.96..10.04
+    const float HallInX = 20.44f, HallInZ0 = 16.64f, HallInZ1 = 40.74f, HallDeck = 1.08f, HallDoorZ = 16.5f;
+    // 佛坛（altar_dais 模型 11.6 × 1.97 × 0.852，放大成 20 × 4.33 × 1.47：左右、高低同一个倍数，正面的雕饰不变形；前后单独拉深）
+    const float DaisSX = 1.72f, DaisSZ = 2.2f, DaisZ = 33.715f, DaisTop = HallFloor + 0.852f * DaisSX;
+    // 三世佛：放大 2.3 倍（释迦连背光顶到 11.2 米，梁底 12.75），中心 z 33.75，左右两尊在 x ±7（正对左右次间的门）
+    const float StatueS = 2.3f, StatueZ = 33.75f, StatueDX = 7f;
+    // 西侧胁侍位的观音（立像 2.62 米，放大 2.6 倍：6.8 米；座高 0.94）
+    const float GuanyinS = 2.6f, GuanyinX = -18.6f, GuanyinZ = 28.8f, GuanyinBase = 0.94f;
+    // 供桌的桌面高
+    const float HallTableY = HallFloor + 0.784f;
+
+    /// 殿里的十六根金柱（世界 x、z）
+    static readonly Vector2[] HallGoldColumns =
+    {
+        new Vector2(-14.4f, 21.42f), new Vector2(-10.5f, 21.42f), new Vector2(-3.5f, 21.42f), new Vector2(3.5f, 21.42f), new Vector2(10.5f, 21.42f), new Vector2(14.4f, 21.42f),
+        new Vector2(-14.4f, 26.34f), new Vector2(14.4f, 26.34f), new Vector2(-14.4f, 31.26f), new Vector2(14.4f, 31.26f),
+        new Vector2(-14.4f, 36.18f), new Vector2(-10.5f, 36.18f), new Vector2(-3.5f, 36.18f), new Vector2(3.5f, 36.18f), new Vector2(10.5f, 36.18f), new Vector2(14.4f, 36.18f),
+    };
+
+    /// 墙上的壁柱（露在殿里的一小半）：东西墙各四根、后墙八根
+    static IEnumerable<Vector2> HallPilasters()
+    {
+        foreach (float sx in new[] { -1f, 1f })
+            foreach (float z in new[] { 21.42f, 26.34f, 31.26f, 36.18f }) yield return new Vector2(sx * 20.49f, z);
+        foreach (float x in new[] { -17.6f, -14.4f, -10.5f, -3.5f, 3.5f, 10.5f, 14.4f, 17.6f }) yield return new Vector2(x, 40.79f);
+    }
+
+    /// 叠在门洞两边的门扇（每一叠 0.31 × 1.02，z 16.66..17.68）的中心 x
+    static readonly float[] HallLeafX = { -9.885f, -4.11f, -2.885f, 2.885f, 4.11f, 9.885f };
+
+    /// 殿里占地的东西（长方：中心 x、z，半宽 hx、半深 hz，顶离地多高，cam：也挡镜头）。
+    /// 挡人的碰撞盒（HallColliders）和自动走路要绕开的（BuildIslet 的 isletObs）用同一份
+    static List<(string name, float x, float z, float hx, float hz, float top, bool cam)> HallSolids()
+    {
+        var l = new List<(string, float, float, float, float, float, bool)>
+        {
+            ("Dais", 0f, DaisZ, 5.808f * DaisSX, 0.983f * DaisSZ, DaisTop - HallFloor, true),
+            ("ScreenWall", 0f, 36.18f, 10.5f, 0.25f, 11.68f, true),
+            ("AltarTable", 0f, 30.6f, 1.22f, 0.4f, 0.79f, false),
+            ("DonationBox", 3.5f, 19.4f, 0.38f, 0.26f, 0.86f, false),
+            ("SutraDesk", -12.0f, 30.4f, 0.64f, 0.26f, 0.93f, false),
+            ("Qing", 11.6f, 30.4f, 0.25f, 0.25f, 0.75f, false),
+            ("Muyu", 12.5f, 30.4f, 0.27f, 0.25f, 0.82f, false),
+            ("GuanyinBase", GuanyinX - 0.15f, GuanyinZ, 1.48f, 1.8f, GuanyinBase, true),
+            ("GuanyinTable", GuanyinX + 2.4f, GuanyinZ, 0.325f, 0.77f, 0.79f, false),
+            ("EastTable", 19.3f, GuanyinZ, 0.4f, 1.22f, 0.79f, false),
+        };
+        foreach (float sx in new[] { -1f, 1f })
+        {
+            l.Add(("SideTable", sx * StatueDX, 30.65f, 0.77f, 0.325f, 0.79f, false));
+            l.Add(("FlowerTable", sx * 3.5f, 30.65f, 0.77f, 0.325f, 0.79f, false));
+            l.Add(("FloorCandle", sx * 1.95f, 30.6f, 0.26f, 0.26f, 1.5f, false));
+            l.Add(("FloorVase", sx * 10.9f, 31.0f, 0.3f, 0.3f, 1.5f, false));
+        }
+        return l;
+    }
+
+    /// 殿里地上的接触影子：拜垫、蒲团的方草垫、金柱的柱础、供桌、佛坛前沿、功德箱、经案、磬、木鱼
     static void HallContacts(Transform inside, Transform hallSeats, Transform hallMats)
     {
         var g = Group("Contact", inside);
@@ -86,23 +144,21 @@ public static partial class SanctuaryBuild
             // 圆蒲团压在草垫上：再深一圈（草垫面 5 厘米高）
             ContactQuad(g, "zafu", new Vector3(hs.position.x, y + 0.05f, hs.position.z), 0.62f, 0.62f, 0f, true);
         }
-        foreach (float sx in new[] { -1f, 1f })
-            foreach (float z in new[] { 15.4f, 18.0f })
-                ContactQuad(g, "column", new Vector3(sx * 2.8f, y, z), 1.15f, 1.15f, 0f, true);
-        ContactQuad(g, "altar_table", new Vector3(0, y, 19.2f), 2.75f, 1.1f, 0f, false);
-        foreach (float sx in new[] { -1f, 1f }) ContactQuad(g, "side_table", new Vector3(sx * 3.6f, y, 19.35f), 1.8f, 0.9f, 0f, false);
-        ContactQuad(g, "dais", new Vector3(0, y, 20.0f), 11.95f, 0.55f, 0f, false);
-        ContactQuad(g, "donation_box", new Vector3(1.45f, y, 15.5f), 0.78f, 1.02f, 0f, false);
-        ContactQuad(g, "sutra_desk", new Vector3(-5.35f, y, 18.95f), 1.55f, 0.78f, 0f, false);
-        ContactQuad(g, "qing", new Vector3(5.0f, y, 18.95f), 0.72f, 0.72f, 0f, true);
-        ContactQuad(g, "muyu", new Vector3(5.8f, y, 18.95f), 0.72f, 0.7f, 0f, true);
+        foreach (var c in HallGoldColumns) ContactQuad(g, "column", new Vector3(c.x, y, c.y), 2.1f, 2.1f, 0f, true);
+        foreach (var s in HallSolids())
+        {
+            if (s.name == "ScreenWall") continue;
+            bool round = s.name == "Qing" || s.name == "Muyu" || s.name == "FloorCandle" || s.name == "FloorVase";
+            if (s.name == "Dais") ContactQuad(g, "dais", new Vector3(0, y, s.z - s.hz), s.hx * 2f + 0.4f, 0.9f, 0f, false);
+            else ContactQuad(g, s.name, new Vector3(s.x, y, s.z), s.hx * 2f + 0.3f, s.hz * 2f + 0.3f, 0f, round);
+        }
     }
 
     // ── 金砖地的反光：在殿里烘一张环境图（白天、夜里各一张），地面的着色器按盒子投影取（YJToon 的 _Floor）──
-    static readonly Vector3 FloorProbeAt = new Vector3(0f, 1.2f, 17.6f);
-    static readonly Vector3 FloorBoxMin = new Vector3(-6.47f, HallFloor, 14.42f), FloorBoxMax = new Vector3(6.47f, 5.9f, 21.98f);
+    static readonly Vector3 FloorProbeAt = new Vector3(0f, 2.4f, 26.5f);
+    static readonly Vector3 FloorBoxMin = new Vector3(-HallInX, HallFloor, HallInZ0), FloorBoxMax = new Vector3(HallInX, 13.6f, HallInZ1);
 
-    /// 场景摆好以后调：在殿中间离地 1.2 米的地方朝六个方向各拍一张（不画人、不画院子里的东西），存成两张立方体贴图，给金砖地的材质
+    /// 场景摆好以后调：在殿中间离地一人多高的地方朝六个方向各拍一张（不画人、不画院子里的东西），存成两张立方体贴图，给金砖地的材质
     static void BakeHallReflection(TimeWeather tw)
     {
         var mat = ToonMat("jinzhuan");
@@ -126,7 +182,7 @@ public static partial class SanctuaryBuild
         var cam = go.AddComponent<Camera>();
         go.transform.position = FloorProbeAt;
         cam.nearClipPlane = 0.05f;
-        cam.farClipPlane = 60f;
+        cam.farClipPlane = 90f;
         cam.clearFlags = CameraClearFlags.SolidColor;
         cam.backgroundColor = Color.black;
         // 只拍殿和殿里的东西（人、小动物在别的层也不碍事：编辑器里没有香客）
@@ -185,60 +241,129 @@ public static partial class SanctuaryBuild
         l.color = new Color(1f, 0.87f, 0.70f);
     }
 
+    /// 摆一个模型，三个方向各自缩放（佛坛：左右、高低一个倍数，前后另一个）
+    static GameObject PutScaled(string model, Transform parent, Vector3 at, float yaw, Vector3 scale, string name = null)
+    {
+        var go = Put(model, parent, at, yaw, 1f, name);
+        if (go != null) go.transform.localScale = scale;
+        return go;
+    }
+
+    static bool HasModel(string model) => AssetDatabase.LoadAssetAtPath<GameObject>($"{ToonModels}/{model}.yjm") != null;
+
+    /// 一张小供桌和桌上的东西（香炉、一对烛台、果盘、油灯）。at 是桌子底面中心，yaw 是桌子的朝向（0 正面朝南）
+    static void HallSideAltar(Transform inside, Vector3 at, float yaw, bool censer)
+    {
+        var q = Quaternion.Euler(0, yaw, 0);
+        Vector3 P(float dx, float dz) => new Vector3(at.x, HallTableY, at.z) + q * new Vector3(dx, 0, dz);
+        Put("altar_table_side", inside, at, yaw);
+        if (censer) Put("censer_hall_side", inside, P(0, -0.13f), yaw, 0.75f);
+        else Put("flower_vase", inside, P(0, -0.05f), yaw, 0.9f);
+        foreach (float sx in new[] { -1f, 1f })
+        {
+            Put("candlestick", inside, P(sx * 0.55f, 0), yaw, 0.8f);
+            Put(sx < 0 ? "fruit_plate" : "fruit_plate_peach", inside, P(sx * 0.28f, 0.1f), yaw);
+        }
+        Put("oil_lamp", inside, P(0, 0.2f), yaw);
+    }
+
     /// 摆新大殿和殿里的一切。hallSeats、hallMats 是玩法那边的点（蒲团、拜垫的模型照着它们摆）
     static Transform BuildHall(Transform structure, Transform hallSeats, Transform hallMats, List<Renderer> lampRenderers)
     {
         var root = Group("hall", structure);
         var building = Put("hall", root, HallAt, 0, 1f, "building");
 
-        // ── 三世佛和背光（statues.md §3）：原点都是莲座底面中心，背光和佛像放在同一点；比例 1（两边的已经按 0.85 做好）、朝南（yaw 0）。
-        // 西边阿弥陀、东边药师（东方药师、西方阿弥陀，statues.md §7）
+        // ── 三世佛和背光：原点都是莲座底面中心，背光和佛像放在同一点；放大 StatueS 倍、朝南（yaw 0），坐在放大了的佛坛上。
+        // 西边阿弥陀、东边药师（东方药师、西方阿弥陀）。正对明间和左右次间的门：站在院子里透过三间门各看到一尊
         var inside = Group("Inside", root);
-        Put("buddha_center", inside, new Vector3(0, 1.57f, 21.05f));
-        Put("buddha_west", inside, new Vector3(-3.6f, 1.57f, 21.05f));
-        Put("buddha_east", inside, new Vector3(3.6f, 1.57f, 21.05f));
-        Put("mandorla_center", inside, new Vector3(0, 1.57f, 21.05f));
-        Put("mandorla_side", inside, new Vector3(-3.6f, 1.57f, 21.05f), 0, 1f, "mandorla_west");
-        Put("mandorla_side", inside, new Vector3(3.6f, 1.57f, 21.05f), 0, 1f, "mandorla_east");
+        Vector3 bc = new Vector3(0, DaisTop, StatueZ), bw = new Vector3(-StatueDX, DaisTop, StatueZ), be = new Vector3(StatueDX, DaisTop, StatueZ);
+        Put("buddha_center", inside, bc, 0, StatueS);
+        Put("buddha_west", inside, bw, 0, StatueS);
+        Put("buddha_east", inside, be, 0, StatueS);
+        Put("mandorla_center", inside, bc, 0, StatueS);
+        Put("mandorla_side", inside, bw, 0, StatueS, "mandorla_west");
+        Put("mandorla_side", inside, be, 0, StatueS, "mandorla_east");
+        // 胁侍：西侧观音（立像，面朝东），座子用佛坛的模型缩成一小段须弥座。东侧等文殊 / 普贤（模型有了就摆，镜像着面朝西）；
+        // 现在没有，东侧摆一张供桌（花、灯、果），墙上的壁画露着
+        var gy = new Vector3(GuanyinX, HallFloor + GuanyinBase, GuanyinZ);
+        if (HasModel("guanyin"))
+        {
+            PutScaled("altar_dais", inside, new Vector3(GuanyinX - 0.15f, HallFloor, GuanyinZ), 270, new Vector3(0.31f, GuanyinBase / 0.852f, 1.5f), "guanyin_base");
+            Put("guanyin", inside, gy, 270, GuanyinS);
+            if (HasModel("mandorla_guanyin")) Put("mandorla_guanyin", inside, gy, 270, GuanyinS);
+            HallSideAltar(inside, new Vector3(GuanyinX + 2.4f, HallFloor, GuanyinZ), 270, true);
+        }
+        string eastStatue = HasModel("wenshu") ? "wenshu" : HasModel("puxian") ? "puxian" : null;
+        if (eastStatue != null)
+        {
+            PutScaled("altar_dais", inside, new Vector3(-GuanyinX + 0.15f, HallFloor, GuanyinZ), 90, new Vector3(0.31f, GuanyinBase / 0.852f, 1.5f), "east_base");
+            Put(eastStatue, inside, new Vector3(-GuanyinX, HallFloor + GuanyinBase, GuanyinZ), 90, GuanyinS, "guanyin_east");
+            if (HasModel("mandorla_" + eastStatue)) Put("mandorla_" + eastStatue, inside, new Vector3(-GuanyinX, HallFloor + GuanyinBase, GuanyinZ), 90, GuanyinS);
+            HallSideAltar(inside, new Vector3(-GuanyinX - 2.4f, HallFloor, GuanyinZ), 90, true);
+        }
+        else
+        {
+            // 东墙前的供桌（贴墙、面朝西）：花觚一对、烛台一对、长明灯
+            var q = Quaternion.Euler(0, 90, 0);
+            Vector3 P(float dx, float dz) => new Vector3(19.3f, HallTableY, GuanyinZ) + q * new Vector3(dx, 0, dz);
+            Put("altar_table", inside, new Vector3(19.3f, HallFloor, GuanyinZ), 90);
+            Put("censer_hall_side", inside, P(0, -0.1f), 90);
+            foreach (float sx in new[] { -1f, 1f })
+            {
+                Put("candlestick", inside, P(sx * 0.52f, 0), 90);
+                Put("flower_vase", inside, P(sx * 0.94f, 0.05f), 90);
+                Put("oil_lamp", inside, P(sx * 0.24f, 0.18f), 90);
+            }
+        }
         // 佛像、背光的模型里存了几档简化（YjmImporter 的 Mesh LOD）：不参加静态合批（合批以后就不按远近挑了），它们各自一件，合批也省不了什么
         foreach (Transform t in inside)
             foreach (var g in t.GetComponentsInChildren<Transform>())
                 GameObjectUtility.SetStaticEditorFlags(g.gameObject, GameObjectUtility.GetStaticEditorFlags(g.gameObject) & ~StaticEditorFlags.BatchingStatic);
-        // 佛像、莲座、背光撑子的金换成佛像自己的鎏金（toon_gilt：照见殿里的明暗、金箔，BuildIslet.ToonMaterials）；供桌、宫灯这些还用 toon_gold
+        // 佛像、观音、莲座、背光撑子的金换成佛像自己的鎏金（toon_gilt：照见殿里的明暗、金箔，BuildIslet.ToonMaterials）；供桌、宫灯、佛坛这些还用 toon_gold
         var gilt = ToonMat("gilt");
         foreach (Transform t in inside)
-            foreach (var r in t.GetComponentsInChildren<MeshRenderer>())
-                if (r.name == "gold") r.sharedMaterial = gilt;
+            if (t.name.StartsWith("buddha_") || t.name.StartsWith("mandorla_") || t.name.StartsWith("guanyin") && !t.name.EndsWith("_base"))
+                foreach (var r in t.GetComponentsInChildren<MeshRenderer>())
+                    if (r.name == "gold") r.sharedMaterial = gilt;
 
-        // ── 殿里的陈设（props.md §4 的 LAYOUT，第二轮）。yaw 是 Unity 的（俯视顺时针），模型正面朝 -z
-        Put("altar_dais", inside, new Vector3(0, HallFloor, 20.975f));
-        Put("altar_table", inside, new Vector3(0, HallFloor, 19.2f));
-        Put("censer_hall", inside, new Vector3(0, 1.504f, 19.0f));
+        // ── 殿里的陈设：人的尺度，摆在坛前。yaw 是 Unity 的（俯视顺时针），模型正面朝 -z
+        PutScaled("altar_dais", inside, new Vector3(0, HallFloor, DaisZ), 0, new Vector3(DaisSX, DaisSX, DaisSZ));
+        Put("altar_table", inside, new Vector3(0, HallFloor, 30.6f));
+        Put("censer_hall", inside, new Vector3(0, HallTableY, 30.4f));
         foreach (float sx in new[] { -1f, 1f })
         {
-            Put("altar_table_side", inside, new Vector3(sx * 3.6f, HallFloor, 19.35f));
-            Put("candlestick", inside, new Vector3(sx * 0.52f, 1.504f, 19.15f));
-            Put("flower_vase", inside, new Vector3(sx * 0.94f, 1.504f, 19.22f));
-            Put("oil_lamp", inside, new Vector3(sx * 0.24f, 1.504f, 19.4f));
-            Put("censer_hall_side", inside, new Vector3(sx * 3.6f, 1.504f, 19.22f), 0, 0.75f);
-            Put("candlestick", inside, new Vector3(sx * 4.15f, 1.504f, 19.35f), 0, 0.8f);
-            Put("candlestick", inside, new Vector3(sx * 3.05f, 1.504f, 19.35f), 0, 0.8f);
-            Put("fruit_plate", inside, new Vector3(sx * 3.88f, 1.504f, 19.45f));
-            Put("fruit_plate_peach", inside, new Vector3(sx * 3.32f, 1.504f, 19.45f));
-            Put("oil_lamp", inside, new Vector3(sx * 3.6f, 1.504f, 19.55f));
-            // 宫灯挂在天花的肋条交叉点上（模型原点是挂点，往下垂）：前一对、后一对
-            Put("palace_lantern", inside, new Vector3(sx * 1.98f, 5.9f, 16.7f));
-            Put("palace_lantern", inside, new Vector3(sx * 2.64f, 5.9f, 19.3f));
+            Put("candlestick", inside, new Vector3(sx * 0.52f, HallTableY, 30.55f));
+            Put("flower_vase", inside, new Vector3(sx * 0.94f, HallTableY, 30.62f));
+            Put("oil_lamp", inside, new Vector3(sx * 0.24f, HallTableY, 30.8f));
+            // 左右两尊前各一张供桌（香炉）；三尊之间再各一张（花、果、灯）
+            HallSideAltar(inside, new Vector3(sx * StatueDX, HallFloor, 30.65f), 0, true);
+            HallSideAltar(inside, new Vector3(sx * 3.5f, HallFloor, 30.65f), 0, false);
+            // 中间供桌两旁落地的大烛台、佛坛两头落地的大花觚（放大了的，一人高）
+            Put("candlestick", inside, new Vector3(sx * 1.95f, HallFloor, 30.6f), 0, 2.2f, "candlestick_floor");
+            Put("flower_vase", inside, new Vector3(sx * 10.9f, HallFloor, 31.0f), sx * 20f, 1.75f, "flower_vase_floor");
         }
-        // 幡：上联（仄声收尾）挂东边（面朝佛像时的右手），下联挂西边
-        Put("banner_b", inside, new Vector3(1.98f, 5.9f, 19.95f));        // 法轮常转
-        Put("banner", inside, new Vector3(-1.98f, 5.9f, 19.95f));         // 佛日增辉
-        Put("banner_gold", inside, new Vector3(5.28f, 5.9f, 19.95f));     // 风调雨顺
-        Put("banner_gold_b", inside, new Vector3(-5.28f, 5.9f, 19.95f));  // 国泰民安
-        Put("qing", inside, new Vector3(5.0f, HallFloor, 18.95f));
-        Put("muyu", inside, new Vector3(5.8f, HallFloor, 18.95f));
-        Put("donation_box", inside, new Vector3(1.45f, HallFloor, 15.5f), 90);
-        Put("sutra_desk", inside, new Vector3(-5.35f, HallFloor, 18.95f));
+        // 佛坛前沿一排长明灯（坛面上，每尊前三盏）
+        foreach (float bx in new[] { -StatueDX, 0f, StatueDX })
+            foreach (float dx in new[] { -1.2f, 0f, 1.2f })
+                Put("oil_lamp", inside, new Vector3(bx + dx, DaisTop, DaisZ - 0.983f * DaisSZ + 0.26f), 0, 1.4f);
+        // 宫灯：殿高了，灯放大一倍、垂得长（挂点在天花支条上 13.55，灯身在 9 米上下）。拜位上方不挂（留给藻井）：
+        // 中厅两对、前槽三盏、两边侧廊各两盏
+        foreach (var (lx, lz) in new[] { (7f, 26.0f), (-7f, 26.0f), (7f, 30.3f), (-7f, 30.3f), (0f, 19.0f), (7f, 19.0f), (-7f, 19.0f),
+                                         (17.4f, 24.0f), (-17.4f, 24.0f), (17.4f, 33.5f), (-17.4f, 33.5f) })
+            Put("palace_lantern", inside, new Vector3(lx, 13.55f, lz), 0, 2f);
+        // 幡：放大 2.2 倍（长 6 米），挂在三尊之间和两侧的南北梁底（x ±3.5、±10.5，梁底 12.85）。上联（仄声收尾）挂东边（面朝佛像时的右手），下联挂西边
+        Put("banner_b", inside, new Vector3(3.5f, 12.85f, 31.3f), 0, 2.2f);          // 法轮常转
+        Put("banner", inside, new Vector3(-3.5f, 12.85f, 31.3f), 0, 2.2f);           // 佛日增辉
+        Put("banner_gold", inside, new Vector3(10.5f, 12.85f, 31.3f), 0, 2.2f);      // 风调雨顺
+        Put("banner_gold_b", inside, new Vector3(-10.5f, 12.85f, 31.3f), 0, 2.2f);   // 国泰民安
+        // 前排金柱上再挂一对（东西向天花梁底 12.75，柱子南面）
+        Put("banner_gold", inside, new Vector3(14.4f, 12.75f, 20.9f), 0, 2.2f, "banner_gold_front");
+        Put("banner_gold_b", inside, new Vector3(-14.4f, 12.75f, 20.9f), 0, 2.2f, "banner_gold_b_front");
+        Put("qing", inside, new Vector3(11.6f, HallFloor, 30.4f));
+        Put("muyu", inside, new Vector3(12.5f, HallFloor, 30.4f));
+        // 功德箱：进门右手、明间和东次间两个门之间（不挡三间门的正对面）
+        Put("donation_box", inside, new Vector3(3.5f, HallFloor, 19.4f));
+        Put("sutra_desk", inside, new Vector3(-12.0f, HallFloor, 30.4f));
         // 拜垫、静坐的蒲团：照着玩法那边的点摆（同一个位置、同一个朝向），点挪了模型跟着挪
         foreach (Transform km in hallMats)
             Put("kneel_mat", inside, km.position, km.eulerAngles.y);
@@ -258,7 +383,7 @@ public static partial class SanctuaryBuild
         foreach (var r in building.GetComponentsInChildren<MeshRenderer>())
             if (r.name == "in_lacquer" || r.name == "lacquer") r.sharedMaterial = lacquerCol;
         // 殿里的香炉也用擦亮的铜（天天有人上香、擦拭）：带锈的铜贴图在上香的特写里是一片橙色锈点，看着脏
-        string[] polished = { "candlestick", "oil_lamp", "donation_box", "sutra_desk", "censer_hall", "censer_hall_side" };
+        string[] polished = { "candlestick", "candlestick_floor", "oil_lamp", "donation_box", "sutra_desk", "censer_hall", "censer_hall_side" };
         foreach (var r in inside.GetComponentsInChildren<MeshRenderer>())
         {
             // 供桌上的黄铜器、香炉是擦亮的，磬、缸这些深色的老铜还用带锈的铜
@@ -272,7 +397,7 @@ public static partial class SanctuaryBuild
             else if (r.name == "paint_lantern") lampRenderers.Add(r);
         }
 
-        // ── 石台两边的太平缸（props.md §4）
+        // ── 石台两边的太平缸
         foreach (float sx in new[] { -1f, 1f })
         {
             var vat = Put("water_vat", structure, new Vector3(sx * 9.2f, TerraceH, 5.5f));
@@ -285,19 +410,18 @@ public static partial class SanctuaryBuild
         HallLights(lights);
 
         // 佛像、背光、供桌、香炉、宫灯这些重的：远了换简化档（模型里存的 Mesh LOD，见 YjmImporter）。
-        // 佛像、背光按 8 米多（iPhone 的画质档，殿里的视角）换一半、15 米外换四分之一：在殿里的过道、拜垫上都是原样，
-        // 从石台上透过殿门看进去、从殿西边静坐区看东边那尊才换。
-        // 陈设的颜色、旧色、描金都在顶点色里，简化了会糊一点：换得晚（在屏幕上只剩 6 %、3 % 高才换；一尺高的烛台九米外才换），殿里看都是原样
+        // 佛像、背光在屏幕上不到 24 % 高换一半、不到 13 % 换四分之一：在中厅、拜垫上都是原样，从石台上透过殿门看进去、从侧廊看另一头那尊才换。
+        // 陈设的颜色、旧色、描金都在顶点色里，简化了会糊一点：换得晚（在屏幕上只剩 6 %、3 % 高才换），走到跟前都是原样
         foreach (Transform model in inside)
         {
-            bool statue = model.name.StartsWith("buddha_") || model.name.StartsWith("mandorla_");
+            bool statue = model.name.StartsWith("buddha_") || model.name.StartsWith("mandorla_") || model.name.StartsWith("guanyin");
             MeshLodGroup(model.gameObject, statue ? 0.24f : 0.06f, statue ? 0.13f : 0.03f);
         }
         HallShadowProxy(building);
 
         // 殿里的东西不投太阳的影子：殿里整个在屋顶的影子里，它们的影子落不到亮处，白算（这一遍要把一百多万个三角形再画一次）。
-        // 门口照进来的那一小块阳光里只有地面和门边的蒲团、功德箱，这几样照旧投影子
-        string[] shadowKeep = { "cushion_hall", "kneel_mat", "donation_box" };
+        // 门口照进来的那一小块阳光里只有地面和功德箱，照旧投影子
+        string[] shadowKeep = { "donation_box" };
         var near = new List<Renderer>();
         var deep = new List<Renderer>();
         foreach (Transform model in inside)
@@ -315,107 +439,113 @@ public static partial class SanctuaryBuild
                 r.shadowCastingMode = ShadowCastingMode.Off;
                 near.Add(r);
             }
-        // 镜头在殿外、透过门洞看不进去的时候，殿里的东西不画（InteriorCull 里有分档的说明）
+        // 镜头在殿外、透过门洞看不进去的时候，殿里的东西不画（InteriorCull 里有分档的说明）。
+        // 门洞：三间门连成一个长方（x ±10.04，门槛顶 1.10 到中槛底 5.95）。下檐伸到 z 10.1、高 8.25：镜头抬到「门槛 → 檐口」那条线以上（坡度 1.12）就什么都看不进去了；
+        // 在那以下都可能看到佛像（十米高，离门十七米），所以两档定得很近，真正挑东西靠门洞的四棱锥
         var cull = root.gameObject.AddComponent<InteriorCull>();
         cull.near = near.ToArray();
         cull.deep = deep.ToArray();
         cull.lights = lights.GetComponentsInChildren<Light>();
-        cull.hall = Rect.MinMaxRect(-6.6f, 14.3f, 6.6f, 22.23f);
+        cull.hall = Rect.MinMaxRect(-20.74f, HallDoorZ, 20.74f, 41.04f);
+        cull.insideTop = 16.5f;
+        cull.doorZ = HallDoorZ;
+        cull.sillY = 1.10f;
+        cull.doorTop = 5.95f;
+        cull.doorHalf = 10.04f;
+        cull.deepSlope = 1.0f;
+        cull.nearSlope = 1.15f;
+        cull.shadowReach = 18f;
 
         // 殿里的环境光：墙里面换成暖的（门那一面慢慢过渡）
         var zone = root.gameObject.AddComponent<IndoorZone>();
-        zone.min = new Vector3(-6.6f, 0.4f, 14.3f);
-        zone.max = new Vector3(6.6f, 5.75f, 22.23f);
+        zone.min = new Vector3(-20.74f, 0.6f, HallDoorZ);
+        zone.max = new Vector3(20.74f, 16.3f, 41.04f);
         zone.tint = new Color(1f, 0.9f, 0.76f);
         zone.Apply();
         return root;
     }
 
-    /// 墙、地、台阶的碰撞（hall.md §6）。殿本身没有整块的碰撞盒：人从台阶走上台基、从三个门洞走进去。
-    /// 墙、门上的横板、天花板在第 0 层（也挡镜头，镜头不会穿到墙外、屋顶里）；柱子、栏杆、门扇、矮的陈设在 NoCameraLayer（只挡人，镜头穿过去不会一顶一顶的）
+    /// 墙、地、台阶的碰撞（HALL_V2.md §3–§6）。殿本身没有整块的碰撞盒：人从台阶走上台基、从三个门洞走进去。
+    /// 墙、门上的横板、天花板、扇面墙、佛坛在第 0 层（也挡镜头，镜头不会穿到墙外、屋顶里）；柱子、栏杆、矮的陈设在 NoCameraLayer（只挡人，镜头穿过去不会一顶一顶的）
     static void HallColliders(Transform c)
     {
         int nc = NoCameraLayer;
-        // 台基：盖板顶 0.70；外面的石板高 1.5 厘米（0.735），殿里的金砖地面 0.72
-        HallBox(c, "Platform", new Vector3(-8.6f, -0.9f, 10.9f), new Vector3(8.6f, 0.70f, 23.7f));
-        HallBox(c, "Floor", new Vector3(-6.47f, 0.70f, 14.42f), new Vector3(6.47f, HallFloor, 21.98f));
-        HallBox(c, "Porch", new Vector3(-8.35f, 0.70f, 11.15f), new Vector3(8.35f, 0.735f, 14.18f));
-        HallBox(c, "SideWalkW", new Vector3(-8.35f, 0.70f, 14.18f), new Vector3(-6.73f, 0.735f, 23.45f));
-        HallBox(c, "SideWalkE", new Vector3(6.73f, 0.70f, 14.18f), new Vector3(8.35f, 0.735f, 23.45f));
-        HallBox(c, "BackWalk", new Vector3(-6.73f, 0.70f, 22.23f), new Vector3(6.73f, 0.735f, 23.45f));
-        // 门槛那一条（门槛本身高 0.77，只有 5 厘米，不挡脚）：和廊下的石板一样高，进门不会先往下掉
-        HallBox(c, "Threshold", new Vector3(-3.75f, 0.70f, 14.18f), new Vector3(3.75f, 0.735f, 14.42f));
-        // 四级台阶（hall.md §4：每级 0.175 高、0.36 深，宽 4.7），两边的垂带挡住（只能走台阶上去）
-        for (int k = 0; k < 4; k++)
-        {
-            float z0 = 10.92f - 0.36f * (4 - k), top = k == 3 ? 0.697f : 0.175f * (k + 1);
-            HallBox(c, $"Step{k}", new Vector3(-2.35f, top - 0.175f, z0), new Vector3(2.35f, top, 10.92f));
-        }
-        // 走台阶的斜坡（StairRamp）：人的原点贴着它上下，穿过每一级踏面的正中间（第一级踏面中间 z 9.66 高 0.175 … 第四级 z 10.74 高 0.697，
-        // 每 0.36 米高 0.175），两头接地面（石台 TerraceH）和台基面 0.70；一级级的高低让脚自己踩（Folk.GroundIK）
+        const float podX = 23.1f, podZ0 = 10.8f, podZ1 = 43.4f, wallOut = 21.04f, wallBack = 41.34f, base0 = 1.05f, top = 13.6f;
+        // 台基：盖板顶 1.05；外面的方砖顶 1.08，殿里的金砖地面 1.07。门槛（顶 1.10，只高 3 厘米）不做碰撞，直接走过去
+        HallBox(c, "Platform", new Vector3(-podX, -0.9f, podZ0), new Vector3(podX, base0, podZ1));
+        HallBox(c, "Floor", new Vector3(-HallInX, base0, HallInZ0), new Vector3(HallInX, HallFloor, HallInZ1));
+        HallBox(c, "Porch", new Vector3(-podX + 0.15f, base0, podZ0 + 0.15f), new Vector3(podX - 0.15f, HallDeck, HallInZ0));
+        HallBox(c, "SideWalkW", new Vector3(-podX + 0.15f, base0, HallInZ0), new Vector3(-HallInX, HallDeck, podZ1 - 0.15f));
+        HallBox(c, "SideWalkE", new Vector3(HallInX, base0, HallInZ0), new Vector3(podX - 0.15f, HallDeck, podZ1 - 0.15f));
+        HallBox(c, "BackWalk", new Vector3(-HallInX, base0, HallInZ1), new Vector3(HallInX, HallDeck, podZ1 - 0.15f));
+        // 七级台阶（每级高 0.1543、踏面 0.27，宽 16.4：x ±8.2）；最下一级前沿 z 9.18，最上一级踏上台面 z 10.80
+        const float rise = 1.08f / 7f, tread = 0.27f, stairX = 8.2f, stairZ = 9.18f;
+        for (int k = 0; k < 6; k++)
+            HallBox(c, $"Step{k}", new Vector3(-stairX, k * rise, stairZ + tread * k), new Vector3(stairX, (k + 1) * rise, podZ0));
+        // 走台阶的斜坡（StairRamp）：人的原点贴着它上下，穿过每一级踏面的正中间（第一级踏面中间 z 9.31 高 0.154 … 第六级 z 10.66 高 0.926），
+        // 两头接地面（石台 TerraceH）和台面 1.08；一级级的高低让脚自己踩（Folk.GroundIK）
         {
             var ramp = c.gameObject.AddComponent<Yuanjing.StairRamp>();
-            const float slope = 0.175f / 0.36f;
+            const float slope = rise / tread;
             // 区域往南多给 0.35 米：走到台阶跟前、脚尖快碰到第一级的时候，脚下的补偿已经完全起作用
-            ramp.area = new Rect(-2.35f, 8.85f, 4.7f, 10.95f - 8.85f);
+            ramp.area = new Rect(-stairX, stairZ - 0.35f, stairX * 2f, podZ0 + 0.15f - (stairZ - 0.35f));
             ramp.y0 = TerraceH;
-            ramp.z0 = 9.66f - (0.175f - TerraceH) / slope;
-            ramp.y1 = 0.70f;
-            ramp.z1 = 9.66f + (0.70f - 0.175f) / slope;
+            ramp.z0 = stairZ + tread * 0.5f - (rise - TerraceH) / slope;
+            ramp.y1 = HallDeck;
+            ramp.z1 = stairZ + tread * 0.5f + (HallDeck - rise) / slope;
         }
+        // 台阶两边的垂带石（x 8.2..8.68）：只能走台阶上去
         foreach (float sx in new[] { -1f, 1f })
-            HallBox(c, "StepCheek", new Vector3(Mathf.Min(sx * 2.35f, sx * 2.75f), -0.2f, 9.2f), new Vector3(Mathf.Max(sx * 2.35f, sx * 2.75f), 1.5f, 10.92f), nc);
-        // 栏杆（顶约 1.6）
-        foreach (float sx in new[] { -1f, 1f })
-        {
-            HallBox(c, "RailFront", new Vector3(Mathf.Min(sx * 2.9f, sx * 8.48f), 0.70f, 10.935f), new Vector3(Mathf.Max(sx * 2.9f, sx * 8.48f), 1.6f, 11.105f), nc);
-            HallBox(c, "RailSide", new Vector3(sx * 8.48f - 0.085f, 0.70f, 11.02f), new Vector3(sx * 8.48f + 0.085f, 1.6f, 23.58f), nc);
-        }
-        HallBox(c, "RailBack", new Vector3(-8.48f, 0.70f, 23.495f), new Vector3(8.48f, 1.6f, 23.665f), nc);
-        // 墙：两侧、后墙（y 0.7..5.5）；前檐墙两边的槛窗、门两边的柱子和抱框、门洞上面那一条（中槛以上都是实的）
+            HallBox(c, "StepCheek", new Vector3(Mathf.Min(sx * stairX, sx * 8.68f), -0.2f, 8.9f), new Vector3(Mathf.Max(sx * stairX, sx * 8.68f), 1.9f, podZ0), nc);
+        // 栏杆（中线离台基边 0.16，高 0.95）：正面在台阶那里断开（x ±8.75）
+        const float railX = 22.84f, railZ0 = 11.06f, railZ1 = 43.14f, railTop = HallDeck + 0.95f;
         foreach (float sx in new[] { -1f, 1f })
         {
-            HallBox(c, "SideWall", new Vector3(sx * 6.6f - 0.13f, 0.70f, 14.3f), new Vector3(sx * 6.6f + 0.13f, 5.5f, 22.23f));
-            HallBox(c, "WindowBay", new Vector3(Mathf.Min(sx * 3.96f, sx * 6.6f), 0.70f, 14.18f), new Vector3(Mathf.Max(sx * 3.96f, sx * 6.6f), 3.62f, 14.42f));
-            foreach (float jx in new[] { 1.32f, 3.96f })
-                HallBox(c, "Jamb", new Vector3(sx * jx - 0.21f, 0.70f, 14.1f), new Vector3(sx * jx + 0.21f, 3.62f, 14.5f));
-            // 往里开着、两两叠在门边的门扇（z 14.45..14.99）：第 0 层，也挡镜头（hall.md §6 和墙一起；镜头不会从门扇里穿过去）
-            foreach (float lx in new[] { 3.576f, 1.705f, 0.936f })
-                HallBox(c, "DoorLeaves", new Vector3(sx * lx - 0.11f, 0.79f, 14.45f), new Vector3(sx * lx + 0.11f, 3.61f, 14.99f));
+            HallBox(c, "RailFront", new Vector3(Mathf.Min(sx * 8.75f, sx * railX), base0, railZ0 - 0.085f), new Vector3(Mathf.Max(sx * 8.75f, sx * railX), railTop, railZ0 + 0.085f), nc);
+            HallBox(c, "RailSide", new Vector3(sx * railX - 0.085f, base0, railZ0), new Vector3(sx * railX + 0.085f, railTop, railZ1), nc);
         }
-        HallBox(c, "BackWall", new Vector3(-6.47f, 0.70f, 21.97f), new Vector3(6.47f, 5.5f, 22.23f));
-        HallBox(c, "DoorBand", new Vector3(-6.6f, 3.62f, 14.18f), new Vector3(6.6f, 5.5f, 14.42f));
+        HallBox(c, "RailBack", new Vector3(-railX, base0, railZ1 - 0.085f), new Vector3(railX, railTop, railZ1 + 0.085f), nc);
+        // 墙：两山、后墙；前檐墙两边各三间槛窗（整间是实的）、三间门之间的柱子和抱框、门洞上面那一条（中槛以上都是实的）
+        foreach (float sx in new[] { -1f, 1f })
+        {
+            HallBox(c, "SideWall", new Vector3(Mathf.Min(sx * HallInX, sx * wallOut), base0, HallDoorZ - 0.25f), new Vector3(Mathf.Max(sx * HallInX, sx * wallOut), top, wallBack));
+            HallBox(c, "WindowBay", new Vector3(Mathf.Min(sx * 10.04f, sx * wallOut), base0, HallDoorZ - 0.25f), new Vector3(Mathf.Max(sx * 10.04f, sx * wallOut), top, HallDoorZ + 0.25f));
+            HallBox(c, "Jamb", new Vector3(sx * 3.5f - 0.46f, base0, HallDoorZ - 0.34f), new Vector3(sx * 3.5f + 0.46f, 5.95f, HallDoorZ + 0.34f));
+        }
+        // 往里开着、叠在门洞两边的门扇（z 16.66..17.68）：第 0 层，也挡镜头（镜头不会从门扇里穿过去）
+        foreach (float lx in HallLeafX)
+            HallBox(c, "DoorLeaves", new Vector3(lx - 0.155f, 1.1f, 16.66f), new Vector3(lx + 0.155f, 5.94f, 17.68f));
+        HallBox(c, "BackWall", new Vector3(-wallOut, base0, HallInZ1), new Vector3(wallOut, top, wallBack));
+        HallBox(c, "DoorBand", new Vector3(-10.04f, 5.95f, HallDoorZ - 0.25f), new Vector3(10.04f, top, HallDoorZ + 0.25f));
         // 还不让进殿的时候（BuildIslet.HallOpen 为 false），三个门洞拦一道只挡人的隔板（第 2 层：不挡镜头、不挡点画面、不挡往地上打的射线）
         if (!HallOpen)
-            HallBox(c, "DoorShut", new Vector3(-3.75f, 0.70f, 14.18f), new Vector3(3.75f, 3.62f, 14.42f), 2);
-        // 天花板：殿里在天花梁下面（梁底 5.35，镜头最高到 5.05）；廊下的天花底 4.90
-        HallBox(c, "Ceiling", new Vector3(-6.47f, 5.30f, 14.42f), new Vector3(6.47f, 5.80f, 21.98f));
-        HallBox(c, "PorchCeiling", new Vector3(-6.8f, 4.90f, 12.3f), new Vector3(6.8f, 5.40f, 14.18f));
-        // 柱子：廊下一排、门那一排的两个角（墙里的已经在墙的盒子里）、殿里四根金柱
+            HallBox(c, "DoorShut", new Vector3(-10.04f, base0, HallDoorZ - 0.12f), new Vector3(10.04f, 5.95f, HallDoorZ + 0.12f), 2);
+        // 天花板：殿里在天花梁上面一点（梁底 12.75，镜头最高到 12.45）；廊下的天花 8.61
+        HallBox(c, "Ceiling", new Vector3(-HallInX, 12.95f, HallInZ0), new Vector3(HallInX, top + 0.2f, HallInZ1));
+        HallBox(c, "PorchCeiling", new Vector3(-wallOut, 8.61f, 13.0f), new Vector3(wallOut, 9.1f, HallDoorZ - 0.25f));
+        // 柱子：前廊一排十根（r 0.34，方石墩半宽 0.545）、殿里十六根金柱（r 0.42，覆盆 0.67）、墙上的壁柱（露 0.25）
+        foreach (float x in new[] { -20.8f, -17.6f, -14.4f, -10.5f, -3.5f, 3.5f, 10.5f, 14.4f, 17.6f, 20.8f })
+            HallColumn(c, new Vector3(x, HallDeck, 13.3f), 0.34f, 8.05f, 0.5f);
+        foreach (var g in HallGoldColumns)
+            HallColumn(c, new Vector3(g.x, HallFloor, g.y), 0.42f, 12.75f, 0.67f);
+        foreach (var p in HallPilasters())
+            HallColumn(c, new Vector3(p.x, HallFloor, p.y), 0.3f, 8.0f, 0.36f);
+        // 门洞两边的门柱（x ±3.5、±10.5，一半在殿里）：方石墩往殿里凸出半个
+        foreach (float x in new[] { -10.5f, -3.5f, 3.5f, 10.5f })
+            HallColumn(c, new Vector3(x, HallFloor, HallDoorZ), 0.34f, 5.95f, 0.5f);
+        // 三尊像、观音：只是挡镜头（人上不去佛坛）
+        HallBox(c, "BuddhaCenter", new Vector3(-0.82f * StatueS, DaisTop, StatueZ - 0.8f * StatueS), new Vector3(0.82f * StatueS, DaisTop + 2.9f * StatueS, StatueZ + 0.8f * StatueS));
         foreach (float sx in new[] { -1f, 1f })
+            HallBox(c, "BuddhaSide", new Vector3(sx * StatueDX - 0.7f * StatueS, DaisTop, StatueZ - 0.68f * StatueS), new Vector3(sx * StatueDX + 0.7f * StatueS, DaisTop + 2.47f * StatueS, StatueZ + 0.68f * StatueS));
+        if (HasModel("guanyin"))
+            HallBox(c, "Guanyin", new Vector3(GuanyinX - 0.45f * GuanyinS, HallFloor + GuanyinBase, GuanyinZ - 0.5f * GuanyinS), new Vector3(GuanyinX + 0.45f * GuanyinS, HallFloor + GuanyinBase + 2.62f * GuanyinS, GuanyinZ + 0.5f * GuanyinS));
+        // 佛坛、扇面墙（挡镜头）；供桌、磬、木鱼、功德箱、经案、落地的烛台花觚（矮，只挡人）
+        foreach (var s in HallSolids())
         {
-            foreach (float x in new[] { 1.32f, 3.96f, 6.6f })
-                HallColumn(c, new Vector3(sx * x, 0.735f, 12.5f), 0.22f, 4.5f, 0.31f);
-            HallColumn(c, new Vector3(sx * 6.6f, 0.735f, 14.3f), 0.22f, 4.5f, 0.31f);
-            foreach (float z in new[] { 15.4f, 18.0f })
-                HallColumn(c, new Vector3(sx * 2.8f, HallFloor, z), 0.24f, 5.35f, 0.33f);
-            // 两侧墙里的檐柱（z 16.94、19.58）：往殿里凸出 7 厘米（里面到 |x| 6.395），墙的盒子只到 6.47，贴着墙走会蹭进柱子里
-            foreach (float z in new[] { 16.94f, 19.58f })
-                HallColumn(c, new Vector3(sx * 6.6f, HallFloor, z), 0.21f, 4.5f, 0.25f);
+            if (s.name == "GuanyinBase" && !HasModel("guanyin")) continue;
+            if (s.name == "GuanyinTable" && !HasModel("guanyin")) continue;
+            HallBox(c, s.name, new Vector3(s.x - s.hx, HallFloor, s.z - s.hz), new Vector3(s.x + s.hx, HallFloor + s.top, s.z + s.hz), s.cam ? 0 : nc);
         }
-        // 佛坛（顶 1.57）和三尊像：只是挡镜头（人上不去佛坛）
-        HallBox(c, "Dais", new Vector3(-5.81f, HallFloor, 19.995f), new Vector3(5.81f, 1.57f, 21.955f));
-        HallBox(c, "BuddhaCenter", new Vector3(-0.85f, 1.57f, 20.2f), new Vector3(0.85f, 4.47f, 21.9f));
-        foreach (float sx in new[] { -1f, 1f })
-            HallBox(c, "BuddhaSide", new Vector3(sx * 3.6f - 0.725f, 1.57f, 20.325f), new Vector3(sx * 3.6f + 0.725f, 4.04f, 21.775f));
-        // 供桌、磬、木鱼、功德箱、经案（props.md §5 的碰撞盒），矮，只挡人
-        HallBox(c, "AltarTable", new Vector3(-1.22f, HallFloor, 18.8f), new Vector3(1.22f, 1.51f, 19.6f), nc);
-        foreach (float sx in new[] { -1f, 1f })
-            HallBox(c, "SideTable", new Vector3(sx * 3.6f - 0.77f, HallFloor, 19.025f), new Vector3(sx * 3.6f + 0.77f, 1.51f, 19.675f), nc);
-        HallBox(c, "Qing", new Vector3(4.75f, HallFloor, 18.7f), new Vector3(5.25f, 1.47f, 19.2f), nc);
-        HallBox(c, "Muyu", new Vector3(5.535f, HallFloor, 18.705f), new Vector3(6.065f, 1.54f, 19.195f), nc);
-        HallBox(c, "DonationBox", new Vector3(1.19f, HallFloor, 15.12f), new Vector3(1.71f, 1.58f, 15.88f), nc);
-        HallBox(c, "SutraDesk", new Vector3(-5.99f, HallFloor, 18.69f), new Vector3(-4.71f, 1.51f, 19.21f), nc);
     }
 
     /// 一件模型远了换简化档：模型里每个大部件存了几档简化的网格（Mesh LOD，YjmImporter，每档约减半），引擎自己挑档不起作用，
@@ -490,15 +620,21 @@ public static partial class SanctuaryBuild
         }
     }
 
-    /// 殿里一直亮着的几盏灯（不跟着天色开关；殿里白天也是靠灯和门口的天光）。没有影子，所以范围都小，不往墙外漏
+    /// 殿里一直亮着的几盏灯（不跟着天色开关；殿里白天也是靠灯和门口的天光）。没有影子。
+    /// 一共八盏：金砖地是一整块，一块东西最多吃八盏点光（殿外檐下那两盏的范围够不着殿里）
     static void HallLights(Transform parent)
     {
-        // 正中一盏：照亮天花、藻井和殿中间
-        HallLight(parent, "HallFill", new Vector3(0, 4.6f, 17.0f), 8f, 1.0f);
-        // 佛前三盏：脸和鎏金从门口、过道、拜垫上都看得清
-        HallLight(parent, "BuddhaLight", new Vector3(0, 3.4f, 19.6f), 4.5f, 1.2f);
-        HallLight(parent, "BuddhaLightW", new Vector3(-3.6f, 3.2f, 19.6f), 4.5f, 1.0f);
-        HallLight(parent, "BuddhaLightE", new Vector3(3.6f, 3.2f, 19.6f), 4.5f, 1.0f);
+        // 中厅正中一盏：照亮天花、藻井和拜位
+        HallLight(parent, "HallFill", new Vector3(0, 9.5f, 26.5f), 24f, 9f);
+        // 佛前三盏：脸和鎏金从门口、中厅、拜垫上都看得清（佛像九米高，灯在胸口的高度、坛前三米多）
+        HallLight(parent, "BuddhaLight", new Vector3(0, 6.6f, 30.0f), 12f, 7f);
+        HallLight(parent, "BuddhaLightW", new Vector3(-StatueDX, 6.2f, 30.0f), 12f, 6f);
+        HallLight(parent, "BuddhaLightE", new Vector3(StatueDX, 6.2f, 30.0f), 12f, 6f);
+        // 两边侧廊（西边那盏照观音）、扇面墙后面的后廊、门里
+        HallLight(parent, "AisleW", new Vector3(-16.6f, 6.0f, 28.8f), 12f, 6f);
+        HallLight(parent, "AisleE", new Vector3(16.6f, 6.0f, 28.8f), 12f, 5f);
+        HallLight(parent, "RearAisle", new Vector3(0, 5.5f, 38.6f), 14f, 5f);
+        HallLight(parent, "DoorFill", new Vector3(0, 6.5f, 19.4f), 14f, 5f);
     }
 
     /// 检查：所有 .yjm 模型的每个部件都接上了材质，材质的着色器没出错（不是洋红色），手绘贴图的材质有贴图。

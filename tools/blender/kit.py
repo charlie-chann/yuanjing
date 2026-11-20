@@ -863,9 +863,13 @@ class Asset:
     # ---------- 屋顶 ----------
     def roof(self, W, D, H, z=0.0, loc=(0, 0), lift=0.5, curve=2.2, pitch=0.36, amp=0.035, inner=None, rows=8,
              course=0.4, caps=None, bells=False, thick=0.12, ca=None, cb=None, eave=None, under=None, ridge=None, ridge_r=0.13, hips=True, mat='toon',
-             tip=0.45, finial=True):
+             tip=0.45, finial=True, tile_segs=7, tile_rings=3, tile_cap=True, cap_segs=8, cap_r=0.062, beasts=True, main_ridge=True, end_k=1.0):
         """中式屋顶（四面坡，檐角上翘，瓦垄起伏）。W、D 是檐口的半宽半深，H 是檐口到屋脊的高。
-        inner：只留离檐口这么近的一圈（重檐的下层）。"""
+        inner：只留离檐口这么近的一圈（重檐的下层）。
+        2026-11-19 给很大的屋顶加的开关（默认值和以前一样）：tile_segs / tile_rings / tile_cap 是每块筒瓦的圆弧段数、
+        沿长几圈、要不要瓦唇的端面（大屋顶上万块瓦，离得远的那层省着做）；cap_segs / cap_r 瓦当的段数和半径；
+        beasts=False 不放垂脊上那三个小团（大殿自己做一排脊兽）；main_ridge=False 不做正脊（大殿自己做带正吻的）；
+        end_k > 1：两山的坡比前后坡陡这么多倍（庑殿顶的「推山」），正脊就长了：半长 = W - D / end_k"""
         ca = ca or C('tile')
         cb = cb or C('tile_lit')
         eave = eave or C('ridge')
@@ -878,7 +882,7 @@ class Asset:
             rows = max(rows, int(round(dlim / course)))
 
         def height(x, y):
-            d = min(W - abs(x), D - abs(y))
+            d = min((W - abs(x)) * end_k, D - abs(y))
             t = max(0.0, d) / dmax
             c = (abs(x) / W * abs(y) / D) ** 3
             return z + H * (0.45 * t + 0.55 * t ** curve) + lift * c * (1 - t) ** 2
@@ -905,19 +909,22 @@ class Asset:
                     cache[key] = t.verts.new((x, y, zz))
                 return cache[key]
             # (沿檐方向的半长, 另一个方向的半长, 把 (u, d) 变成 (x, y) 的函数)
+            # 最后一个数：这一面上「离檐口的水平距离」和「折算成前后坡的距离」的比（两山陡 end_k 倍，同一排瓦在平面上就窄）
             sides = [
-                (W, D, lambda u, d: (u, -(D - d))), (W, D, lambda u, d: (-u, D - d)),
-                (D, W, lambda u, d: (W - d, u)), (D, W, lambda u, d: (-(W - d), -u)),
+                (W, D, lambda u, d: (u, -(D - d)), 1.0), (W, D, lambda u, d: (-u, D - d), 1.0),
+                (D, W, lambda u, d: (W - d, u), end_k), (D, W, lambda u, d: (-(W - d), -u), end_k),
             ]
-            ds = [dlim * i / rows for i in range(rows + 1)]
-            for si, (L, _, f) in enumerate(sides):
+            for si, (L, _, f, kd) in enumerate(sides):
+                ds = [dlim / kd * i / rows for i in range(rows + 1)]
+                # 这一面和相邻两面的交线（戗脊）：前后坡 |u| ≤ L - d / end_k，两山 |u| ≤ L - d · end_k
+                kc = (1.0 / end_k) if kd == 1.0 else end_k
                 nu = max(2, int(round(2 * L / step)))
                 us = [-L + 2 * L * i / nu for i in range(nu + 1)]
                 for i in range(nu):
                     for j in range(rows):
                         poly = [(us[i], ds[j]), (us[i + 1], ds[j]), (us[i + 1], ds[j + 1]), (us[i], ds[j + 1])]
-                        poly = clip(poly, 1, 1, L)      # u <= L - d
-                        poly = clip(poly, -1, 1, L)     # -u <= L - d
+                        poly = clip(poly, 1, kc, L)      # u <= L - d（两山陡的时候按 kc 折算）
+                        poly = clip(poly, -1, kc, L)     # -u <= L - d
                         if len(poly) < 3:
                             continue
                         vs = []
@@ -946,7 +953,7 @@ class Asset:
                             _, rv, d, tc = look[l.vert]
                             if corr:
                                 c = mix(tint(row_c, -0.07), tint(row_c, 0.06), 1.0 if rv else 0.0)
-                                c = mix(tint(c, -0.05), c, min(1.0, d / max(0.01, dlim) * 3))
+                                c = mix(tint(c, -0.05), c, min(1.0, d * kd / max(0.01, dlim) * 3))
                                 # 每一排瓦：靠下的瓦唇亮，被上一排压住的那头暗（颜色在排与排之间断开，像一片片叠着）
                                 c = tint(c, 0.075 - 0.19 * tc)
                             else:
@@ -959,7 +966,7 @@ class Asset:
         surface(t, True, pitch / 2, 0.0, False)
         self.merge(t, tmat, xform((loc[0], loc[1], 0)))
         if amp > 0 and caps is not None:
-            self._cover_tiles(W, D, height, pitch / 2, dlim, amp, course, ca, cb, loc, tmat)
+            self._cover_tiles(W, D, height, pitch / 2, dlim, amp, course, ca, cb, loc, tmat, tile_segs, tile_rings, tile_cap, end_k)
         # 底面（檐下能看到的那一面），粗一些就够
         t = new_bm()
         surface(t, False, max(W, D) / 4, thick, True)
@@ -984,13 +991,13 @@ class Asset:
                     if abs(u) > L - 0.12:
                         continue
                     x, y = f(u)
-                    self.cyl(0.062, 0.05, (x + loc[0], y + loc[1], height(x, y) + amp * 0.35), caps, segs=8, rot=rot, mat=mat,
+                    self.cyl(cap_r, 0.05, (x + loc[0], y + loc[1], height(x, y) + amp * 0.35), caps, segs=cap_segs, rot=rot, mat=mat,
                              top=tint(caps, 0.08))
         if inner is not None:
             return
         # 屋脊
-        if W - D > 0.05:
-            L = W - D
+        if W - D / end_k > 0.05 and main_ridge:
+            L = W - D / end_k
             pts = [(-L - tip * 0.9, 0, z + H + 0.42), (-L - tip * 0.5, 0, z + H + 0.2), (-L, 0, z + H + 0.08),
                    (0, 0, z + H + 0.05), (L, 0, z + H + 0.08), (L + tip * 0.5, 0, z + H + 0.2), (L + tip * 0.9, 0, z + H + 0.42)]
             self.tube([(p[0] + loc[0], p[1] + loc[1], p[2]) for p in pts],
@@ -1006,7 +1013,7 @@ class Asset:
                 for sy in (-1, 1):
                     pts, rad = [], []
                     m = 10
-                    x0, y0 = sx * max(0.0, W - D), sy * max(0.0, D - W)
+                    x0, y0 = sx * max(0.0, W - D / end_k), sy * max(0.0, D - W * end_k)
                     for i in range(m + 1):
                         k = i / m
                         x, y = x0 + (sx * W - x0) * k, y0 + (sy * D - y0) * k
@@ -1020,7 +1027,7 @@ class Asset:
                     pts.append((ex + dx * tip * 0.85, ey + dy * tip * 0.85, ez + tip * 0.6))
                     rad.append(ridge_r * 0.32)
                     self.tube(pts, rad, ridge, segs=8, mat=mat)
-                    if ridge_r >= 0.08:
+                    if ridge_r >= 0.08 and beasts:
                         # 垂脊上蹲着的一排小兽（很小，远看是一串小疙瘩）
                         for q in (7, 8, 9):
                             px, py, pz = pts[q]
@@ -1032,16 +1039,16 @@ class Asset:
                         self.cyl(0.008, 0.2, (bx, by, bz - 0.3), C('rope_dark'), segs=4, mat=mat)
                         self.lathe([(0.0, 0.0), (0.06, 0.0, C('gold_dark')), (0.055, 0.05, C('gold')), (0.035, 0.1, C('gold')), (0.0, 0.12)],
                                    (bx, by, bz - 0.42), segs=8, color=C('gold'), mat=mat)
-        if W - D > 0.05 and ridge_r >= 0.1:
+        if W - D / end_k > 0.05 and ridge_r >= 0.1 and main_ridge:
             # 正脊上一排小方钉
-            L = W - D
+            L = W - D / end_k
             k = int(L * 2 / 0.5)
             for i in range(k + 1):
                 x = -L + 2 * L * i / max(1, k)
                 self.box((0.1, 0.1, 0.08), (x + loc[0], loc[1], z + H + 0.05 + ridge_r * 1.1), color=C('gold_dark'), bevel=0.02, mat=mat)
 
     # ---------- 收尾 ----------
-    def _cover_tiles(self, W, D, height, step, dlim, amp, course, ca, cb, loc, mat):
+    def _cover_tiles(self, W, D, height, step, dlim, amp, course, ca, cb, loc, mat, segs=7, nring=3, endcap=True, end_k=1.0):
         """筒瓦：每一垄瓦（瓦面上凸起的那些线）上，一块一块半圆筒形的瓦从檐口一直排到屋脊。
         每块瓦上头那截细一点、塞在上一块下面，下头那截是瓦唇；颜色每块略不同，近看是一块块分开的瓦"""
         rng = self.rng
@@ -1049,10 +1056,9 @@ class Asset:
         col = t.loops.layers.float_color['col']
         r = step * 0.42
         sides = [
-            (W, lambda u, d: (u, -(D - d))), (W, lambda u, d: (-u, D - d)),
-            (D, lambda u, d: (W - d, u)), (D, lambda u, d: (-(W - d), -u)),
+            (W, lambda u, d: (u, -(D - d)), 1.0), (W, lambda u, d: (-u, D - d), 1.0),
+            (D, lambda u, d: (W - d, u), end_k), (D, lambda u, d: (-(W - d), -u), end_k),
         ]
-        segs = 7
 
         def normal(x, y):
             e = 0.02
@@ -1060,11 +1066,13 @@ class Asset:
             gy = (height(x, y + e) - height(x, y - e)) / (2 * e)
             return Vector((-gx, -gy, 1)).normalized()
         count = 0
-        for (L, f) in sides:
+        for (L, f, kd) in sides:
             nu = max(2, int(round(2 * L / step)))
             for i in range(0, nu + 1, 2):
                 u = -L + 2 * L * i / nu
-                dmax = min(dlim, L - abs(u) - r * 1.2)
+                # 这一垄能排到多远（碰到戗脊为止）。两山陡 end_k 倍：同样的高差在平面上只走 1 / end_k
+                dmax = min(dlim, L - abs(u) - r * 1.2) if end_k == 1.0 else \
+                    (min(dlim, (L - abs(u)) * end_k - r * 1.2) if kd == 1.0 else min(dlim / end_k, (L - abs(u)) / end_k - r * 1.2))
                 if dmax <= course * 0.5:
                     continue
                 n_t = max(1, int(round(dmax / course)))
@@ -1075,7 +1083,7 @@ class Asset:
                     d0 = max(d0, 0.0)
                     tc = vary(base, rng, 0.035, 0.02)
                     rings = []
-                    for q, d in enumerate((d0, (d0 + d1) / 2, d1)):
+                    for q, d in (enumerate((d0, (d0 + d1) / 2, d1)) if nring >= 3 else ((0, d0), (2, d1))):
                         x, y = f(u, d)
                         x2, y2 = f(u + 0.05, d)
                         nrm = normal(x, y)
@@ -1089,7 +1097,7 @@ class Asset:
                             th = math.pi * sgi / segs
                             ring.append(t.verts.new(c0 + across * (math.cos(th) * rr) + nrm * (math.sin(th) * rr)))
                         rings.append((ring, q))
-                    for a_ in range(2):
+                    for a_ in range(len(rings) - 1):
                         ra, qa = rings[a_]
                         rb, qb = rings[a_ + 1]
                         for sgi in range(segs):
@@ -1101,7 +1109,10 @@ class Asset:
                                 l[col] = (c[0], c[1], c[2], 0)
                     # 瓦唇的端面（看得见瓦的厚度）
                     ring0 = rings[0][0]
-                    inner = [t.verts.new(v.co.lerp(ring0[segs // 2].co, 0.0) - (ring0[segs // 2].co - (ring0[0].co + ring0[-1].co) / 2) * 0.18) for v in ring0]
+                    if not endcap:
+                        count += 1
+                        continue
+                    inner = [t.verts.new(v.co - (ring0[segs // 2].co - (ring0[0].co + ring0[-1].co) / 2) * 0.18) for v in ring0]
                     for sgi in range(segs):
                         fc = t.faces.new((ring0[sgi + 1], ring0[sgi], inner[sgi], inner[sgi + 1]))
                         for l in fc.loops:
@@ -1231,7 +1242,7 @@ class Asset:
                     if ar > min_area:
                         hits.append((ar, key, tuple(round(x, 2) for x in a[4]), tuple(round(x, 2) for x in c[4])))
         hits.sort(reverse=True)
-        for area, key, p, q in hits[:6]:
+        for area, key, p, q in hits[:int(os.environ.get('YJ_COPLANAR_MAX', '6'))]:
             print(f'[yjm] !! {self.name} 有两个面叠在一起：朝向 {key[:3]} 高度 {key[3] * 0.0005:.3f}，重叠约 {area:.2f} 平米，在 {p} 和 {q}')
         if len(hits) > 6:
             print(f'[yjm] !! {self.name} 一共 {len(hits)} 处')
@@ -1316,20 +1327,24 @@ class Asset:
             header['parts'].append({'name': mat.split(':')[-1], 'mat': mat.split(':')[0], 'verts': nv, 'tris': nt})
             blobs.append(struct.pack(f'<{nv * 3}f', *pos) + struct.pack(f'<{nv * 3}f', *nrm) + bytes(cols)
                          + struct.pack(f'<{nv * 2}f', *uvs) + struct.pack(f'<{nt * 3}I', *idx))
+        self.part_tris = [(p_['name'], p_['mat'], p_['verts'], p_['tris']) for p_ in header['parts']]   # 给交接说明用
         hj = json.dumps(header).encode('utf8')
         with open(os.path.join(out_dir, self.name + '.yjm'), 'wb') as f:
             f.write(b'YJM1' + struct.pack('<I', len(hj)) + hj + b''.join(blobs))
         return total
 
-    def finish(self, ao=True, preview=True, view=None, floor=True, **ao_args):
-        """算暗部、导出、出预览图。返回三角形数"""
+    def finish(self, ao=True, preview=True, view=None, floor=True, shots=None, **ao_args):
+        """算暗部、导出、出预览图。返回三角形数。
+        shots：另外再出几张指定机位的预览图（render_shots 的格式），文件名 <模型名>_<机位名>.png"""
         self.check_coplanar()
-        if ao:
+        if ao and os.environ.get('YJ_AO', '1') != '0':
             self.ao(**ao_args)
         objs = self.to_objects()
         tris = self.export(objs)
         if preview and os.environ.get('YJ_PREVIEW', '1') != '0':
             render_preview(self.name, objs, view, floor)
+            if shots:
+                render_shots(self.name, objs, shots)
         for ob in objs:
             me = ob.data
             bpy.data.objects.remove(ob)
@@ -1555,3 +1570,42 @@ def render_preview(name, objs, view=None, floor=True):
     os.makedirs(PREVIEW, exist_ok=True)
     sc.render.filepath = os.path.join(PREVIEW, name + '.png')
     bpy.ops.render.render(write_still=True)
+
+
+def render_shots(name, objs, shots):
+    """指定机位的预览图（大殿这种要从门口往里看、仰视天花的）。shots: [{'name': 机位名, 'pos': 相机位置, 'look': 看向哪一点,
+    'lens': 焦距（毫米，默认 28）, 'lamps': [(位置, 瓦数, 半径)]（殿里补的点光，只这一张用）, 'only': 只出这些名字（环境变量 YJ_SHOTS 也行）,
+    'res': (宽, 高)}]。要先调过 render_preview（材质在那里挂上）"""
+    sc = bpy.context.scene
+    cam = sc.camera
+    want = [w for w in os.environ.get('YJ_SHOTS', '').split(',') if w]
+    lens0, res0 = cam.data.lens, (sc.render.resolution_x, sc.render.resolution_y)
+    clip0 = cam.data.clip_start
+    for sh in shots:
+        if want and sh['name'] not in want:
+            continue
+        cam.location = Vector(sh['pos'])
+        cam.rotation_euler = (Vector(sh['look']) - cam.location).to_track_quat('-Z', 'Y').to_euler()
+        cam.data.lens = sh.get('lens', 28)
+        cam.data.clip_start = 0.05
+        cam.data.clip_end = 600
+        sc.render.resolution_x, sc.render.resolution_y = sh.get('res', (1280, 900))
+        lamps = []
+        for (lp, watts, rad) in sh.get('lamps', []):
+            ld = bpy.data.lights.new('_shot_lamp', 'POINT')
+            ld.energy = watts
+            ld.color = (1.0, 0.86, 0.66)
+            ld.shadow_soft_size = rad
+            lo = bpy.data.objects.new('_shot_lamp', ld)
+            lo.location = lp
+            sc.collection.objects.link(lo)
+            lamps.append(lo)
+        sc.render.filepath = os.path.join(PREVIEW, f"{name}_{sh['name']}.png")
+        bpy.ops.render.render(write_still=True)
+        for lo in lamps:
+            ld = lo.data
+            bpy.data.objects.remove(lo)
+            bpy.data.lights.remove(ld)
+    cam.data.lens = lens0
+    cam.data.clip_start = clip0
+    sc.render.resolution_x, sc.render.resolution_y = res0

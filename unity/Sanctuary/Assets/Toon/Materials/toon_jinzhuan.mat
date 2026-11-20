@@ -101,9 +101,9 @@ Material:
     m_Colors:
     - _BaseColor: {r: 1, g: 1, b: 1, a: 1}
     - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
-    - _FloorBoxMax: {r: 6.47, g: 5.9, b: 21.98, a: 0}
-    - _FloorBoxMin: {r: -6.47, g: 0.72, b: 14.42, a: 0}
-    - _FloorProbe: {r: 0, g: 1.2, b: 17.6, a: 0}
+    - _FloorBoxMax: {r: 20.44, g: 13.6, b: 40.74, a: 0}
+    - _FloorBoxMin: {r: -20.44, g: 1.07, b: 16.64, a: 0}
+    - _FloorProbe: {r: 0, g: 2.4, b: 26.5, a: 0}
     - _FloorRect: {r: -6.47, g: 14.42, b: 0.077279754, a: 0.13227513}
     - _GiltColor: {r: 0.85, g: 0.78, b: 0.66, a: 1}
     - _GiltDir: {r: 0.3, g: 0.75, b: -0.6, a: 0}

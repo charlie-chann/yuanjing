@@ -7,7 +7,7 @@ namespace Yuanjing
     /// 殿里的香客（只在大殿开着的场景，GameDirector.hallOpen）。
     /// 院子里站着的内置香客（在殿前、香炉前、树下……行程上这一处还要待一阵的），隔一阵有一位走上台阶、从中门进殿，做一两件事：
     /// 在拜垫上跪下叩首三次、站在拜垫上对着佛像鞠躬或合掌、在殿里的蒲团上静坐一到三分钟；做完从中门出去，回到他自己的行程上。
-    /// 殿里平常有一到三位，有时一个也没有（hallWant 隔一两分钟换一次）。岛上人少（不到 8 位香客）时不请人进殿。
+    /// 殿里平常有一到五位，有时一个也没有（hallWant 隔一两分钟换一次）。岛上人少（不到 8 位香客）时不请人进殿。
     /// 全在本机：殿里的蒲团本来就不报给服务器（GameDirector 里殿里的蒲团），服务器的名单、座位都照旧。
     /// 让着你（玩家）：
     ///   · 你站着、跪着、坐着的，你正走过去的拜垫、蒲团（GameDirector.MySeat、PlayerGoal），香客不挑；
@@ -46,7 +46,7 @@ namespace Yuanjing
         readonly Dictionary<Person, HallVisit> hallVisits = new Dictionary<Person, HallVisit>();
         /// 刚从殿里出来的人：到这个时刻以前不再请他进去（同一个人不来回进出）
         readonly Dictionary<string, float> hallRested = new Dictionary<string, float>();
-        /// 殿里此刻想有几位（0–3，隔一两分钟换一次）、下一次换的时刻、下一次请人进殿的时刻
+        /// 殿里此刻想有几位（0–5，隔一两分钟换一次）、下一次换的时刻、下一次请人进殿的时刻
         int hallWant;
         float hallWantUntil = -1f, hallNextIn = 5f;
         bool hallSeeded;
@@ -341,7 +341,8 @@ namespace Yuanjing
             if (Time.time >= hallWantUntil)
             {
                 float r = Random.value;
-                hallWant = r < 0.12f ? 0 : r < 0.45f ? 1 : r < 0.8f ? 2 : 3;
+                // 殿大了（九间），同时在殿里的人多一些：一到五位，偶尔没有
+                hallWant = r < 0.06f ? 0 : r < 0.22f ? 1 : r < 0.5f ? 2 : r < 0.75f ? 3 : r < 0.92f ? 4 : 5;
                 hallWantUntil = Time.time + Random.Range(70f, 160f);
             }
             int want = hallWantFixed >= 0 ? hallWantFixed : hallWant;
@@ -369,7 +370,7 @@ namespace Yuanjing
             hallSeeded = true;
             if (hallWantFixed == 0) return;
             float r = Random.value;
-            int count = r < 0.3f ? 0 : r < 0.75f ? 1 : 2;
+            int count = r < 0.2f ? 0 : r < 0.55f ? 1 : r < 0.85f ? 2 : 3;
             for (int i = 0; i < count; i++)
             {
                 var p = HallPickVisitor(gd, 90f);
@@ -855,12 +856,12 @@ namespace Yuanjing
 
         // ── 殿里的路线 ──
 
-        /// 绕行用的点（x, z）：拜垫那一排后面、两根金柱之间、供桌前那一条的两头
+        /// 绕行用的点（x, z）：拜垫那一排后面（蒲团和拜垫之间那一条）、中间过道、蒲团两边、前排金柱北边
         static readonly Vector2[] HallVias =
         {
-            new Vector2(-1.6f, 17.0f), new Vector2(1.6f, 17.0f), new Vector2(-0.55f, 16.95f), new Vector2(0.55f, 16.95f),
-            new Vector2(-2.1f, 17.1f), new Vector2(2.1f, 17.1f), new Vector2(-1.6f, 18.55f), new Vector2(1.6f, 18.55f),
-            new Vector2(-3.3f, 16.7f), new Vector2(3.3f, 16.7f),
+            new Vector2(-2.2f, 28.0f), new Vector2(2.2f, 28.0f), new Vector2(-4.6f, 28.0f), new Vector2(4.6f, 28.0f),
+            new Vector2(-1.3f, 24.6f), new Vector2(1.3f, 24.6f), new Vector2(-8.6f, 28.2f), new Vector2(8.6f, 28.2f),
+            new Vector2(-7.4f, 22.4f), new Vector2(7.4f, 22.4f), new Vector2(-12.4f, 26.0f), new Vector2(12.4f, 26.0f),
         };
 
         /// 殿前台阶下、中线上那一点（「去大殿」站的地方）：进殿先走到这里再沿中线上台阶，出殿走到这里再回自己的行程
@@ -871,7 +872,7 @@ namespace Yuanjing
         }
 
         /// 在殿里，或者在殿前的廊下（台基上）
-        static bool NearHall(GameDirector gd, Vector3 p) => gd.InHall(p) || (p.z > 11.2f && p.z < gd.hallRect.yMin + 0.1f && Mathf.Abs(p.x) < 8.6f && p.y > gd.hallFloor - 0.2f);
+        static bool NearHall(GameDirector gd, Vector3 p) => gd.InHall(p) || (p.z > 10.9f && p.z < gd.hallRect.yMin + 0.1f && Mathf.Abs(p.x) < 22.9f && p.y > gd.hallFloor - 0.2f);
 
         /// 殿里的路线：总控的路线（殿里绕开柱子、经案、供桌、圆蒲团，从中门进出）。从院子里进殿的先走到殿前台阶下，沿中线上台阶、穿过廊下到中门
         /// （总控从院子直接斜着走到门口，会从台基侧面的栏杆、廊下的柱子中间穿过去，也会顺着廊下挤进侧门里面那个小角落）。
@@ -949,7 +950,7 @@ namespace Yuanjing
             foreach (var o in gd.obstacles)
             {
                 float ex = o.half.x + o.radius, ez = o.half.y + o.radius;
-                if (o.center.x + ex < r.xMin || o.center.x - ex > r.xMax || o.center.z + ez < 11.2f || o.center.z - ez > r.yMax) continue;
+                if (o.center.x + ex < r.xMin || o.center.x - ex > r.xMax || o.center.z + ez < 10.9f || o.center.z - ez > r.yMax) continue;
                 list.Add(o);
             }
             return hallPads = list.ToArray();

@@ -248,3 +248,48 @@ class PetBond(Base):
     greet_day: Mapped[date | None] = mapped_column(Date)
 
     __table_args__ = (UniqueConstraint("user_id", "pet", name="uq_pet_bonds_user_pet"),)
+
+
+# 钓鱼、背包、小动物的礼物
+class Inventory(Base):
+    """背包：钓的鱼、买的口粮、小动物送的收藏品，一样一行，可叠加。编号见 app/islet.py"""
+
+    __tablename__ = "inventory"
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    item_id: Mapped[str] = mapped_column(String(24), primary_key=True)
+    count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class FishDex(Base):
+    """钓鱼图鉴：每种鱼一共钓到过几条、最大的一条多长"""
+
+    __tablename__ = "fish_dex"
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    fish_id: Mapped[str] = mapped_column(String(16), primary_key=True)
+    count: Mapped[int] = mapped_column(Integer, default=0)
+    # 个人最大纪录，单位是毫米（存整数，免得小数比来比去）
+    best_mm: Mapped[int] = mapped_column(Integer, default=0)
+    first_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class FishingDay(Base):
+    """今天已经钓了几次（每天有上限，防刷）"""
+
+    __tablename__ = "fishing_days"
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    day: Mapped[date | None] = mapped_column(Date)
+    count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class PetMemo(Base):
+    """一只小动物和一个人之间攒下来的事：里程碑礼物送到第几份了、喂出来的最爱、每日礼物收过哪几种。
+    和 pet_bonds 分开放，是为了不给老表加列（本地的 SQLite 只会建缺的表，不会给已有的表加列）。"""
+
+    __tablename__ = "pet_memos"
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    pet: Mapped[str] = mapped_column(String(16), primary_key=True)
+    # 已经送出的里程碑礼物有几份（门槛从低到高，一份一份送，永不重置）
+    milestones: Mapped[int] = mapped_column(Integer, default=0)
+    # 已经喂出来的最爱、收到过的每日礼物种类：编号用逗号隔开
+    favs: Mapped[str] = mapped_column(String(120), default="")
+    gifts_seen: Mapped[str] = mapped_column(String(200), default="")
